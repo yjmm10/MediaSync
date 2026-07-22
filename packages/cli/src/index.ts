@@ -23,7 +23,7 @@ const WS_PORT = parseInt(process.env.SYNC_WS_PORT || '9527', 10)
 // 官网和安装地址
 const WEBSITE_URL = 'https://www.wechatsync.com'
 const EXTENSION_URL = 'https://www.wechatsync.com/#install'
-const GITHUB_URL = 'https://github.com/wechatsync/Wechatsync'
+const GITHUB_URL = 'https://github.com/yjmm10/Wechatsync'
 
 const program = new Command()
 

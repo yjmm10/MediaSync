@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>文章同步助手 Wechatsync · 多平台文章一键同步</title>
+  <meta name="description" content="开源免费的 Chrome 浏览器扩展，一键同步文章到知乎、掘金、CSDN、头条等 29+ 平台。" />
+  <style>
+    :root {
+      --primary: #16a34a;
+      --primary-dark: #15803d;
+      --primary-soft: #ecfdf3;
+      --bg: #ffffff;
+      --bg-soft: #f8faf9;
+      --fg: #16191d;
+      --muted: #6b7280;
+      --border: #e8ebed;
+      --code-bg: #f3f4f6;
+      --green: #16a34a;
+      --red: #ef4444;
+      --radius: 14px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--fg);
+      background: var(--bg);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+
+    /* Nav */
+    nav {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(255,255,255,0.85); backdrop-filter: saturate(180%) blur(10px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .container { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+    nav .brand .logo { width: 30px; height: 30px; border-radius: 8px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; }
+    nav .links { display: flex; gap: 24px; font-size: 14px; }
+    nav .links a { color: var(--muted); }
+    nav .links a:hover { color: var(--fg); text-decoration: none; }
+
+    /* Hero */
+    .hero { text-align: center; padding: 88px 24px 56px; background: linear-gradient(180deg, var(--primary-soft), var(--bg) 70%); }
+    .hero .pill { display: inline-block; padding: 5px 14px; border-radius: 999px; background: #fff; border: 1px solid var(--border); font-size: 13px; color: var(--primary-dark); margin-bottom: 20px; box-shadow: var(--shadow); }
+    .hero h1 { font-size: 44px; font-weight: 800; letter-spacing: -1px; margin-bottom: 14px; }
+    .hero .tagline { font-size: 19px; color: var(--muted); max-width: 620px; margin: 0 auto 10px; }
+    .hero .badges { margin: 20px 0 30px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+    .hero .badges img { height: 22px; }
+    .hero .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 12px 24px; border-radius: 999px; font-size: 15px; font-weight: 600; transition: all .15s; cursor: pointer; border: none; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); text-decoration: none; transform: translateY(-1px); }
+    .btn-ghost { background: var(--bg); color: var(--fg); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--bg-soft); text-decoration: none; }
+
+    /* Section */
+    section { padding: 64px 0; border-top: 1px solid var(--border); }
+    section h2 { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
+    section > .container > .subtitle, .section-head .subtitle { color: var(--muted); margin-bottom: 32px; font-size: 16px; }
+    .section-head { text-align: center; margin-bottom: 40px; }
+
+    /* Intro / principles */
+    .lead { font-size: 17px; color: #374151; max-width: 760px; margin: 0 auto 36px; text-align: center; }
+    .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; counter-reset: step; }
+    .principle { padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); position: relative; }
+    .principle .num { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: var(--primary-soft); color: var(--primary-dark); font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+    .principle h3 { font-size: 16px; margin-bottom: 6px; }
+    .principle p { font-size: 14px; color: var(--muted); }
+
+    /* Features */
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+    .feature { padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); transition: box-shadow .15s, transform .15s; }
+    .feature:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
+    .feature .ico { font-size: 22px; margin-bottom: 10px; }
+    .feature h3 { font-size: 16px; margin-bottom: 6px; }
+    .feature p { font-size: 14px; color: var(--muted); }
+
+    /* Platform stats + table */
+    .stats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 28px; }
+    .stat { padding: 8px 16px; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+    .stat b { color: var(--primary-dark); }
+    .table-wrap { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 11px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+    tbody tr:last-child td { border-bottom: none; }
+    th { background: var(--bg-soft); font-weight: 600; color: var(--muted); font-size: 13px; }
+    tbody tr:hover { background: var(--bg-soft); }
+    td code { background: var(--code-bg); padding: 2px 7px; border-radius: 5px; font-size: 12px; color: #374151; }
+    .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; background: var(--bg-soft); color: var(--muted); }
+    .new { color: var(--green); font-weight: 600; }
+
+    /* Authors */
+    .authors { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+    .author-card { display: flex; gap: 16px; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); align-items: flex-start; }
+    .author-card .avatar { width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; color: #fff; }
+    .author-card .avatar.fun { background: linear-gradient(135deg, #16a34a, #15803d); }
+    .author-card .avatar.maintainer { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+    .author-card h3 { font-size: 16px; margin-bottom: 2px; }
+    .author-card .role { font-size: 12px; color: var(--primary-dark); margin-bottom: 8px; font-weight: 600; }
+    .author-card p { font-size: 14px; color: var(--muted); margin-bottom: 10px; }
+    .author-card .links { display: flex; gap: 14px; font-size: 13px; }
+
+    /* Changelog */
+    .releases { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .release { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+    .release:last-child { border-bottom: none; }
+    .release h3 { font-size: 17px; margin-bottom: 2px; display: flex; align-items: center; gap: 10px; }
+    .release h3 .ver-tag { font-size: 12px; font-weight: 600; color: var(--primary-dark); background: var(--primary-soft); padding: 2px 9px; border-radius: 999px; }
+    .release .date { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+    .release ul { padding-left: 20px; font-size: 14px; }
+    .release li { margin: 4px 0; }
+
+    /* Install */
+    .install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+    .install-card { padding: 26px; border: 1px solid var(--border); border-radius: var(--radius); }
+    .install-card h3 { margin-bottom: 8px; font-size: 17px; }
+    .install-card p { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
+    pre { background: var(--code-bg); padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+
+    footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-size: 14px; background: var(--bg-soft); }
+    footer .links { margin-bottom: 10px; }
+    footer a { margin: 0 10px; }
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 32px; }
+      nav .links { gap: 14px; }
+      nav .links a:nth-child(n+4) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="container">
+      <div class="brand">
+        <span class="logo">同</span>
+        <span>文章同步助手</span>
+      </div>
+      <div class="links">
+        <a href="#intro">介绍</a>
+        <a href="#platforms">平台</a>
+        <a href="#authors">作者</a>
+        <a href="#changelog">更新</a>
+        <a href="#install">安装</a>
+        <a href="https://github.com/yjmm10/Wechatsync" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="hero">
+    <span class="pill">🚀 开源免费 · 已支持 29+ 平台</span>
+    <h1>文章同步助手</h1>
+    <p class="tagline">一键将文章同步到知乎、掘金、CSDN、头条、微博等 29+ 平台，告别重复复制粘贴，自媒体内容分发神器。</p>
+    <div class="badges">
+      <img src="https://img.shields.io/github/v/release/yjmm10/Wechatsync.svg" alt="version" />
+      <img src="https://img.shields.io/github/last-commit/yjmm10/Wechatsync" alt="last commit" />
+      <img src="https://img.shields.io/github/stars/yjmm10/Wechatsync" alt="stars" />
+      <img src="https://img.shields.io/github/license/yjmm10/Wechatsync" alt="license" />
+    </div>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://chrome.google.com/webstore/detail/hchobocdmclopcbnibdnoafilagadion" target="_blank" rel="noopener">安装 Chrome 扩展</a>
+      <a class="btn btn-ghost" href="https://github.com/yjmm10/Wechatsync" target="_blank" rel="noopener">查看源码</a>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- 项目基本介绍 -->
+    <section id="intro">
+      <div class="section-head">
+        <h2>项目介绍</h2>
+        <p class="subtitle">不是爬虫，不模拟登录，不经过任何第三方服务器</p>
+      </div>
+      <p class="lead">文章同步助手是一款开源免费的 Chrome 浏览器扩展，工作方式与浏览器本身一致——直接使用你在浏览器中已有的登录态，调用各平台官方接口完成发布。你的 Cookie、文章内容、账号信息不经过任何中间服务器，源代码完全开源可审计。</p>
+      <div class="principles">
+        <div class="principle">
+          <span class="num">1</span>
+          <h3>使用你自己的登录态</h3>
+          <p>你在浏览器里正常登录各平台，扩展直接使用已有的 Cookie，无需额外授权，无需输入密码。</p>
+        </div>
+        <div class="principle">
+          <span class="num">2</span>
+          <h3>调用平台官方接口</h3>
+          <p>发布时调用的是各平台 Web 编辑器使用的同一套官方 API，与你手动在网页发布完全等价。</p>
+        </div>
+        <div class="principle">
+          <span class="num">3</span>
+          <h3>数据不离开你的设备</h3>
+          <p>所有请求直接从你的浏览器发往各平台，没有中间服务器，没有数据上传，安全可审计。</p>
+        </div>
+        <div class="principle">
+          <span class="num">4</span>
+          <h3>草稿优先</h3>
+          <p>默认将文章同步为草稿，发布前由你人工确认，扩展不会自动发布任何内容。</p>
+        </div>
+      </div>
+
+      <h3 style="margin:40px 0 16px;font-size:18px">核心功能</h3>
+      <div class="features">
+        <div class="feature"><div class="ico">🚀</div><h3>一键批量发布</h3><p>将文章同步到知乎、掘金、头条、CSDN、微博、小红书等 29+ 自媒体平台，一次编写多处发布。</p></div>
+        <div class="feature"><div class="ico">📝</div><h3>网页转 Markdown</h3><p>任意网页智能提取正文，自动过滤广告，图片本地化，打包为 Markdown + 图片 ZIP 压缩包。</p></div>
+        <div class="feature"><div class="ico">🏠</div><h3>自建站支持</h3><p>WordPress、Typecho、博客园（MetaWeblog API），自建博客也能一键同步引流。</p></div>
+        <div class="feature"><div class="ico">🖼️</div><h3>图片自动上传</h3><p>自动转存文章图片到目标平台 CDN，无需手动处理图片链接，保留排版样式。</p></div>
+        <div class="feature"><div class="ico">🤖</div><h3>AI 集成</h3><p>支持 Anthropic MCP / Claude Code Skill，用自然语言指挥 AI 完成提取与一键发布。</p></div>
+        <div class="feature"><div class="ico">🔒</div><h3>本地与开源</h3><p>数据本地存储，账号信息不上传，代码完全开源透明，可自行审计与定制。</p></div>
+      </div>
+    </section>
+
+    <!-- 支持的自媒体平台 -->
+    <section id="platforms">
+      <div class="section-head">
+        <h2>支持的自媒体平台</h2>
+        <p class="subtitle">主流自媒体、技术社区、自建博客、财经、海外全覆盖</p>
+      </div>
+      <div class="stats">
+        <span class="stat"><b>29+</b> 平台</span>
+        <span class="stat">主流自媒体</span>
+        <span class="stat">技术社区</span>
+        <span class="stat">建站 / CMS</span>
+        <span class="stat">财经</span>
+        <span class="stat">海外</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>平台</th><th>ID</th><th>类型</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr><td>微信公众号</td><td><code>weixin</code></td><td><span class="tag">主流自媒体</span></td><td>✅</td></tr>
+            <tr><td>知乎</td><td><code>zhihu</code></td><td><span class="tag">主流自媒体</span></td><td>✅</td></tr>
+            <tr><td>微博</td><td><code>weibo</code></td><td><span class="tag">主流自媒体</span></td><td>✅</td></tr>
+            <tr><td>小红书</td><td><code>xiaohongshu</code></td><td><span class="tag">主流自媒体</span></td><td>✅</td></tr>
+            <tr><td>抖音图文</td><td><code>douyin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="new">✅ 🆕</span></td></tr>
+            <tr><td>掘金</td><td><code>juejin</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
+            <tr><td>CSDN</td><td><code>csdn</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
+            <tr><td>简书</td><td><code>jianshu</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>头条号</td><td><code>toutiao</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>B 站专栏</td><td><code>bilibili</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>百家号</td><td><code>baijiahao</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>语雀</td><td><code>yuque</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
+            <tr><td>豆瓣</td><td><code>douban</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>搜狐号</td><td><code>sohu</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>雪球</td><td><code>xueqiu</code></td><td><span class="tag">财经</span></td><td>✅</td></tr>
+            <tr><td>东方财富</td><td><code>eastmoney</code></td><td><span class="tag">财经</span></td><td>✅</td></tr>
+            <tr><td>人人都是产品经理</td><td><code>woshipm</code></td><td><span class="tag">产品</span></td><td>✅</td></tr>
+            <tr><td>大鱼号</td><td><code>dayu</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>一点号</td><td><code>yidian</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>51CTO</td><td><code>51cto</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
+            <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
+            <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
+            <tr><td>SegmentFault</td><td><code>segmentfault</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
+            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
+            <tr><td>搜狐焦点</td><td><code>sohufocus</code></td><td><span class="tag">房产</span></td><td>✅</td></tr>
+            <tr><td>什么值得买</td><td><code>smzdm</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>网易号</td><td><code>netease</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
+            <tr><td>X (Twitter)</td><td><code>x</code></td><td><span class="tag">海外</span></td><td>✅</td></tr>
+            <tr><td>WordPress</td><td><code>wordpress</code></td><td><span class="tag">建站/CMS</span></td><td>✅</td></tr>
+            <tr><td>Typecho</td><td><code>typecho</code></td><td><span class="tag">建站/CMS</span></td><td>✅</td></tr>
+            <tr><td>Hexo / Hugo</td><td><code>zip-download</code></td><td><span class="tag">建站/CMS</span></td><td>✅ Markdown 下载</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:16px;text-align:center"><a href="https://github.com/yjmm10/Wechatsync/issues" target="_blank" rel="noopener">需要支持新平台？提个 Issue →</a></p>
+    </section>
+
+    <!-- 作者介绍 -->
+    <section id="authors">
+      <div class="section-head">
+        <h2>作者介绍</h2>
+        <p class="subtitle">致敬原作者，感谢每一位贡献者</p>
+      </div>
+      <div class="authors">
+        <div class="author-card">
+          <div class="avatar fun">F</div>
+          <div>
+            <h3>fun</h3>
+            <div class="role">原作者 · 独立开发者</div>
+            <p>文章同步助手的创建者，主导了从 v1 到 v2 全新架构（Manifest V3 + React）的完整设计与开发，并将项目以 GPL-3.0 开源。</p>
+            <div class="links">
+              <a href="https://github.com/lljxx1" target="_blank" rel="noopener">GitHub</a>
+              <a href="https://fun0.netlify.app/about/" target="_blank" rel="noopener">个人主页</a>
+            </div>
+          </div>
+        </div>
+        <div class="author-card">
+          <div class="avatar maintainer">Y</div>
+          <div>
+            <h3>yjmm10</h3>
+            <div class="role">当前维护者</div>
+            <p>基于上游开源项目维护本 Fork，持续跟进适配器修复、功能增强与用户体验优化，欢迎在 GitHub 反馈问题或提交 PR。</p>
+            <div class="links">
+              <a href="https://github.com/yjmm10" target="_blank" rel="noopener">GitHub</a>
+              <a href="https://github.com/yjmm10/Wechatsync" target="_blank" rel="noopener">本仓库</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:20px;text-align:center;font-size:14px;color:var(--muted)">本项目基于 <a href="https://github.com/wechatsync/Wechatsync" target="_blank" rel="noopener">wechatsync/Wechatsync</a> 开源项目，遵循 GPL-3.0 协议。感谢所有为项目贡献代码的平台适配器作者。</p>
+    </section>
+
+    <!-- 版本更新记录 -->
+    <section id="changelog">
+      <div class="section-head">
+        <h2>版本更新记录</h2>
+        <p class="subtitle">持续迭代，倾听用户反馈</p>
+      </div>
+      <div class="releases">
+        <div class="release">
+          <h3>v2.0.10 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-07-22</div>
+          <ul>
+            <li>🆕 同步完成后一键「打开全部」草稿链接，自动归入浏览器标签组</li>
+            <li>🆕 新增浏览器侧边栏模式，UI 常驻不消失</li>
+            <li>🆕 平台列表支持网格视图（图标 + 名称，悬停查看用户名）</li>
+            <li>🆕 历史记录支持单条删除、单条记录多草稿一键打开</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.0.9</h3>
+          <div class="date">2026-03-24</div>
+          <ul>
+            <li>🆕 文章识别和提取更准确，支持更多网页</li>
+            <li>🆕 CLI/MCP 同步 HTML 文件时自动保留排版样式</li>
+            <li>🔧 修复部分网页悬浮按钮显示异常</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.0.8</h3>
+          <div class="date">2026-03-17</div>
+          <ul>
+            <li>🆕 新增抖音图文</li>
+            <li>🆕 统一同步对话框和悬浮按钮</li>
+            <li>🔧 改善 CLI/MCP 桥接重连稳定性</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.0.7</h3>
+          <div class="date">2026-03-10</div>
+          <ul>
+            <li>🆕 新增什么值得买、网易号平台</li>
+            <li>🆕 简书支持 Markdown 格式发布</li>
+            <li>🔧 重新适配简书、一点号、搜狐号</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.0.6</h3>
+          <div class="date">2026-02-25</div>
+          <ul>
+            <li>🆕 新增东方财富、悬浮同步按钮</li>
+            <li>🔧 修复 WordPress / Typecho 图片扩展名错误</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.0.5</h3>
+          <div class="date">2025-02-05</div>
+          <ul>
+            <li>🆕 新增 Markdown 压缩包下载</li>
+            <li>🔧 代码块提取兼容性提升</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.0.0</h3>
+          <div class="date">架构里程碑</div>
+          <ul>
+            <li>✨ Manifest V3 升级 + 全新 React UI</li>
+            <li>🚀 3 并发同步（速度约 3 倍）、取消同步</li>
+            <li>🌐 13 个平台适配 + WordPress / Typecho / MetaWeblog</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin-top:16px;text-align:center"><a href="https://github.com/yjmm10/Wechatsync/blob/v2/CHANGELOG.md" target="_blank" rel="noopener">查看完整更新日志 →</a></p>
+    </section>
+
+    <!-- 安装 -->
+    <section id="install">
+      <div class="section-head">
+        <h2>开始使用</h2>
+        <p class="subtitle">两种方式，按需选择</p>
+      </div>
+      <div class="install-grid">
+        <div class="install-card">
+          <h3>🖥️ Chrome 扩展（推荐）</h3>
+          <p>从 Chrome 网上应用店安装，支持 Chrome / Edge / 360 / QQ 等 Chromium 内核浏览器，自动更新。</p>
+          <a class="btn btn-primary" href="https://chrome.google.com/webstore/detail/hchobocdmclopcbnibdnoafilagadion" target="_blank" rel="noopener">安装扩展</a>
+        </div>
+        <div class="install-card">
+          <h3>⌨️ CLI 命令行工具</h3>
+          <p>无需配置 MCP，安装即用。需先在扩展设置中启用「MCP 连接」获取 Token。</p>
+          <pre>npm install -g @wechatsync/cli
+export WECHATSYNC_TOKEN="你的token"
+wechatsync sync article.md -p zhihu,juejin</pre>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <div class="container">
+      <div class="links">
+        <a href="https://github.com/yjmm10/Wechatsync" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/yjmm10/Wechatsync/issues" target="_blank" rel="noopener">问题反馈</a>
+        <a href="https://github.com/yjmm10/Wechatsync/blob/v2/CHANGELOG.md" target="_blank" rel="noopener">更新日志</a>
+      </div>
+      <p>文章同步助手 Wechatsync · GPL-3.0</p>
+      <p style="margin-top:6px;font-size:13px">基于 <a href="https://github.com/wechatsync/Wechatsync" target="_blank" rel="noopener">wechatsync/Wechatsync</a> 开源项目 · 致敬原作者 fun</p>
+    </div>
+  </footer>
+</body>
+</html>

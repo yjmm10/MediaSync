@@ -6,7 +6,7 @@ export function AboutPage() {
   const version = chrome.runtime.getManifest().version
 
   return (
-    <div className="flex flex-col h-[500px]">
+    <div className="page-root flex flex-col h-[500px]">
       {/* Header */}
       <header className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b">
         <button
@@ -32,7 +32,7 @@ export function AboutPage() {
         {/* Links */}
         <div className="flex flex-col gap-2 mt-6 w-full max-w-[240px]">
           <a
-            href="https://github.com/wechatsync/Wechatsync"
+            href="https://github.com/yjmm10/Wechatsync"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"

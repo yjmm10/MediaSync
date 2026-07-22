@@ -10,7 +10,7 @@ metadata:
         - wechatsync
     primaryEnv: WECHATSYNC_TOKEN
     emoji: "\U0001F4DD"
-    homepage: https://github.com/wechatsync/Wechatsync
+    homepage: https://github.com/yjmm10/Wechatsync
     install:
       - kind: node
         package: "@wechatsync/cli"
@@ -25,8 +25,8 @@ Publish and sync Markdown/HTML articles to 29+ content platforms via CLI.
 
 This skill requires external tools that the user must install themselves:
 
-1. **CLI tool** (`@wechatsync/cli`): Open-source npm package ([source code](https://github.com/wechatsync/Wechatsync/tree/v2/packages/cli)). Install with `npm install -g @wechatsync/cli`
-2. **Chrome extension**: Open-source browser extension ([source code](https://github.com/wechatsync/Wechatsync/tree/v2/packages/extension)). Install from [Chrome Web Store](https://chrome.google.com/webstore/detail/hchobocdmclopcbnibdnoafilagadion) or [download ZIP](https://www.wechatsync.com/#install)
+1. **CLI tool** (`@wechatsync/cli`): Open-source npm package ([source code](https://github.com/yjmm10/Wechatsync/tree/v2/packages/cli)). Install with `npm install -g @wechatsync/cli`
+2. **Chrome extension**: Open-source browser extension ([source code](https://github.com/yjmm10/Wechatsync/tree/v2/packages/extension)). Install from [Chrome Web Store](https://chrome.google.com/webstore/detail/hchobocdmclopcbnibdnoafilagadion) or [download ZIP](https://www.wechatsync.com/#install)
 3. **Token**: User-generated token set in extension settings. The token is created locally by the user and used only for localhost communication between CLI and extension. Set via `export WECHATSYNC_TOKEN="your-token"`
 4. **Platform logins**: Log in to target platforms in browser (extension uses existing browser cookies, no credentials are stored or transmitted)
 

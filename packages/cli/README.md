@@ -146,7 +146,7 @@ MCP_TOKEN=your-token node packages/mcp-server/dist/index.js
 安装 Skill 插件：
 
 ```bash
-/plugin marketplace add wechatsync/Wechatsync
+/plugin marketplace add yjmm10/Wechatsync
 /plugin install wechatsync
 ```
 

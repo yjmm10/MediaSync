@@ -1,5 +1,7 @@
-import { Check, X, Loader2, ExternalLink, ChevronRight } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Check, X, Loader2, ExternalLink, ChevronRight, LayoutGrid, List } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { openUrlsInTabGroup } from '@/lib/tabs'
 import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './types'
 
 interface PlatformListProps {
@@ -32,6 +34,31 @@ export function PlatformList({
   const selectedCount = selected.size
   const successCount = results.filter(r => r.success).length
   const failedCount = results.filter(r => !r.success).length
+  // 成功且有可访问链接的结果（草稿/文章页），用于"打开全部"
+  const openableResults = results.filter(r => r.success && r.postUrl)
+
+  /**
+   * 一键打开所有草稿/文章链接（去重、归入标签组；降级由 openUrlsInTabGroup 处理）
+   */
+  const handleOpenAllDrafts = () => {
+    openUrlsInTabGroup(
+      openableResults.map(r => r.postUrl!),
+      { title: '草稿', color: 'green' }
+    )
+  }
+
+  // 视图模式：列表 / 网格（持久化到 storage）
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list')
+  useEffect(() => {
+    chrome.storage.local.get('platformViewMode').then(r => {
+      if (r.platformViewMode === 'grid') setViewMode('grid')
+    })
+  }, [])
+  const toggleViewMode = () => {
+    const next = viewMode === 'list' ? 'grid' : 'list'
+    setViewMode(next)
+    chrome.storage.local.set({ platformViewMode: next })
+  }
 
   // Idle: show all (authenticated first), syncing/completed: only selected
   const visiblePlatforms = isIdle
@@ -52,14 +79,27 @@ export function PlatformList({
                 {selectedCount}/{authenticatedPlatforms.length}
               </span>
             </span>
-            {authenticatedPlatforms.length > 0 && (
-              <button
-                onClick={onSelectAll}
-                className="text-xs text-primary hover:underline"
-              >
-                {selectedCount === authenticatedPlatforms.length ? '取消全选' : '全选'}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {authenticatedPlatforms.length > 0 && (
+                <button
+                  onClick={onSelectAll}
+                  className="text-xs text-primary hover:underline"
+                >
+                  {selectedCount === authenticatedPlatforms.length ? '取消全选' : '全选'}
+                </button>
+              )}
+              {authenticatedPlatforms.length > 0 && (
+                <button
+                  onClick={toggleViewMode}
+                  title={viewMode === 'list' ? '切换到网格视图' : '切换到列表视图'}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {viewMode === 'list'
+                    ? <LayoutGrid className="w-3.5 h-3.5" />
+                    : <List className="w-3.5 h-3.5" />}
+                </button>
+              )}
+            </div>
           </>
         )}
         {isSyncing && (
@@ -87,6 +127,16 @@ export function PlatformList({
                   <X className="w-3 h-3" />{failedCount}
                 </span>
               )}
+              {openableResults.length > 1 && (
+                <button
+                  onClick={handleOpenAllDrafts}
+                  title={`在浏览器中打开 ${openableResults.length} 个草稿/文章链接`}
+                  className="inline-flex items-center gap-0.5 text-xs text-primary hover:underline"
+                >
+                  打开全部
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              )}
             </div>
           </>
         )}
@@ -103,11 +153,28 @@ export function PlatformList({
       )}
 
       {/* Platform rows */}
-      <div className="space-y-0.5">
+      <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2' : 'space-y-0.5'}>
         {visiblePlatforms.map(platform => {
           const result = results.find(r => r.platform === platform.id)
           const progress = platformProgress.get(platform.id)
           const isSelected = selected.has(platform.id)
+          const isWaiting = isSyncing && !result && !progress
+          const isInProgress = isSyncing && !result && !!progress
+
+          if (viewMode === 'grid') {
+            return (
+              <PlatformGridCell
+                key={platform.id}
+                platform={platform}
+                isSelected={isSelected}
+                isIdle={isIdle}
+                isWaiting={isWaiting}
+                isInProgress={isInProgress}
+                result={result || null}
+                onToggle={() => onToggle(platform.id)}
+              />
+            )
+          }
 
           return (
             <PlatformRow
@@ -115,8 +182,8 @@ export function PlatformList({
               platform={platform}
               isSelected={isSelected}
               isIdle={isIdle}
-              isWaiting={isSyncing && !result && !progress}
-              isInProgress={isSyncing && !result && !!progress}
+              isWaiting={isWaiting}
+              isInProgress={isInProgress}
               result={result || null}
               progress={progress || null}
               onToggle={() => onToggle(platform.id)}
@@ -132,6 +199,111 @@ export function PlatformList({
           <p className="text-xs text-muted-foreground mt-1">点击平台名称前往登录</p>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Grid cell (网格视图：图标 + 名称，悬停查看用户名/状态) ──
+
+function PlatformGridCell({
+  platform,
+  isSelected,
+  isIdle,
+  isWaiting,
+  isInProgress,
+  result,
+  onToggle,
+}: {
+  platform: Platform
+  isSelected: boolean
+  isIdle: boolean
+  isWaiting: boolean
+  isInProgress: boolean
+  result: SyncResult | null
+  onToggle: () => void
+}) {
+  const isDone = !!result
+
+  const handleClick = () => {
+    // 完成且成功：点击直接打开草稿/文章
+    if (isDone && result?.success && result.postUrl) {
+      chrome.tabs.create({ url: result.postUrl })
+      return
+    }
+    if (!isIdle) return
+    if (platform.isAuthenticated) {
+      onToggle()
+    } else if (platform.homepage) {
+      chrome.tabs.create({ url: platform.homepage })
+    }
+  }
+
+  // 悬停提示：idle 显示用户名，completed 显示草稿/错误
+  let title = platform.name
+  if (isIdle) {
+    title = platform.isAuthenticated
+      ? `${platform.name} · ${platform.username || '已登录'}`
+      : `${platform.name} · 未登录，点击前往登录`
+  } else if (isDone && result) {
+    title = result.success
+      ? `${platform.name} · ${result.draftOnly ? '草稿' : '查看'}（点击打开）`
+      : `${platform.name} · ${result.error || '失败'}`
+  }
+
+  return (
+    <div
+      onClick={handleClick}
+      title={title}
+      className={cn(
+        'relative flex flex-col items-center gap-1.5 p-2 rounded-lg transition-all duration-200',
+        isIdle && 'cursor-pointer hover:bg-muted/60',
+        isIdle && platform.isAuthenticated && isSelected && 'bg-primary/5 ring-1 ring-primary',
+        isIdle && !platform.isAuthenticated && 'opacity-50',
+        isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
+        isDone && result && !result.success && 'bg-red-50 dark:bg-red-950/20',
+      )}
+    >
+      {/* 图标 + 状态角标 */}
+      <div className="relative">
+        <img
+          src={platform.icon}
+          alt={platform.name}
+          className="w-6 h-6 rounded"
+          onError={(e) => { (e.target as HTMLImageElement).src = '/assets/icon-48.png' }}
+        />
+        {/* idle 已选中 */}
+        {isIdle && platform.isAuthenticated && isSelected && (
+          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
+            <Check className="w-2.5 h-2.5 text-white" />
+          </span>
+        )}
+        {/* 完成成功 */}
+        {isDone && result?.success && (
+          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-green-500 flex items-center justify-center ring-2 ring-background">
+            <Check className="w-2.5 h-2.5 text-white" />
+          </span>
+        )}
+        {/* 完成失败 */}
+        {isDone && result && !result.success && (
+          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 flex items-center justify-center ring-2 ring-background">
+            <X className="w-2.5 h-2.5 text-white" />
+          </span>
+        )}
+        {/* 进行中 */}
+        {isInProgress && (
+          <span className="absolute inset-0 flex items-center justify-center bg-background/60 rounded">
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+          </span>
+        )}
+        {/* 等待中 */}
+        {isWaiting && (
+          <span className="absolute inset-0 flex items-center justify-center bg-background/40 rounded">
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" />
+          </span>
+        )}
+      </div>
+      {/* 名称 */}
+      <span className="text-xs text-center truncate w-full">{platform.name}</span>
     </div>
   )
 }

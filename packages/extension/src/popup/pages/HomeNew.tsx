@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, Plus, Clock, X, Download, Info } from 'lucide-react'
+import { Settings, Plus, Clock, X, Download, Info, PanelRight } from 'lucide-react'
 import { useSyncStore } from '../stores/sync'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { SyncDialog } from '@/components/sync-dialog'
@@ -106,6 +106,19 @@ export function HomeNew() {
     }
   }
 
+  // 在浏览器侧边栏打开（常驻显示，不因点击外部而关闭）
+  const handleOpenSidePanel = async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tab?.windowId !== undefined) {
+        await chrome.sidePanel.open({ windowId: tab.windowId })
+      }
+    } catch (e) {
+      logger.error('Failed to open side panel:', e)
+    }
+    window.close()
+  }
+
   // Start sync with rate-limit check
   const handleStartSync = async () => {
     const warning = await checkRateLimit()
@@ -119,7 +132,7 @@ export function HomeNew() {
   const successCount = results.filter(r => r.success).length
 
   return (
-    <div className="flex flex-col h-[500px]">
+    <div className="page-root flex flex-col h-[500px]">
       {/* Header */}
       <header className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b">
         <div className="flex items-center gap-2">
@@ -127,6 +140,14 @@ export function HomeNew() {
           <h1 className="font-semibold">文章同步助手</h1>
         </div>
         <nav className="flex items-center gap-0.5">
+          <button
+            onClick={handleOpenSidePanel}
+            title="固定到侧边栏（常驻不消失）"
+            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
+          >
+            <PanelRight className="w-3.5 h-3.5" />
+            <span className="text-[10px] text-muted-foreground leading-none">侧栏</span>
+          </button>
           <button
             onClick={() => navigate('/add-cms')}
             className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
@@ -220,7 +241,7 @@ export function HomeNew() {
               <br />
               如果你是开发者，欢迎参与进来{' '}
               <a
-                href="https://github.com/wechatsync/Wechatsync"
+                href="https://github.com/yjmm10/Wechatsync"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"

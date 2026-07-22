@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle, XCircle, ExternalLink, Clock, Trash2, ImageIcon
 import { useSyncStore } from '../stores/sync'
 import { Button } from '../components/ui/Button'
 import { trackPageView } from '../../lib/analytics'
+import { openUrlsInTabGroup } from '@/lib/tabs'
 
 export function HistoryPage() {
   const navigate = useNavigate()
@@ -17,6 +18,13 @@ export function HistoryPage() {
 
   const clearHistory = async () => {
     await chrome.storage.local.remove('syncHistory')
+    loadHistory()
+  }
+
+  const deleteHistoryItem = async (id: string) => {
+    const { syncHistory = [] } = await chrome.storage.local.get('syncHistory')
+    const updated = (syncHistory as Array<{ id: string }>).filter(h => h.id !== id)
+    await chrome.storage.local.set({ syncHistory: updated })
     loadHistory()
   }
 
@@ -95,6 +103,9 @@ export function HistoryPage() {
           const results = item.results || []
           const successCount = results.filter(r => r.success).length
           const failedCount = results.filter(r => !r.success).length
+          const draftUrls = results
+            .filter(r => r.success && r.postUrl)
+            .map(r => r.postUrl as string)
 
           return (
             <div
@@ -122,36 +133,60 @@ export function HistoryPage() {
                   {/* 标题和时间 */}
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <h3 className="font-medium text-sm line-clamp-2">{item.title}</h3>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      {formatTime(item.startTime ?? item.timestamp ?? Date.now())}
-                    </span>
+                    <div className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
+                      <span className="text-xs text-muted-foreground">
+                        {formatTime(item.startTime ?? item.timestamp ?? Date.now())}
+                      </span>
+                      <button
+                        onClick={() => deleteHistoryItem(item.id)}
+                        title="删除此记录"
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* 统计 */}
-                  <div className="flex items-center gap-3 text-xs">
-                    {item.status === 'syncing' ? (
-                      <div className="flex items-center gap-1 text-blue-600">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>同步中...</span>
-                      </div>
-                    ) : item.status === 'cancelled' ? (
-                      <div className="flex items-center gap-1 text-gray-500">
-                        <XCircle className="w-3.5 h-3.5" />
-                        <span>已取消</span>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-1 text-green-600">
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          <span>{successCount} 成功</span>
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-3">
+                      {item.status === 'syncing' ? (
+                        <div className="flex items-center gap-1 text-blue-600">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>同步中...</span>
                         </div>
-                        {failedCount > 0 && (
-                          <div className="flex items-center gap-1 text-red-600">
-                            <XCircle className="w-3.5 h-3.5" />
-                            <span>{failedCount} 失败</span>
+                      ) : item.status === 'cancelled' ? (
+                        <div className="flex items-center gap-1 text-gray-500">
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>已取消</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-1 text-green-600">
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            <span>{successCount} 成功</span>
                           </div>
-                        )}
-                      </>
+                          {failedCount > 0 && (
+                            <div className="flex items-center gap-1 text-red-600">
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>{failedCount} 失败</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {draftUrls.length > 1 && (
+                      <button
+                        onClick={() => openUrlsInTabGroup(draftUrls, {
+                          title: item.title ? item.title.slice(0, 8) : '草稿',
+                          color: 'green',
+                        })}
+                        title={`在标签组中打开 ${draftUrls.length} 个草稿/文章链接`}
+                        className="inline-flex items-center gap-0.5 text-primary hover:underline whitespace-nowrap flex-shrink-0"
+                      >
+                        打开全部
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
                     )}
                   </div>
 

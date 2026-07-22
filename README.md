@@ -1,8 +1,8 @@
 # 文章同步助手 (Wechatsync)
 
-![](https://img.shields.io/github/v/release/wechatsync/Wechatsync.svg)
-![](https://img.shields.io/github/last-commit/wechatsync/Wechatsync)
-![](https://img.shields.io/github/issues/wechatsync/Wechatsync)
+![](https://img.shields.io/github/v/release/yjmm10/Wechatsync.svg)
+![](https://img.shields.io/github/last-commit/yjmm10/Wechatsync)
+![](https://img.shields.io/github/issues/yjmm10/Wechatsync)
 
 **开源免费**的跨平台文章同步工具 | Chrome 浏览器扩展 | 自媒体内容分发神器
 
@@ -219,6 +219,12 @@ pnpm build
 
 ## 更新日志
 
+### v2.0.10 (2026-07-22)
+
+- 🆕 同步完成后一键「打开全部」草稿/文章链接（自动归入浏览器标签组）
+- 🆕 新增浏览器侧边栏模式，UI 常驻不消失（在 popup 顶部点「侧栏」按钮打开）
+- 🆕 平台列表支持网格视图（图标 + 名称，悬停查看用户名）
+
 ### v2.0.9 (2026-03-24)
 
 - 🆕 文章识别和提取更准确，支持更多网页
@@ -283,7 +289,7 @@ pnpm build
 
 **Q: 数据安全吗？会上传我的账号信息吗？**
 
-不会。所有操作在本地浏览器内完成，你的 Cookie、文章内容、账号信息不经过任何第三方服务器。代码完全开源，可自行审计：[查看源码](https://github.com/wechatsync/Wechatsync)
+不会。所有操作在本地浏览器内完成，你的 Cookie、文章内容、账号信息不经过任何第三方服务器。代码完全开源，可自行审计：[查看源码](https://github.com/yjmm10/Wechatsync)
 
 **Q: 和微小宝、新媒体管家、简媒、蚁小二有什么区别？**
 
