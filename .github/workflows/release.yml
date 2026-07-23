@@ -114,22 +114,35 @@ jobs:
         with:
           name: extension-zip
 
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          # 截取 ## vX.Y.Z 到下一个 ## 之间的正文（不含标题行）
+          awk -v ver="$VERSION" '
+            $0 ~ "^## v" ver "($| )" {found=1; next}
+            found && /^## / {exit}
+            found && NF {print}
+            found && /^---$/ {exit}
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "- 详见 CHANGELOG.md" > release-notes.md
+          fi
+          {
+            echo "## 更新内容"
+            echo
+            cat release-notes.md
+          } > release-notes-full.md
+          mv release-notes-full.md release-notes.md
+          echo "----- release notes -----"
+          cat release-notes.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref_name }}
           name: v${{ steps.ver.outputs.version }}
-          body: |
-            ## 安装
-
-            1. 下载下方 `mediasync-${{ steps.ver.outputs.version }}.zip` 并解压
-            2. 打开 `chrome://extensions`，开启「开发者模式」
-            3. 点击「加载已解压的扩展程序」，选择解压后的目录
-
-            ## npm
-
-            ```
-            npm install -g @mediasync/cli
-            ```
-          generate_release_notes: true
+          body_path: release-notes.md
+          generate_release_notes: false
           files: mediasync-*.zip
+          make_latest: true
