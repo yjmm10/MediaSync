@@ -1,12 +1,12 @@
 {
   "name": "sync",
-  "version": "1.0.0",
-  "description": "Sync articles to 20+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
+  "version": "2.1.0",
+  "description": "Sync articles to 29+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
   "author": {
-    "name": "fun",
-    "url": "https://github.com/mediasync"
+    "name": "lusca",
+    "url": "https://github.com/yjmm10"
   },
-  "homepage": "https://www.wechatsync.com",
+  "homepage": "https://yjmm10.github.io/MediaSync",
   "repository": "https://github.com/yjmm10/MediaSync",
   "license": "MIT",
   "keywords": ["sync", "article", "blog", "zhihu", "juejin", "csdn", "weibo", "content"],

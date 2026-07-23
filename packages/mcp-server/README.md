@@ -38,14 +38,14 @@ yarn build
       "command": "node",
       "args": ["/path/to/MediaSync/packages/mcp-server/dist/index.js"],
       "env": {
-        "MCP_TOKEN": "your-secret-token-here"
+        "MEDIASYNC_TOKEN": "your-secret-token-here"
       }
     }
   }
 }
 ```
 
-**重要**: `MCP_TOKEN` 必须与 Chrome 扩展中设置的 Token 一致。
+**重要**: `MEDIASYNC_TOKEN` 必须与 Chrome 扩展中设置的 Token 一致（亦兼容旧环境变量名 `MCP_TOKEN`）。
 
 ### 4. 使用
 
@@ -122,7 +122,7 @@ yarn build
 
 ## 环境变量
 
-- `MCP_TOKEN`: 安全验证 Token（必需）
+- `MEDIASYNC_TOKEN`: 安全验证 Token（必需；兼容旧名 `MCP_TOKEN`）
 - `SYNC_WS_PORT`: WebSocket 端口（默认 9527）
 - `SYNC_HTTP_PORT`: HTTP 端口（默认 9528，仅 SSE 模式）
 
@@ -159,7 +159,7 @@ MCP Server 支持在远程服务器上运行，连接本地电脑上的 Chrome �
 **本地浏览器** Chrome 扩展设置中：
 1. 开启「同步桥接」
 2. 「服务器地址」填入远程地址，如 `ws://192.168.1.100:9527`
-3. Token 与 MCP Server 的 `MCP_TOKEN` 保持一致
+3. Token 与 MCP Server 的 `MEDIASYNC_TOKEN` 保持一致（兼容 `MCP_TOKEN`）
 
 ### 安全建议
 

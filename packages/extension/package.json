@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "prod": "npm run build && cd dist && zip -r ../mediasync-v$(node -p \"require('../package.json').version\").zip .",
+    "prod": "npm run build && cd dist && rm -rf .vite && zip -r ../mediasync-v$(node -p \"require('../package.json').version\").zip .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",

@@ -119,7 +119,7 @@ mediasync extract -o article.md
 安装后可在 Claude Code 中直接用自然语言操作：
 
 ```bash
-/plugin marketplace add mediasync
+/plugin marketplace add yjmm10/MediaSync
 /plugin install mediasync
 ```
 
@@ -152,14 +152,14 @@ clawhub install lljxx1/mediasync
       "command": "node",
       "args": ["/path/to/MediaSync/packages/mcp-server/dist/index.js"],
       "env": {
-        "MCP_TOKEN": "your-secret-token-here"
+        "MEDIASYNC_TOKEN": "your-secret-token-here"
       }
     }
   }
 }
 ```
 
-**重要**: `MCP_TOKEN` 必须与 Chrome 扩展中设置的 Token 一致。
+**重要**: `MEDIASYNC_TOKEN` 必须与 Chrome 扩展中设置的 Token 一致（亦兼容旧环境变量名 `MCP_TOKEN`）。
 
 ### 使用示例
 
@@ -266,7 +266,7 @@ pnpm build
 - 🔧 代码块提取兼容性提升
 - 🆕 新增 Markdown 压缩包下载
 
-完整日志见 [更新日志页面](https://www.wechatsync.com/changelog)
+完整日志见 [更新日志页面](https://yjmm10.github.io/MediaSync/#changelog)
 
 ## 贡献代码
 

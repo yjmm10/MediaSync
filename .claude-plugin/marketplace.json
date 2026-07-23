@@ -1,18 +1,18 @@
 {
   "name": "mediasync",
   "owner": {
-    "name": "mediasync",
-    "url": "https://github.com/mediasync"
+    "name": "yjmm10",
+    "url": "https://github.com/yjmm10"
   },
   "plugins": [
     {
       "name": "sync",
       "source": "./",
-      "version": "1.0.0",
-      "description": "Sync articles to 20+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
+      "version": "2.1.0",
+      "description": "Sync articles to 29+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
       "author": {
-        "name": "fun",
-        "url": "https://github.com/lljxx1"
+        "name": "lusca",
+        "url": "https://github.com/yjmm10"
       }
     }
   ]

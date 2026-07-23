@@ -15,7 +15,7 @@ npm install -g @mediasync/cli
 mediasync sync article.md --platforms zhihu,juejin
 ```
 
-首次使用会提示安装 Chrome 扩展 - 访问 https://wechatsync.com/#install 安装。
+首次使用会提示安装 Chrome 扩展 - 访问 https://yjmm10.github.io/MediaSync/#install 安装。
 
 ## 命令
 
@@ -74,7 +74,7 @@ mediasync extract -o article.md
 ```
 ┌──────────────┐     WebSocket     ┌───────────────────┐
 │  mediasync  │◄─────────────────►│  Chrome Extension │
-│    (CLI)     │    port 9527      │   (同步助手)       │
+│    (CLI)     │    port 9527      │   (同步派)         │
 └──────────────┘                   └───────────────────┘
                                             │
                                             ▼
@@ -122,7 +122,7 @@ CLI 支持在服务器上运行，连接本地电脑上的 Chrome 扩展。适�
 MEDIASYNC_TOKEN=your-token mediasync sync article.md -p zhihu
 
 # MCP Server
-MCP_TOKEN=your-token node packages/mcp-server/dist/index.js
+MEDIASYNC_TOKEN=your-token node packages/mcp-server/dist/index.js
 ```
 
 服务器默认监听 `0.0.0.0:9527`（所有网络接口），远程可直接连接。

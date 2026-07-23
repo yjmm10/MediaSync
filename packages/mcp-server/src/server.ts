@@ -181,7 +181,7 @@ export class SyncAssistantMcpServer {
               {
                 type: 'text',
                 text: JSON.stringify({
-                  error: 'Chrome Extension 未连接。请确保：\n1. 已安装同步助手扩展\n2. 扩展已启用 MCP 连接（点击设置图标开启）',
+                  error: 'Chrome Extension 未连接。请确保：\n1. 已安装同步派扩展\n2. 扩展已启用 MCP 连接（点击设置图标开启）',
                 }),
               },
             ],

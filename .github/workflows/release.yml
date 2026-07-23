@@ -47,6 +47,8 @@ jobs:
       - name: Package extension zip
         run: |
           cd packages/extension/dist
+          # Chrome Web Store 不允许包内出现多个 manifest.json（Vite 会生成 .vite/manifest.json）
+          rm -rf .vite
           zip -r "$GITHUB_WORKSPACE/mediasync-${{ steps.ver.outputs.version }}.zip" .
 
       - name: Upload extension artifact

@@ -26,7 +26,7 @@ Publish and sync Markdown/HTML articles to 29+ content platforms via CLI.
 This skill requires external tools that the user must install themselves:
 
 1. **CLI tool** (`@mediasync/cli`): Open-source npm package ([source code](https://github.com/yjmm10/MediaSync/tree/v2/packages/cli)). Install with `npm install -g @mediasync/cli`
-2. **Chrome extension**: Open-source browser extension ([source code](https://github.com/yjmm10/MediaSync/tree/v2/packages/extension)). Install from [Chrome Web Store](https://chrome.google.com/webstore/detail/hchobocdmclopcbnibdnoafilagadion) or [download ZIP](https://www.wechatsync.com/#install)
+2. **Chrome extension**: Open-source browser extension ([source code](https://github.com/yjmm10/MediaSync/tree/v2/packages/extension)). Install from [Chrome Web Store](https://chrome.google.com/webstore/detail/hchobocdmclopcbnibdnoafilagadion) or [download ZIP](https://yjmm10.github.io/MediaSync/#install)
 3. **Token**: User-generated token set in extension settings. The token is created locally by the user and used only for localhost communication between CLI and extension. Set via `export MEDIASYNC_TOKEN="your-token"`
 4. **Platform logins**: Log in to target platforms in browser (extension uses existing browser cookies, no credentials are stored or transmitted)
 
