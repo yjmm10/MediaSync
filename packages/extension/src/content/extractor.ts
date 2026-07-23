@@ -1121,6 +1121,14 @@ window.addEventListener('message', async (event) => {
         }).catch(() => {})
       }
       closeEditor()
+    } else if (data.type === 'EDITOR_CONTENT_LIVE') {
+      // 编辑过程防抖回写（与关闭共用 pendingEditedArticle / EDITOR_ARTICLE_SAVED）
+      if (!data.article) return
+      await chrome.storage.local.set({ pendingEditedArticle: data.article }).catch(() => {})
+      chrome.runtime.sendMessage({
+        type: 'EDITOR_ARTICLE_SAVED',
+        article: data.article,
+      }).catch(() => {})
     } else if (data.type === 'START_SYNC') {
       // 只处理来自编辑器的 START_SYNC，忽略来自 sync-dialog 的
       if (!editorIframe) return

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { X, Loader2 } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Save, Download, Loader2 } from 'lucide-react'
 import { markdownToHtml, htmlToMarkdownNative } from '@mediasync/core'
 import { createLogger } from '../lib/logger'
 
@@ -24,14 +24,27 @@ function toMarkdownSource(article: EditorArticle): string {
   return content
 }
 
+function buildPayload(title: string, mdText: string, cover?: string) {
+  const html = markdownToHtml(mdText)
+  return {
+    title,
+    markdown: mdText,
+    content: html,
+    html,
+    cover,
+  }
+}
+
 /**
- * 整页编辑/预览 overlay：预览与编辑均可改稿；同步在侧栏完成。
+ * 整页编辑/预览 overlay：预览与编辑均可改稿；改动防抖回写侧栏，同步在侧栏完成。
  */
 export function EditorApp() {
   const [article, setArticle] = useState<EditorArticle | null>(null)
   const [mode, setMode] = useState<EditorMode>('edit')
   const [mdText, setMdText] = useState('')
   const [title, setTitle] = useState('')
+  const lastPushedRef = useRef<string | null>(null)
+  const skipLiveRef = useRef(true)
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -39,9 +52,13 @@ export function EditorApp() {
         const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
         if (data.type === 'ARTICLE_DATA') {
           const art = data.article as EditorArticle
+          const md = toMarkdownSource(art)
+          const t = art.title || ''
           setArticle(art)
-          setTitle(art.title || '')
-          setMdText(toMarkdownSource(art))
+          setTitle(t)
+          setMdText(md)
+          lastPushedRef.current = `${t}\0${md}`
+          skipLiveRef.current = true
           if (data.mode === 'preview') {
             setMode('preview')
           } else {
@@ -58,19 +75,65 @@ export function EditorApp() {
     return () => window.removeEventListener('message', handleMessage)
   }, [])
 
+  // 编辑过程防抖回写侧栏
+  useEffect(() => {
+    if (!article) return
+    const key = `${title}\0${mdText}`
+    if (key === lastPushedRef.current) return
+    if (skipLiveRef.current) {
+      skipLiveRef.current = false
+      lastPushedRef.current = key
+      return
+    }
+    const timer = window.setTimeout(() => {
+      lastPushedRef.current = key
+      window.parent.postMessage(JSON.stringify({
+        type: 'EDITOR_CONTENT_LIVE',
+        article: buildPayload(title, mdText, article.cover),
+      }), '*')
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [article, title, mdText])
+
   const handleClose = useCallback(() => {
-    const html = markdownToHtml(mdText)
     window.parent.postMessage(JSON.stringify({
       type: 'CLOSE_EDITOR',
-      article: {
-        title,
-        markdown: mdText,
-        content: html,
-        html,
-        cover: article?.cover,
-      },
+      article: buildPayload(title, mdText, article?.cover),
     }), '*')
   }, [article, title, mdText])
+
+  const handleSaveLocal = useCallback(async () => {
+    const safe = (title.trim() || 'untitled')
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+      .slice(0, 80)
+    const filename = `${safe}.md`
+    const blob = new Blob([mdText], { type: 'text/markdown;charset=utf-8' })
+    try {
+      const url = URL.createObjectURL(blob)
+      try {
+        await chrome.downloads.download({ url, filename, saveAs: true })
+      } finally {
+        // 延迟释放，避免下载尚未读完 URL
+        setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      }
+    } catch (e) {
+      logger.error('Failed to save markdown locally:', e)
+      // blob URL 失败时退回 data URL
+      try {
+        const buffer = await blob.arrayBuffer()
+        const base64 = btoa(
+          new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+        )
+        await chrome.downloads.download({
+          url: `data:text/markdown;base64,${base64}`,
+          filename,
+          saveAs: true,
+        })
+      } catch (e2) {
+        logger.error('Fallback data URL download failed:', e2)
+      }
+    }
+  }, [title, mdText])
 
   const renderedHtml = useMemo(() => markdownToHtml(mdText), [mdText])
 
@@ -98,12 +161,25 @@ export function EditorApp() {
               placeholder="文章标题"
             />
             <span className="text-xs text-gray-400 flex-shrink-0">
-              {mode === 'preview' ? '预览（可编辑，关闭后回写侧栏）' : '编辑（关闭后在侧栏同步）'}
+              {mode === 'preview' ? '预览（可编辑，自动同步到侧栏）' : '编辑（自动同步到侧栏）'}
             </span>
           </div>
-          <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="关闭并保存到侧栏">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button
+              onClick={() => { handleSaveLocal().catch(() => {}) }}
+              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+              title="保存到本地"
+            >
+              <Download className="w-5 h-5 text-gray-500" />
+            </button>
+            <button
+              onClick={handleClose}
+              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+              title="保存并关闭"
+            >
+              <Save className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
         </div>
       </header>
 

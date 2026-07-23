@@ -58,6 +58,7 @@ export function HomeNew() {
   const [previewTab, setPreviewTab] = useState<'render' | 'markdown'>('render')
   /** 顶栏当前态：可与设置里的全局 realtimeDetect 不一致 */
   const [realtimeActive, setRealtimeActive] = useState(true)
+  const [detecting, setDetecting] = useState(false)
 
   // Load data
   useEffect(() => {
@@ -266,9 +267,16 @@ export function HomeNew() {
     }
   }
 
-  const handleForceDetect = () => {
+  const handleForceDetect = async () => {
     setRealtimeActive(true)
-    loadArticle({ force: true }).catch(() => {})
+    setDetecting(true)
+    try {
+      await loadArticle({ force: true })
+    } catch {
+      // loadArticle 内部已处理错误提示
+    } finally {
+      setDetecting(false)
+    }
   }
 
   // Start sync with rate-limit check
@@ -282,6 +290,25 @@ export function HomeNew() {
   }
 
   const successCount = results.filter(r => r.success).length
+
+  const realtimeLabel = realtimeActive ? '实时检测开启' : '实时检测关闭'
+  let statusLine: string
+  let statusTone: 'normal' | 'warn' | 'busy' = 'normal'
+  if (detecting) {
+    statusLine = '正在检测当前页…'
+    statusTone = 'busy'
+  } else if (extractError) {
+    statusLine = extractError
+    statusTone = 'warn'
+  } else if (!article) {
+    statusLine = `未检测到文章 · ${realtimeLabel}`
+  } else if (article.source === 'import') {
+    statusLine = '本地导入 · 实时检测已暂停'
+  } else if (article.source === 'edited') {
+    statusLine = '已编辑 · 实时检测已暂停'
+  } else {
+    statusLine = `网页检测 · ${realtimeLabel}`
+  }
 
   return (
     <div className="page-root flex flex-col h-[500px]">
@@ -356,6 +383,29 @@ export function HomeNew() {
           </button>
         </nav>
       </header>
+
+      {/* 状态栏：指示来源 / 实时检测 / 错误 */}
+      <div
+        className={cn(
+          'flex-shrink-0 flex items-center gap-1.5 px-3 py-1 border-b text-[11px] leading-4',
+          statusTone === 'warn' && 'bg-amber-50 text-amber-800 border-amber-200/80',
+          statusTone === 'busy' && 'bg-blue-50 text-blue-700 border-blue-200/80',
+          statusTone === 'normal' && 'bg-muted/40 text-muted-foreground',
+        )}
+      >
+        {statusTone === 'busy' && <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />}
+        <span className="truncate flex-1 min-w-0" title={statusLine}>{statusLine}</span>
+        {extractError && (
+          <button
+            type="button"
+            onClick={() => clearExtractError()}
+            className="flex-shrink-0 p-0.5 rounded hover:bg-black/5"
+            title="关闭提示"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        )}
+      </div>
 
       {/* Version update banner */}
       {updateInfo?.hasUpdate && updateInfo.info && (
@@ -456,11 +506,12 @@ export function HomeNew() {
         <div className="px-4 py-1 flex items-center justify-between">
           <button
             onClick={handleForceDetect}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            disabled={detecting}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
             title="放弃当前文章，重新检测当前页"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            检测当前页
+            <RefreshCw className={cn('w-3.5 h-3.5', detecting && 'animate-spin')} />
+            {detecting ? '检测中…' : '检测当前页'}
           </button>
           <button
             onClick={() => setShowPreview(true)}
@@ -583,22 +634,19 @@ export function HomeNew() {
         </div>
       )}
 
-      {/* Extract / rate-limit toast */}
-      {(extractError || rateLimitWarning) && (
-        <div className="fixed top-2 left-2 right-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="bg-yellow-50 dark:bg-yellow-950/50 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 shadow-lg flex items-start gap-2">
-            <span className="text-lg flex-shrink-0">⚠️</span>
-            <p className="text-sm text-yellow-800 dark:text-yellow-200 flex-1">
-              {extractError || rateLimitWarning}
+      {/* Rate-limit toast（非 extract 错误；错误已在状态栏） */}
+      {rateLimitWarning && (
+        <div className="fixed top-12 left-3 right-3 z-40 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="bg-yellow-50 dark:bg-yellow-950/50 border border-yellow-200 dark:border-yellow-800 rounded-md px-2.5 py-1.5 shadow flex items-start gap-1.5">
+            <span className="text-xs flex-shrink-0 leading-5">⚠️</span>
+            <p className="text-[11px] leading-5 text-yellow-800 dark:text-yellow-200 flex-1">
+              {rateLimitWarning}
             </p>
             <button
-              onClick={() => {
-                clearExtractError()
-                setRateLimitWarning(null)
-              }}
-              className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200 flex-shrink-0"
+              onClick={() => setRateLimitWarning(null)}
+              className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200 flex-shrink-0 p-0.5"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>

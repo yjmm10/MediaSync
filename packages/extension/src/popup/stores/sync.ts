@@ -346,18 +346,11 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         return
       }
 
+      // 与先前一致：拿到 tab 即发起 EXTRACT，不因 loading / 空 url / about:blank 提前放弃。
+      // 检测耗时由 content script 决定；状态栏展示结果，无需在此用状态门控。
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      logger.debug('loadArticle - current tab:', tab?.url)
-      if (!tab?.id) {
-        set({ extractError: '无法获取当前标签页' })
-        return
-      }
-
-      const url = tab.url || ''
-      if (!/^https?:/i.test(url)) {
-        set({ extractError: '当前页面无法检测，请换到普通网页' })
-        return
-      }
+      logger.debug('loadArticle - current tab:', tab?.url, tab?.status)
+      if (!tab?.id) return
 
       let response: { article?: unknown } | undefined
       try {
