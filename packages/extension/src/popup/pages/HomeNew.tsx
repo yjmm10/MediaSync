@@ -32,6 +32,7 @@ export function HomeNew() {
 
     platformProgress,
     imageUploadStage,
+    extractError,
     recovered,
     loadPlatforms,
     loadArticle,
@@ -43,6 +44,7 @@ export function HomeNew() {
     retryFailed,
     reset,
     checkRateLimit,
+    clearExtractError,
   } = useSyncStore()
 
   const [rateLimitWarning, setRateLimitWarning] = useState<string | null>(null)
@@ -54,7 +56,8 @@ export function HomeNew() {
   const [showShareTip, setShowShareTip] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [previewTab, setPreviewTab] = useState<'render' | 'markdown'>('render')
-  const [realtimeDetect, setRealtimeDetect] = useState(true)
+  /** 顶栏当前态：可与设置里的全局 realtimeDetect 不一致 */
+  const [realtimeActive, setRealtimeActive] = useState(true)
 
   // Load data
   useEffect(() => {
@@ -94,28 +97,34 @@ export function HomeNew() {
       }
     }).catch(() => {})
 
-    // 加载实时检测开关（与设置页共享 storage）
+    // 顶栏当前态：仅启动时从全局偏好拷贝一次，之后互不影响
     chrome.storage.local.get('realtimeDetect').then((r) => {
-      setRealtimeDetect(r.realtimeDetect ?? true)
+      setRealtimeActive(r.realtimeDetect ?? true)
     }).catch(() => {})
 
     trackPageView('home').catch(() => {})
   }, [])
 
-  // 实时文章检测：切换标签页或「当前活动页」加载完成时，自动重新提取。
-  // 仅对「检测文章」生效；本地导入 / 已编辑文章锁定，不被覆盖。
+  // 导入 / 编辑锁定时：顶栏当前态自动关闭（不改全局设置）
+  useEffect(() => {
+    const src = article?.source
+    if (src === 'import' || src === 'edited') {
+      setRealtimeActive(false)
+    }
+  }, [article?.source])
+
+  // 实时文章检测：只看顶栏当前态 realtimeActive；锁定文章不覆盖
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
-    const trigger = async () => {
+    const trigger = () => {
       const src = useSyncStore.getState().article?.source
       if (src === 'import' || src === 'edited') return
-      const r = await chrome.storage.local.get('realtimeDetect')
-      if (!(r.realtimeDetect ?? true)) return
+      if (!realtimeActive) return
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        // 定时触发时再次确认未锁定，避免导入/编辑竞态被冲掉
         const src2 = useSyncStore.getState().article?.source
         if (src2 === 'import' || src2 === 'edited') return
+        if (!realtimeActive) return
         loadArticle().catch(() => {})
       }, 500)
     }
@@ -125,21 +134,14 @@ export function HomeNew() {
       const [active] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (active?.id === tabId) trigger()
     }
-    const onStorage = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
-      if (area === 'local' && changes.realtimeDetect) {
-        setRealtimeDetect(changes.realtimeDetect.newValue ?? true)
-      }
-    }
     chrome.tabs.onActivated.addListener(onActivated)
     chrome.tabs.onUpdated.addListener(onUpdated)
-    chrome.storage.onChanged.addListener(onStorage)
     return () => {
       if (timer) clearTimeout(timer)
       chrome.tabs.onActivated.removeListener(onActivated)
       chrome.tabs.onUpdated.removeListener(onUpdated)
-      chrome.storage.onChanged.removeListener(onStorage)
     }
-  }, [loadArticle])
+  }, [loadArticle, realtimeActive])
 
   const loadAllPlatforms = async () => {
     try {
@@ -199,7 +201,8 @@ export function HomeNew() {
         showOverlayToast(response?.error || '无法打开整页，请刷新当前网页后重试')
         return
       }
-      if (mode === 'edit') {
+      if (mode === 'edit' || mode === 'preview') {
+        // 打开即视为可能改稿；关闭时 storage 会回写正文并标 edited
         useSyncStore.getState().updateArticle({ source: 'edited' })
       }
       if (!document.body.classList.contains('side-panel')) {
@@ -253,13 +256,19 @@ export function HomeNew() {
 
   const handleOpenFullPreview = () => openOverlay('preview')
 
-  /** Logo：回主页；若当前为导入/编辑锁定，则强制重检当前页以切回网页检测 */
+  /** Logo：回主页；若当前为导入/编辑锁定，则开启当前态并强制重检 */
   const handleLogoHome = () => {
     navigate('/')
     const src = useSyncStore.getState().article?.source
     if (src === 'import' || src === 'edited') {
+      setRealtimeActive(true)
       loadArticle({ force: true }).catch(() => {})
     }
+  }
+
+  const handleForceDetect = () => {
+    setRealtimeActive(true)
+    loadArticle({ force: true }).catch(() => {})
   }
 
   // Start sync with rate-limit check
@@ -288,17 +297,13 @@ export function HomeNew() {
             <img src="/assets/icon-48.png" alt="Logo" className="w-6 h-6" />
             <h1 className="font-semibold">同步派</h1>
           </button>
-          {/* 实时检测开关（纯图标，独立于导航标签） */}
+          {/* 顶栏：当前是否自动检测（可与设置全局偏好不一致） */}
           <button
-            onClick={() => {
-              const next = !realtimeDetect
-              setRealtimeDetect(next)
-              chrome.storage.local.set({ realtimeDetect: next })
-            }}
-            title={realtimeDetect ? '实时检测：开（切网页自动重新提取，点击关闭）' : '实时检测：关（仅打开时检测一次，点击开启）'}
+            onClick={() => setRealtimeActive(v => !v)}
+            title={realtimeActive ? '当前实时检测：开（点击关闭；与设置全局偏好独立）' : '当前实时检测：关（点击开启；与设置全局偏好独立）'}
             className={cn(
               'ml-1 p-1 rounded-full transition-colors',
-              realtimeDetect ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+              realtimeActive ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
             )}
           >
             <Radar className="w-3.5 h-3.5" />
@@ -450,7 +455,7 @@ export function HomeNew() {
       {article && (
         <div className="px-4 py-1 flex items-center justify-between">
           <button
-            onClick={() => loadArticle({ force: true })}
+            onClick={handleForceDetect}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             title="放弃当前文章，重新检测当前页"
           >
@@ -578,14 +583,19 @@ export function HomeNew() {
         </div>
       )}
 
-      {/* Rate limit warning (non-blocking toast) */}
-      {rateLimitWarning && (
+      {/* Extract / rate-limit toast */}
+      {(extractError || rateLimitWarning) && (
         <div className="fixed top-2 left-2 right-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="bg-yellow-50 dark:bg-yellow-950/50 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 shadow-lg flex items-start gap-2">
             <span className="text-lg flex-shrink-0">⚠️</span>
-            <p className="text-sm text-yellow-800 dark:text-yellow-200 flex-1">{rateLimitWarning}</p>
+            <p className="text-sm text-yellow-800 dark:text-yellow-200 flex-1">
+              {extractError || rateLimitWarning}
+            </p>
             <button
-              onClick={() => setRateLimitWarning(null)}
+              onClick={() => {
+                clearExtractError()
+                setRateLimitWarning(null)
+              }}
               className="text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200 flex-shrink-0"
             >
               <X className="w-4 h-4" />

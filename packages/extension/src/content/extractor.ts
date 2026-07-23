@@ -1113,6 +1113,8 @@ window.addEventListener('message', async (event) => {
 
     if (data.type === 'CLOSE_EDITOR') {
       if (data.article) {
+        // storage 保底回写侧栏；runtime 作快路径
+        await chrome.storage.local.set({ pendingEditedArticle: data.article }).catch(() => {})
         chrome.runtime.sendMessage({
           type: 'EDITOR_ARTICLE_SAVED',
           article: data.article,

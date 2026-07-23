@@ -127,6 +127,9 @@ interface SyncState {
   // 频率限制警告
   rateLimitWarning: string | null
 
+  // 文章提取失败提示（如需刷新页面）
+  extractError: string | null
+
   // 同步前图床上传进度（本地图片 base64 → 图床短 URL）
   imageUploadStage: { host: string; done: number; total: number } | null
 
@@ -151,6 +154,7 @@ interface SyncState {
   setArticle: (article: Article, source?: 'import' | 'edited' | 'extract') => void
   continueSync: () => void
   clearRateLimitWarning: () => void
+  clearExtractError: () => void
 }
 
 // 最大历史记录数
@@ -192,6 +196,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   history: [],
   recovered: false,
   rateLimitWarning: null,
+  extractError: null,
   imageUploadStage: null,
 
   recoverSyncState: async () => {
@@ -254,6 +259,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       status: 'idle',
       results: [],
       error: null,
+      extractError: null,
       platformProgress: new Map(),
       currentSyncId: null,
       imageUploadStage: null,
@@ -334,24 +340,44 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       const storage = await chrome.storage.local.get('pendingArticle')
       if (storage.pendingArticle) {
         logger.debug('loadArticle - found pending article:', storage.pendingArticle.title)
-        set({ article: storage.pendingArticle })
-        // 追踪内容特征
+        set({ article: storage.pendingArticle, extractError: null })
         trackArticleProfile(storage.pendingArticle, 'popup')
-        // 清除已读取的文章
         await chrome.storage.local.remove('pendingArticle')
         return
       }
 
-      // 如果没有待同步文章，尝试从当前标签页提取
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       logger.debug('loadArticle - current tab:', tab?.url)
-      if (!tab?.id) return
+      if (!tab?.id) {
+        set({ extractError: '无法获取当前标签页' })
+        return
+      }
 
-      const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_ARTICLE' })
+      const url = tab.url || ''
+      if (!/^https?:/i.test(url)) {
+        set({ extractError: '当前页面无法检测，请换到普通网页' })
+        return
+      }
+
+      let response: { article?: unknown } | undefined
+      try {
+        response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_ARTICLE' })
+      } catch (e) {
+        logger.error('Failed to extract article (no content script?):', e)
+        set({ extractError: '无法检测当前页，请刷新页面后重试' })
+        return
+      }
+
       logger.debug('loadArticle - response:', response)
       if (response?.article) {
-        const a = response.article
-        // 归一化：强制 source:'extract'，避免提取结果的 {url,platform} 污染语义来源字段
+        const a = response.article as {
+          title?: string
+          html?: string
+          content?: string
+          markdown?: string
+          cover?: string
+          summary?: string
+        }
         const normalized = {
           title: a.title || '',
           content: a.html || a.content || a.markdown || '',
@@ -361,11 +387,14 @@ export const useSyncStore = create<SyncState>((set, get) => ({
           summary: a.summary,
           source: 'extract' as const,
         }
-        set({ article: normalized })
+        set({ article: normalized, extractError: null })
         trackArticleProfile(normalized, 'popup')
+      } else {
+        set({ extractError: '未识别到文章，请刷新页面或换一篇文章页再试' })
       }
     } catch (error) {
       logger.error('Failed to extract article:', error)
+      set({ extractError: '无法检测当前页，请刷新页面后重试' })
     }
   },
 
@@ -653,7 +682,44 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   clearRateLimitWarning: () => {
     set({ rateLimitWarning: null })
   },
+
+  clearExtractError: () => {
+    set({ extractError: null })
+  },
 }))
+
+/** 整页编辑关闭后回写侧栏（runtime / storage 共用） */
+function applyEditedArticle(a: {
+  title?: string
+  content?: string
+  html?: string
+  markdown?: string
+  cover?: string
+}) {
+  useSyncStore.getState().setArticle(
+    {
+      title: a.title || '',
+      content: a.content || a.html || a.markdown || '',
+      html: a.html || a.content,
+      markdown: a.markdown,
+      cover: a.cover,
+    },
+    'edited'
+  )
+  chrome.storage.local.remove('pendingEditedArticle').catch(() => {})
+}
+
+// 启动时补读一次（关编辑时侧栏若未收到 runtime 消息）
+chrome.storage.local.get('pendingEditedArticle').then((r) => {
+  if (r.pendingEditedArticle) {
+    applyEditedArticle(r.pendingEditedArticle)
+  }
+}).catch(() => {})
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.pendingEditedArticle?.newValue) return
+  applyEditedArticle(changes.pendingEditedArticle.newValue)
+})
 
 // 监听来自 background 的进度消息
 chrome.runtime.onMessage.addListener((message) => {
@@ -684,16 +750,6 @@ chrome.runtime.onMessage.addListener((message) => {
     }
   }
   if (message.type === 'EDITOR_ARTICLE_SAVED' && message.article) {
-    const a = message.article
-    useSyncStore.getState().setArticle(
-      {
-        title: a.title || '',
-        content: a.content || a.html || a.markdown || '',
-        html: a.html || a.content,
-        markdown: a.markdown,
-        cover: a.cover,
-      },
-      'edited'
-    )
+    applyEditedArticle(message.article)
   }
 })
