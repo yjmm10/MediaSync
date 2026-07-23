@@ -3,7 +3,7 @@
  * FAB 按钮 → 打开 SyncDialog iframe overlay
  */
 import { createLogger } from '../lib/logger'
-import { htmlToMarkdownNative } from '@wechatsync/core'
+import { htmlToMarkdownNative } from '@mediasync/core'
 import { preprocessContentString, backupAndSimplifyCodeBlocks, restoreCodeBlocks } from '../lib/content-processor'
 
 const logger = createLogger('WeixinEditor')
@@ -20,10 +20,10 @@ function isEditorPage(): boolean {
 }
 
 function injectSyncPanel() {
-  if (document.querySelector('#wechatsync-editor-fab')) return
+  if (document.querySelector('#mediasync-editor-fab')) return
 
   const fab = document.createElement('button')
-  fab.id = 'wechatsync-editor-fab'
+  fab.id = 'mediasync-editor-fab'
   fab.title = '同步助手'
   fab.innerHTML = `
     <svg viewBox="0 0 24 24" width="24" height="24" fill="white">
@@ -67,7 +67,7 @@ async function openSyncDialog() {
 
   // 1. Show loading overlay immediately
   dialogContainer = document.createElement('div')
-  dialogContainer.id = 'wechatsync-dialog-overlay'
+  dialogContainer.id = 'mediasync-dialog-overlay'
   dialogContainer.style.cssText = `
     position: fixed; inset: 0; z-index: 2147483647;
     display: flex; align-items: center; justify-content: center;

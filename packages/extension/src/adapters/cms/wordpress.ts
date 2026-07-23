@@ -2,7 +2,7 @@
  * WordPress XML-RPC 适配器
  */
 import { createLogger } from '../../lib/logger'
-import { parseMarkdownImages } from '@wechatsync/core'
+import { parseMarkdownImages } from '@mediasync/core'
 
 const logger = createLogger('WordPress')
 

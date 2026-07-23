@@ -95,7 +95,7 @@ export default defineConfig(({ mode }) => {
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      '@wechatsync/core': resolve(__dirname, '../core/src'),
+      '@mediasync/core': resolve(__dirname, '../core/src'),
     },
   },
   build: {
@@ -108,6 +108,7 @@ export default defineConfig(({ mode }) => {
         editor: resolve(__dirname, 'src/editor/index.html'),
         'sync-dialog': resolve(__dirname, 'src/sync-dialog/index.html'),
         preprocessor: resolve(__dirname, 'src/preprocessor/index.html'),
+        'import-markdown': resolve(__dirname, 'src/import-markdown/index.html'),
       },
     },
   },

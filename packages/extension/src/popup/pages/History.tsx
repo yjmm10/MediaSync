@@ -1,10 +1,13 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, CheckCircle, XCircle, ExternalLink, Clock, Trash2, ImageIcon, Loader2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle, XCircle, ExternalLink, Clock, Trash2, ImageIcon, Loader2, Plus } from 'lucide-react'
 import { useSyncStore } from '../stores/sync'
 import { Button } from '../components/ui/Button'
 import { trackPageView } from '../../lib/analytics'
 import { openUrlsInTabGroup } from '@/lib/tabs'
+import { createLogger } from '../../lib/logger'
+
+const logger = createLogger('HistoryPage')
 
 export function HistoryPage() {
   const navigate = useNavigate()
@@ -26,6 +29,31 @@ export function HistoryPage() {
     const updated = (syncHistory as Array<{ id: string }>).filter(h => h.id !== id)
     await chrome.storage.local.set({ syncHistory: updated })
     loadHistory()
+  }
+
+  /**
+   * 对已同步过的文档追加同步到更多平台：
+   * 把历史里的正文快照写入 storage，在侧边栏内进入导入页（预加载该文档），
+   * 复用导入同步流程选择追加平台。不再打开整页。
+   */
+  const continueSync = async (item: typeof history[number]) => {
+    const markdown = item.markdown || item.html
+    if (!markdown) {
+      logger.warn('该历史记录没有正文快照，无法追加同步', item.id)
+      return
+    }
+    await chrome.storage.local.set({
+      importPreloadArticle: {
+        title: item.title,
+        markdown: item.markdown,
+        html: item.html,
+        cover: item.cover,
+        source: 'history-continue',
+        excludePlatforms: (item.results || []).filter(r => r.success).map(r => r.platform),
+      },
+    })
+    // 在当前窗口（侧边栏/popup）内导航到导入页
+    navigate('/import')
   }
 
   const formatTime = (timestamp: number) => {
@@ -135,7 +163,7 @@ export function HistoryPage() {
                     <h3 className="font-medium text-sm line-clamp-2">{item.title}</h3>
                     <div className="flex items-center gap-2 whitespace-nowrap flex-shrink-0">
                       <span className="text-xs text-muted-foreground">
-                        {formatTime(item.startTime ?? item.timestamp ?? Date.now())}
+                        {formatTime(item.lastSyncTime ?? item.startTime ?? item.timestamp ?? Date.now())}
                       </span>
                       <button
                         onClick={() => deleteHistoryItem(item.id)}
@@ -178,7 +206,7 @@ export function HistoryPage() {
                     {draftUrls.length > 1 && (
                       <button
                         onClick={() => openUrlsInTabGroup(draftUrls, {
-                          title: item.title ? item.title.slice(0, 8) : '草稿',
+                          title: item.title ? item.title.slice(0, 8) : '同步派',
                           color: 'green',
                         })}
                         title={`在标签组中打开 ${draftUrls.length} 个草稿/文章链接`}
@@ -186,6 +214,16 @@ export function HistoryPage() {
                       >
                         打开全部
                         <ExternalLink className="w-3 h-3" />
+                      </button>
+                    )}
+                    {(item.markdown || item.html) && (
+                      <button
+                        onClick={() => continueSync(item)}
+                        title="用此文档追加同步到更多平台"
+                        className="inline-flex items-center gap-0.5 text-primary hover:underline whitespace-nowrap flex-shrink-0"
+                      >
+                        追加同步
+                        <Plus className="w-3 h-3" />
                       </button>
                     )}
                   </div>

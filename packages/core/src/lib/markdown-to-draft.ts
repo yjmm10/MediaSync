@@ -2,7 +2,7 @@
  * Markdown to Draft.js 转换
  * 用于豆瓣等使用 Draft.js 编辑器的平台
  *
- * 基于 packages/@wechatsync/drivers/tools/mtd.js
+ * 基于 packages/@mediasync/drivers/tools/mtd.js
  */
 
 // @ts-ignore - markdown-draft-js 没有类型定义

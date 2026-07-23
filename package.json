@@ -1,5 +1,5 @@
 {
-  "name": "wechatsync",
+  "name": "mediasync",
   "version": "2.0.0",
   "private": true,
   "description": "微信公众号同步助手 - 多平台内容分发工具",
@@ -7,13 +7,13 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "yarn workspace @wechatsync/extension dev",
+    "dev": "yarn workspace @mediasync/extension dev",
     "build": "yarn workspaces run build",
-    "build:core": "yarn workspace @wechatsync/core build",
-    "build:extension": "yarn workspace @wechatsync/extension build",
-    "build:mcp": "yarn workspace @wechatsync/mcp-server build",
-    "build:cli": "yarn workspace @wechatsync/cli build",
-    "mcp": "yarn workspace @wechatsync/mcp-server start",
+    "build:core": "yarn workspace @mediasync/core build",
+    "build:extension": "yarn workspace @mediasync/extension build",
+    "build:mcp": "yarn workspace @mediasync/mcp-server build",
+    "build:cli": "yarn workspace @mediasync/cli build",
+    "mcp": "yarn workspace @mediasync/mcp-server start",
     "test": "yarn workspaces run test",
     "lint": "eslint packages --ext .ts,.tsx",
     "typecheck": "yarn workspaces run typecheck",

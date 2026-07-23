@@ -1,12 +1,12 @@
 /**
- * WechatSync CLI
+ * MediaSync CLI
  *
  * 命令行同步文章到多个内容平台
  *
  * 使用方式:
- *   wechatsync sync article.md --platforms zhihu,juejin
- *   wechatsync platforms
- *   wechatsync auth
+ *   mediasync sync article.md --platforms zhihu,juejin
+ *   mediasync platforms
+ *   mediasync auth
  */
 import { Command } from 'commander'
 import chalk from 'chalk'
@@ -15,15 +15,15 @@ import open from 'open'
 import fs from 'fs'
 import path from 'path'
 import juice from 'juice'
-import { ExtensionBridge } from '@wechatsync/mcp-server/bridge'
-import type { PlatformInfo, SyncResult } from '@wechatsync/mcp-server/bridge'
+import { ExtensionBridge } from '@mediasync/mcp-server/bridge'
+import type { PlatformInfo, SyncResult } from '@mediasync/mcp-server/bridge'
 
 const WS_PORT = parseInt(process.env.SYNC_WS_PORT || '9527', 10)
 
 // 官网和安装地址
-const WEBSITE_URL = 'https://www.wechatsync.com'
-const EXTENSION_URL = 'https://www.wechatsync.com/#install'
-const GITHUB_URL = 'https://github.com/yjmm10/Wechatsync'
+const WEBSITE_URL = 'https://yjmm10.github.io/MediaSync'
+const EXTENSION_URL = 'https://yjmm10.github.io/MediaSync/#install'
+const GITHUB_URL = 'https://github.com/yjmm10/MediaSync'
 
 const program = new Command()
 
@@ -31,7 +31,7 @@ const program = new Command()
 let connectionTimeout = 30000
 
 program
-  .name('wechatsync')
+  .name('mediasync')
   .description('同步文章到多个内容平台 (知乎、掘金、CSDN 等)')
   .version('1.1.0')
   .option('--timeout <ms>', '等待 Extension 连接超时（毫秒）', '30000')
@@ -49,7 +49,7 @@ function showInstallGuide(): void {
   console.log()
   console.log(chalk.bgYellow.black(' 需要安装 Chrome 扩展 '))
   console.log()
-  console.log('WechatSync CLI 需要配合 Chrome 扩展使用。')
+  console.log('MediaSync CLI 需要配合 Chrome 扩展使用。')
   console.log('扩展负责处理各平台的登录状态和 API 调用。')
   console.log()
   console.log(chalk.bold('安装步骤:'))
@@ -60,7 +60,7 @@ function showInstallGuide(): void {
   console.log(`  2. 在扩展设置中启用 ${chalk.cyan('MCP 连接')}，获取 Token`)
   console.log()
   console.log(`  3. 配置环境变量:`)
-  console.log(`     ${chalk.cyan('export WECHATSYNC_TOKEN="你的token"')}`)
+  console.log(`     ${chalk.cyan('export MEDIASYNC_TOKEN="你的token"')}`)
   console.log()
   console.log(`  4. 在各平台 (知乎、掘金等) 登录你的账号`)
   console.log()
@@ -590,7 +590,7 @@ async function createBridge(): Promise<ExtensionBridge | null> {
         // PRIMARY HTTP API 不可达 — 僵尸进程占了 WS 端口但没有 HTTP API
         console.log()
         console.log(chalk.red('连接超时: 端口被占用但无法与已有实例通讯'))
-        console.log(chalk.gray('可能是旧的 wechatsync 进程未正常退出'))
+        console.log(chalk.gray('可能是旧的 mediasync 进程未正常退出'))
         console.log()
 
         const processInfo = await detectPortProcess(WS_PORT)
@@ -605,7 +605,7 @@ async function createBridge(): Promise<ExtensionBridge | null> {
         } else {
           console.log(`  1. 终止旧进程: ${chalk.cyan(`kill $(lsof -i :${WS_PORT} -t)`)}`)
         }
-        console.log(`  2. 使用其他端口: ${chalk.cyan(`SYNC_WS_PORT=9600 wechatsync ...`)}`)
+        console.log(`  2. 使用其他端口: ${chalk.cyan(`SYNC_WS_PORT=9600 mediasync ...`)}`)
       } else {
         // PRIMARY 可达但 Extension 没连上
         console.log()
@@ -945,7 +945,7 @@ program
         const output = `# ${article.title}\n\n${content}`
         fs.writeFileSync(outputPath, output, 'utf-8')
         console.log(chalk.green(`✓ 已保存到: ${outputPath}`))
-        console.log(chalk.gray(`  同步到平台: wechatsync sync ${options.output}`))
+        console.log(chalk.gray(`  同步到平台: mediasync sync ${options.output}`))
       } else {
         console.log()
         console.log(chalk.bold('标题:'), article.title)
@@ -954,7 +954,7 @@ program
         const preview = (article.markdown || article.content).slice(0, 500)
         console.log(chalk.gray(preview + (preview.length >= 500 ? '...' : '')))
         console.log()
-        console.log(chalk.gray('提示: 使用 -o article.md 保存后可通过 wechatsync sync article.md 同步'))
+        console.log(chalk.gray('提示: 使用 -o article.md 保存后可通过 mediasync sync article.md 同步'))
       }
     } catch (error) {
       spinner.fail('提取失败')
@@ -969,16 +969,16 @@ program
 
 if (process.argv.length <= 2) {
   console.log()
-  console.log(chalk.bold('WechatSync CLI') + ' - 同步文章到多个内容平台')
+  console.log(chalk.bold('MediaSync CLI') + ' - 同步文章到多个内容平台')
   console.log()
   console.log(`官网: ${chalk.cyan(WEBSITE_URL)}`)
   console.log()
   console.log('支持的平台: 知乎、掘金、CSDN、头条、微博、B站、简书 等 20+ 平台')
   console.log()
   console.log(chalk.bold('快速开始:'))
-  console.log(`  ${chalk.cyan('wechatsync sync article.md')}        同步 Markdown 文件`)
-  console.log(`  ${chalk.cyan('wechatsync sync article.html')}      同步 HTML 文件 (保留自定义排版)`)
-  console.log(`  ${chalk.cyan('wechatsync extract -o out.md')}      从浏览器提取文章`)
+  console.log(`  ${chalk.cyan('mediasync sync article.md')}        同步 Markdown 文件`)
+  console.log(`  ${chalk.cyan('mediasync sync article.html')}      同步 HTML 文件 (保留自定义排版)`)
+  console.log(`  ${chalk.cyan('mediasync extract -o out.md')}      从浏览器提取文章`)
   console.log()
   program.outputHelp()
   process.exit(0)

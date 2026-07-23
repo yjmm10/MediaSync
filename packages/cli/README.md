@@ -1,18 +1,18 @@
-# @wechatsync/cli
+# @mediasync/cli
 
 命令行同步文章到多个内容平台。
 
 ## 安装
 
 ```bash
-npm install -g @wechatsync/cli
+npm install -g @mediasync/cli
 ```
 
 ## 快速开始
 
 ```bash
 # 同步文章到知乎和掘金
-wechatsync sync article.md --platforms zhihu,juejin
+mediasync sync article.md --platforms zhihu,juejin
 ```
 
 首次使用会提示安装 Chrome 扩展 - 访问 https://wechatsync.com/#install 安装。
@@ -23,57 +23,57 @@ wechatsync sync article.md --platforms zhihu,juejin
 
 ```bash
 # 基本用法
-wechatsync sync article.md -p zhihu,juejin
+mediasync sync article.md -p zhihu,juejin
 
 # 指定标题
-wechatsync sync article.md -t "我的文章" -p zhihu
+mediasync sync article.md -t "我的文章" -p zhihu
 
 # 添加封面
-wechatsync sync article.md -p juejin --cover https://example.com/cover.jpg
+mediasync sync article.md -p juejin --cover https://example.com/cover.jpg
 
 # 预览（不实际同步）
-wechatsync sync article.md --dry-run
+mediasync sync article.md --dry-run
 ```
 
 ### platforms - 查看平台
 
 ```bash
 # 列出所有平台
-wechatsync platforms
+mediasync platforms
 
 # 显示登录状态
-wechatsync platforms --auth
-wechatsync ls -a
+mediasync platforms --auth
+mediasync ls -a
 ```
 
 ### auth - 检查登录
 
 ```bash
 # 检查所有平台
-wechatsync auth
+mediasync auth
 
 # 检查单个平台
-wechatsync auth zhihu
+mediasync auth zhihu
 
 # 强制刷新
-wechatsync auth --refresh
+mediasync auth --refresh
 ```
 
 ### extract - 提取文章
 
 ```bash
 # 从浏览器当前页面提取
-wechatsync extract
+mediasync extract
 
 # 保存到文件
-wechatsync extract -o article.md
+mediasync extract -o article.md
 ```
 
 ## 工作原理
 
 ```
 ┌──────────────┐     WebSocket     ┌───────────────────┐
-│  wechatsync  │◄─────────────────►│  Chrome Extension │
+│  mediasync  │◄─────────────────►│  Chrome Extension │
 │    (CLI)     │    port 9527      │   (同步助手)       │
 └──────────────┘                   └───────────────────┘
                                             │
@@ -96,7 +96,7 @@ CLI 启动后监听 WebSocket 端口，等待 Chrome 扩展连接。
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `SYNC_WS_PORT` | WebSocket 端口 | 9527 |
-| `WECHATSYNC_TOKEN` | 安全验证 token | - |
+| `MEDIASYNC_TOKEN` | 安全验证 token | - |
 
 ## 远程桥接
 
@@ -108,7 +108,7 @@ CLI 支持在服务器上运行，连接本地电脑上的 Chrome 扩展。适�
 ┌─────────────────┐                        ┌─────────────────────┐
 │  远程服务器       │     WebSocket          │  本地电脑            │
 │                 │     port 9527           │                     │
-│  wechatsync CLI │◄───────────────────────►│  Chrome Extension   │
+│  mediasync CLI │◄───────────────────────►│  Chrome Extension   │
 │  / MCP Server   │                         │  (浏览器登录态)      │
 └─────────────────┘                         └─────────────────────┘
 ```
@@ -119,7 +119,7 @@ CLI 支持在服务器上运行，连接本地电脑上的 Chrome 扩展。适�
 
 ```bash
 # CLI
-WECHATSYNC_TOKEN=your-token wechatsync sync article.md -p zhihu
+MEDIASYNC_TOKEN=your-token mediasync sync article.md -p zhihu
 
 # MCP Server
 MCP_TOKEN=your-token node packages/mcp-server/dist/index.js
@@ -146,8 +146,8 @@ MCP_TOKEN=your-token node packages/mcp-server/dist/index.js
 安装 Skill 插件：
 
 ```bash
-/plugin marketplace add yjmm10/Wechatsync
-/plugin install wechatsync
+/plugin marketplace add yjmm10/MediaSync
+/plugin install mediasync
 ```
 
 然后在 Claude Code 中可以直接说：

@@ -9,7 +9,7 @@
  * 5. Service Worker 只做图片上传 + 调用 API
  */
 
-import { htmlToMarkdownNative, SOURCE_LINK_REMOVE_DOMAINS, SOURCE_LINK_REDIRECT_RULES, type PreprocessConfig } from '@wechatsync/core'
+import { htmlToMarkdownNative, SOURCE_LINK_REMOVE_DOMAINS, SOURCE_LINK_REDIRECT_RULES, type PreprocessConfig } from '@mediasync/core'
 import { createLogger } from './logger'
 
 const logger = createLogger('ContentProcessor')
@@ -240,7 +240,7 @@ function processSvgImages(container: HTMLElement): void {
 
 /**
  * 清理源平台链接（站内链接去除、跳转中转还原）
- * 规则定义在 @wechatsync/core SOURCE_LINK_*_DOMAINS，新增平台只需加域名
+ * 规则定义在 @mediasync/core SOURCE_LINK_*_DOMAINS，新增平台只需加域名
  */
 function cleanSourcePlatformLinks(container: HTMLElement): void {
   const links = Array.from(container.querySelectorAll('a'))

@@ -1,5 +1,5 @@
 {
-  "name": "@wechatsync/extension",
+  "name": "@mediasync/extension",
   "version": "2.0.10",
   "private": true,
   "description": "微信公众号同步助手 Chrome 扩展",
@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "prod": "npm run build && cd dist && zip -r ../wechatsync-v$(node -p \"require('../package.json').version\").zip .",
+    "prod": "npm run build && cd dist && zip -r ../mediasync-v$(node -p \"require('../package.json').version\").zip .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
@@ -15,7 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@wechatsync/core": "workspace:*",
+    "@mediasync/core": "workspace:*",
     "clsx": "^2.0.0",
     "defuddle": "^0.14.0",
     "js-md5": "^0.8.3",

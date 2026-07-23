@@ -25,8 +25,8 @@ export class ExtensionBridge {
   private requestTimeout = 360000 // 6 minutes (图片多时需要更长时间)
   private connectionResolvers: Array<() => void> = []
 
-  // 安全验证 token（从环境变量读取，优先使用 WECHATSYNC_TOKEN）
-  private token: string = process.env.WECHATSYNC_TOKEN || process.env.MCP_TOKEN || ''
+  // 安全验证 token（从环境变量读取，优先使用 MEDIASYNC_TOKEN）
+  private token: string = process.env.MEDIASYNC_TOKEN || process.env.MCP_TOKEN || ''
 
   // 是否静默模式（CLI 使用时不输出日志）
   private silent: boolean = false

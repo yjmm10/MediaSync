@@ -28,6 +28,7 @@ export function SyncDialog({
   onCancel,
   onEditArticle,
   onClose,
+  onContinueSync,
   className,
 }: SyncDialogProps) {
   const selectedSet = new Set(selectedPlatforms)
@@ -107,11 +108,19 @@ export function SyncDialog({
                 重试失败项 ({failedCount})
               </button>
             )}
+            {onContinueSync && (
+              <button
+                onClick={onContinueSync}
+                className="flex-1 py-2.5 text-sm bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors"
+              >
+                继续同步其他平台
+              </button>
+            )}
             <button
               onClick={onReset}
               className={cn(
                 'py-2.5 rounded-lg font-medium transition-colors',
-                failedCount > 0
+                failedCount > 0 || onContinueSync
                   ? 'flex-1 bg-muted text-foreground hover:bg-muted/80'
                   : 'w-full bg-primary text-primary-foreground hover:bg-primary/90'
               )}

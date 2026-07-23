@@ -12,10 +12,10 @@
  * 注入脚本位于 public/inject-api.js（Manifest V3 不支持内联脚本）
  */
 
-import { htmlToMarkdownNative } from '@wechatsync/core'
+import { htmlToMarkdownNative } from '@mediasync/core'
 import { createLogger } from '../lib/logger'
 
-const logger = createLogger('Wechatsync')
+const logger = createLogger('MediaSync')
 
 // 敏感 API 白名单（仅 updateDriver 和 startInspect 需要检查）
 const SENSITIVE_API_WHITELIST = [

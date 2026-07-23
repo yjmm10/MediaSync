@@ -6,8 +6,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@wechatsync/core": ["../core/src"],
-      "@wechatsync/core/*": ["../core/src/*"]
+      "@mediasync/core": ["../core/src"],
+      "@mediasync/core/*": ["../core/src/*"]
     },
     "noUnusedLocals": false,
     "noUnusedParameters": false

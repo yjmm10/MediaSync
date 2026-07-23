@@ -90,4 +90,4 @@ export function createLogger(prefix: string) {
 }
 
 // 默认 logger
-export const logger = createLogger('WechatSync')
+export const logger = createLogger('MediaSync')

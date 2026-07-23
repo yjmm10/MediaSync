@@ -3,7 +3,7 @@
  * FAB 按钮 → 打开 SyncDialog iframe overlay
  */
 
-import { htmlToMarkdownNative, type PreprocessConfig } from '@wechatsync/core'
+import { htmlToMarkdownNative, type PreprocessConfig } from '@mediasync/core'
 import { preprocessContentDOM, preprocessForPlatform, backupAndSimplifyCodeBlocks, restoreCodeBlocks } from '../lib/content-processor'
 import { createSyncFab } from '../lib/fab'
 
@@ -15,7 +15,7 @@ let dialogContainer: HTMLElement | null = null
 function injectSyncButton() {
   const articleContent = document.querySelector('#js_content')
   if (!articleContent) return
-  if (document.querySelector('#wechatsync-fab')) return
+  if (document.querySelector('#mediasync-fab')) return
 
   const fab = createSyncFab({
     onClick: () => openSyncDialog(),
@@ -33,7 +33,7 @@ async function openSyncDialog() {
 
   // 1. Show loading overlay immediately
   dialogContainer = document.createElement('div')
-  dialogContainer.id = 'wechatsync-dialog-overlay'
+  dialogContainer.id = 'mediasync-dialog-overlay'
   dialogContainer.style.cssText = `
     position: fixed; inset: 0; z-index: 2147483647;
     display: flex; align-items: center; justify-content: center;

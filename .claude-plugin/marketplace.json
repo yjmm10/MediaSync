@@ -1,8 +1,8 @@
 {
-  "name": "wechatsync",
+  "name": "mediasync",
   "owner": {
-    "name": "wechatsync",
-    "url": "https://github.com/wechatsync"
+    "name": "mediasync",
+    "url": "https://github.com/mediasync"
   },
   "plugins": [
     {

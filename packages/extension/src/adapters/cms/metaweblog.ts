@@ -3,7 +3,7 @@
  * 支持 Typecho 等兼容 MetaWeblog 的博客系统
  */
 import { createLogger } from '../../lib/logger'
-import { parseMarkdownImages } from '@wechatsync/core'
+import { parseMarkdownImages } from '@mediasync/core'
 
 const logger = createLogger('MetaWeblog')
 

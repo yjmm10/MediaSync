@@ -14,6 +14,12 @@ import * as metaweblogAdapter from '../adapters/cms/metaweblog'
 import { startMcpClient, stopMcpClient, getMcpStatus, mcpClient } from '../mcp/client'
 import { createLogger } from '../lib/logger'
 import {
+  upsertHistoryItem,
+  mergeHistoryItem,
+  type SyncHistoryItem,
+  type SyncHistoryStatus,
+} from '../lib/history-doc'
+import {
   trackInstall,
   trackCmsSync,
   trackFeatureUse,
@@ -290,7 +296,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
 
       // 创建历史记录（开始同步时就创建）
       if (!skipHistory) {
-        await createHistoryItem(syncId, article, platforms)
+        await upsertHistoryItem(article, platforms)
       }
 
       const allResults: any[] = []
@@ -436,7 +442,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
 
       // 更新历史记录
       if (!skipHistory) {
-        await updateHistoryItem(syncId, finalStatus, allResults, allPlatformMetas)
+        await mergeHistoryItem(processedArticle, finalStatus, allResults, allPlatformMetas)
       }
 
       // 记录同步频率（统一在 background 记录，确保所有来源都被记录）
@@ -753,7 +759,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       await saveSyncState(syncState)
 
       // 创建历史记录（开始同步时就创建）
-      await createHistoryItem(syncId, article, platforms)
+      await upsertHistoryItem(article, platforms)
 
       const allResults: any[] = []
 
@@ -901,7 +907,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       })
 
       // 更新历史记录
-      await updateHistoryItem(syncId, finalStatus, allResults, allPlatformMetas)
+      await mergeHistoryItem(article, finalStatus, allResults, allPlatformMetas)
 
       // 记录同步频率（统一在 background 记录）
       const successfulPlatforms = allResults
@@ -1045,7 +1051,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
  */
 function createContextMenu() {
   chrome.contextMenus.create({
-    id: 'wechatsync-open-editor',
+    id: 'mediasync-open-editor',
     title: '同步助手 - 提取并编辑文章',
     contexts: ['page', 'selection'],
   })
@@ -1069,7 +1075,7 @@ function getCmsIcon(type: string): string {
  * 处理右键菜单点击
  */
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === 'wechatsync-open-editor' && tab?.id) {
+  if (info.menuItemId === 'mediasync-open-editor' && tab?.id) {
     try {
       // 获取 DSL 平台
       const dslPlatforms = await checkAllPlatformsAuth(false)
@@ -1146,7 +1152,7 @@ chrome.runtime.onInstalled.addListener(async details => {
       (previousVersion.startsWith('1.') && currentVersion.startsWith('2.'))
     ) {
       chrome.tabs.create({
-        url: 'https://www.wechatsync.com/changelog?from=' + previousVersion + '&to=' + currentVersion,
+        url: 'https://yjmm10.github.io/MediaSync/#changelog',
         active: true,
       })
     }
@@ -1155,7 +1161,7 @@ chrome.runtime.onInstalled.addListener(async details => {
   // 首次安装时打开欢迎页
   if (details.reason === 'install') {
     chrome.tabs.create({
-      url: 'https://www.wechatsync.com/?utm_source=extension&utm_medium=install',
+      url: 'https://yjmm10.github.io/MediaSync/?utm_source=extension&utm_medium=install',
       active: true,
     })
   }
@@ -1268,9 +1274,33 @@ clearOrphanedRules()
 
 logger.info('Service Worker started')
 
-// 最大历史记录数
-const MAX_HISTORY_ITEMS = 25
+// 应用侧边栏行为：点击扩展图标是否默认打开侧边栏（而非 popup）
+// 默认开启，可由设置页通过 SET_SIDE_PANEL_BEHAVIOR 消息切换
+async function applySidePanelBehavior() {
+  try {
+    const enabled = await applySidePanelBehaviorGet()
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: enabled })
+    logger.info('Side panel behavior applied:', enabled ? 'sidePanel' : 'popup')
+  } catch (e) {
+    logger.error('Failed to apply side panel behavior:', e)
+  }
+}
+async function applySidePanelBehaviorGet(): Promise<boolean> {
+  const r = await chrome.storage.local.get('sidePanelOnActionClick')
+  return r.sidePanelOnActionClick ?? true
+}
+applySidePanelBehavior()
 
+// 设置页切换时实时应用
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.sidePanelOnActionClick) {
+    chrome.sidePanel
+      .setPanelBehavior({ openPanelOnActionClick: changes.sidePanelOnActionClick.newValue ?? true })
+      .catch((e) => logger.error('Failed to update side panel behavior:', e))
+  }
+})
+
+// 同步结果（ActiveSyncState 使用；历史归档逻辑见 lib/history-doc.ts）
 interface SyncResult {
   platform: string
   platformName?: string
@@ -1278,130 +1308,4 @@ interface SyncResult {
   postUrl?: string
   draftOnly?: boolean
   error?: string
-}
-
-type SyncHistoryStatus = 'syncing' | 'completed' | 'failed' | 'cancelled'
-
-interface SyncHistoryItem {
-  id: string  // syncId
-  status: SyncHistoryStatus
-  title: string
-  cover?: string
-  platforms: string[]  // 选中的平台ID列表
-  results: SyncResult[]
-  startTime: number
-  endTime?: number
-}
-
-/**
- * 创建同步历史记录（开始同步时调用）
- */
-async function createHistoryItem(
-  syncId: string,
-  article: { title: string; cover?: string },
-  platforms: string[]
-): Promise<void> {
-  try {
-    const storage = await chrome.storage.local.get('syncHistory')
-    const existingHistory: SyncHistoryItem[] = storage.syncHistory || []
-
-    const historyItem: SyncHistoryItem = {
-      id: syncId,
-      status: 'syncing',
-      title: article.title || '未知文章',
-      cover: article.cover,
-      platforms,
-      results: [],
-      startTime: Date.now(),
-    }
-
-    // 添加到历史并限制数量
-    const newHistory = [historyItem, ...existingHistory].slice(0, MAX_HISTORY_ITEMS)
-    await chrome.storage.local.set({ syncHistory: newHistory })
-    logger.info('History created:', syncId, historyItem.title)
-  } catch (error) {
-    logger.error('Failed to create history:', error)
-  }
-}
-
-/**
- * 更新同步历史记录（同步完成/失败时调用）
- */
-async function updateHistoryItem(
-  syncId: string,
-  status: SyncHistoryStatus,
-  results: SyncResult[],
-  allPlatformMetas: Array<{ id: string; name: string }>
-): Promise<void> {
-  try {
-    const storage = await chrome.storage.local.get('syncHistory')
-    const existingHistory: SyncHistoryItem[] = storage.syncHistory || []
-
-    // 为结果添加平台名称
-    const resultsWithNames = results.map(r => ({
-      ...r,
-      platformName: r.platformName || allPlatformMetas.find(p => p.id === r.platform)?.name || r.platform,
-    }))
-
-    // 查找并更新历史条目
-    const updatedHistory = existingHistory.map(item => {
-      if (item.id === syncId) {
-        return {
-          ...item,
-          status,
-          results: resultsWithNames,
-          endTime: Date.now(),
-        }
-      }
-      return item
-    })
-
-    await chrome.storage.local.set({ syncHistory: updatedHistory })
-    logger.info('History updated:', syncId, status)
-  } catch (error) {
-    logger.error('Failed to update history:', error)
-  }
-}
-
-/**
- * 保存同步历史记录（兼容旧逻辑，开始时创建+完成时更新）
- * @deprecated Use createHistoryItem and updateHistoryItem instead
- */
-async function saveToHistory(
-  article: { title: string; cover?: string },
-  results: SyncResult[],
-  allPlatformMetas: Array<{ id: string; name: string }>
-): Promise<void> {
-  try {
-    // 为结果添加平台名称（保留已有的 platformName，如 CMS 平台）
-    const resultsWithNames = results.map(r => ({
-      ...r,
-      platformName: r.platformName || allPlatformMetas.find(p => p.id === r.platform)?.name || r.platform,
-    }))
-
-    // 读取现有历史
-    const storage = await chrome.storage.local.get('syncHistory')
-    const existingHistory: SyncHistoryItem[] = storage.syncHistory || []
-
-    // 创建新历史条目（兼容旧格式）
-    const historyItem: SyncHistoryItem = {
-      id: Date.now().toString(),
-      status: 'completed',
-      title: article.title || '未知文章',
-      cover: article.cover,
-      platforms: results.map(r => r.platform),
-      results: resultsWithNames,
-      startTime: Date.now(),
-      endTime: Date.now(),
-    }
-
-    // 添加到历史并限制数量
-    const newHistory = [historyItem, ...existingHistory].slice(0, MAX_HISTORY_ITEMS)
-
-    // 保存到 storage
-    await chrome.storage.local.set({ syncHistory: newHistory })
-    logger.info('History saved:', historyItem.title)
-  } catch (error) {
-    logger.error('Failed to save history:', error)
-  }
 }

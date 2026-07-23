@@ -58,5 +58,7 @@ export interface SyncDialogProps {
   // Optional
   onEditArticle?: () => void
   onClose?: () => void
+  /** 完成态时显示「继续同步其他平台」入口 */
+  onContinueSync?: () => void
   className?: string
 }

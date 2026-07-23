@@ -1,10 +1,10 @@
 {
-  "name": "@wechatsync/cli",
+  "name": "@mediasync/cli",
   "version": "1.1.0",
-  "description": "WechatSync CLI - 命令行同步文章到多个平台",
+  "description": "MediaSync CLI - 命令行同步文章到多个平台",
   "main": "dist/index.js",
   "bin": {
-    "wechatsync": "./dist/index.js"
+    "mediasync": "./dist/index.js"
   },
   "files": [
     "dist"
@@ -28,7 +28,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/yjmm10/Wechatsync"
+    "url": "https://github.com/yjmm10/MediaSync"
   },
   "author": "fun",
   "license": "MIT",
@@ -43,7 +43,7 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/ws": "^8.5.13",
-    "@wechatsync/mcp-server": "workspace:*",
+    "@mediasync/mcp-server": "workspace:*",
     "tsup": "^8.5.1",
     "typescript": "^5.7.2"
   }

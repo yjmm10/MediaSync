@@ -71,11 +71,10 @@ export function ArticleCard({ article, onEdit, compact }: ArticleCardProps) {
         {onEdit && (
           <button
             onClick={onEdit}
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors self-start"
+            className="flex-shrink-0 p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors self-start"
             title="同步前预览和调整内容"
           >
-            <Pencil className="w-3 h-3" />
-            <span>调整</span>
+            <Pencil className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
