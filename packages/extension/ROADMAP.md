@@ -1,4 +1,4 @@
-# WechatSync v2.0 Roadmap
+# MediaSync v2.0 Roadmap
 
 ## 🚀 功能增强
 

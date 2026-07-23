@@ -21,7 +21,7 @@ export function AboutPage() {
       <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8">
         {/* Logo & Title */}
         <img src="/assets/icon-128.png" alt="Logo" className="w-16 h-16 mb-3" />
-        <h2 className="text-lg font-semibold">文章同步助手</h2>
+        <h2 className="text-lg font-semibold">同步派</h2>
         <p className="text-sm text-muted-foreground mt-1">v{version}</p>
 
         {/* Description */}
@@ -32,7 +32,7 @@ export function AboutPage() {
         {/* Links */}
         <div className="flex flex-col gap-2 mt-6 w-full max-w-[240px]">
           <a
-            href="https://github.com/yjmm10/Wechatsync"
+            href="https://github.com/yjmm10/MediaSync"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
@@ -42,7 +42,7 @@ export function AboutPage() {
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
           </a>
           <a
-            href="https://www.wechatsync.com/?utm_source=extension_about"
+            href="https://yjmm10.github.io/MediaSync/?utm_source=extension_about"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
@@ -52,17 +52,17 @@ export function AboutPage() {
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
           </a>
           <a
-            href="https://fun0.netlify.app/about/?utm_source=wechatsync"
+            href="https://github.com/yjmm10"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
           >
             <Heart className="w-4 h-4 flex-shrink-0 text-red-400" />
-            <span className="flex-1">作者: fun</span>
+            <span className="flex-1">作者: lusca</span>
             <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
           </a>
           <a
-            href="https://txc.qq.com/products/105772"
+            href="https://github.com/yjmm10/MediaSync/issues"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"

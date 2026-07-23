@@ -1,7 +1,7 @@
 {
-  "name": "@wechatsync/core",
+  "name": "@mediasync/core",
   "version": "2.0.0",
-  "description": "WechatSync 核心逻辑 - 平台适配器、运行时抽象、同步引擎",
+  "description": "MediaSync 核心逻辑 - 平台适配器、运行时抽象、同步引擎",
   "main": "./src/index.ts",
   "module": "./src/index.ts",
   "types": "./src/index.ts",

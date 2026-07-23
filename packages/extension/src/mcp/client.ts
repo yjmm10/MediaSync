@@ -6,7 +6,7 @@ import {
   checkPlatformAuth,
   getAdapter,
 } from '../adapters'
-import { markdownToHtml } from '@wechatsync/core'
+import { markdownToHtml } from '@mediasync/core'
 import { createLogger } from '../lib/logger'
 import { performSync } from '../background/sync-service'
 

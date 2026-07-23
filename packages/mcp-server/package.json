@@ -1,7 +1,7 @@
 {
-  "name": "@wechatsync/mcp-server",
+  "name": "@mediasync/mcp-server",
   "version": "1.1.0",
-  "description": "MCP Server for WechatSync - bridges Claude Code with Chrome Extension",
+  "description": "MCP Server for MediaSync - bridges Claude Code with Chrome Extension",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
@@ -9,7 +9,7 @@
     "./bridge": "./dist/exports.js"
   },
   "bin": {
-    "wechatsync-mcp": "./dist/index.js"
+    "mediasync-mcp": "./dist/index.js"
   },
   "files": [
     "dist"
@@ -20,7 +20,7 @@
     "start": "node dist/index.js"
   },
   "keywords": [
-    "wechatsync",
+    "mediasync",
     "mcp",
     "claude",
     "websocket",
@@ -28,7 +28,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/yjmm10/Wechatsync"
+    "url": "https://github.com/yjmm10/MediaSync"
   },
   "author": "fun",
   "license": "MIT",

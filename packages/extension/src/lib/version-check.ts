@@ -7,7 +7,7 @@ import { createLogger } from './logger'
 
 const logger = createLogger('VersionCheck')
 
-const VERSION_CHECK_URL = 'https://wpics.oss-cn-shanghai.aliyuncs.com/wechatsync-version.json'
+const VERSION_CHECK_URL = 'https://wpics.oss-cn-shanghai.aliyuncs.com/mediasync-version.json'
 const CHECK_INTERVAL_HOURS = 24
 const STORAGE_KEY_LAST_CHECK = 'version_last_check'
 const STORAGE_KEY_UPDATE_INFO = 'version_update_info'

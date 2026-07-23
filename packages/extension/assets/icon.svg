@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#15803d"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角方形背景 -->
+  <rect width="512" height="512" rx="112" ry="112" fill="url(#bg)"/>
+  <!-- MediaSync 首字母 M，白色粗笔画 -->
+  <path d="M138 372 V168 L256 304 L374 168 V372"
+        fill="none" stroke="#ffffff" stroke-width="78"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- 左右两个同步节点圆点，暗示多平台分发 -->
+  <circle cx="138" cy="372" r="30" fill="#ffffff"/>
+  <circle cx="374" cy="372" r="30" fill="#ffffff"/>
+</svg>

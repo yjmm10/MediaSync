@@ -2,7 +2,7 @@ import { createLogger } from './logger'
 
 const logger = createLogger('RemoteConfig')
 
-const CONFIG_URL = 'https://wpics.oss-cn-shanghai.aliyuncs.com/wechatsync-config.json'
+const CONFIG_URL = 'https://wpics.oss-cn-shanghai.aliyuncs.com/mediasync-config.json'
 const STORAGE_KEY_BANNERS = 'remoteBanners'
 const STORAGE_KEY_LAST_FETCH = 'remoteBanners_lastFetch'
 const STORAGE_KEY_DISMISSED = 'dismissedBanners'

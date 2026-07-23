@@ -7,7 +7,7 @@ import {
   type PlatformMeta,
   type Article,
   type SyncResult,
-} from '@wechatsync/core'
+} from '@mediasync/core'
 import { createExtensionRuntime } from '../runtime/extension'
 import { createLogger } from '../lib/logger'
 import {
@@ -43,11 +43,11 @@ import {
   CnblogsAdapter,
   ZipDownloadAdapter,
   EastmoneyAdapter,
-} from '@wechatsync/core'
+} from '@mediasync/core'
 
 // 私有适配器 - private/ 目录通过 git submodule 管理
 const privateModules = import.meta.glob<Record<string, unknown>>(
-  '@wechatsync/core/adapters/platforms/private/*.ts',
+  '@mediasync/core/adapters/platforms/private/*.ts',
   { eager: true }
 )
 
@@ -117,7 +117,7 @@ const adapterEntries: AdapterEntry[] = ADAPTER_CLASSES.map(AdapterClass => {
   }
 })
 
-const logger = createLogger('WechatSync')
+const logger = createLogger('MediaSync')
 
 // 运行时实例
 const runtime = createExtensionRuntime()

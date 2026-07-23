@@ -1,6 +1,6 @@
-# WechatSync MCP Server
+# MediaSync MCP Server
 
-MCP Server for WechatSync - 连接 Claude Code 和 Chrome Extension，实现 AI 辅助文章同步。
+MCP Server for MediaSync - 连接 Claude Code 和 Chrome Extension，实现 AI 辅助文章同步。
 
 ## 架构
 
@@ -36,7 +36,7 @@ yarn build
   "mcpServers": {
     "sync-assistant": {
       "command": "node",
-      "args": ["/path/to/Wechatsync/packages/mcp-server/dist/index.js"],
+      "args": ["/path/to/MediaSync/packages/mcp-server/dist/index.js"],
       "env": {
         "MCP_TOKEN": "your-secret-token-here"
       }
@@ -130,7 +130,7 @@ yarn build
 
 ```bash
 # 监听模式
-yarn workspace @wechatsync/mcp-server dev
+yarn workspace @mediasync/mcp-server dev
 
 # 构建
 yarn build:mcp

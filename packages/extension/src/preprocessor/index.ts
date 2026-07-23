@@ -5,7 +5,7 @@
  * 处理完后 tab 自动关闭。
  */
 import { preprocessForPlatform, preprocessContentDOM, type PreprocessResult } from '../lib/content-processor'
-import { htmlToMarkdownNative, type PreprocessConfig } from '@wechatsync/core'
+import { htmlToMarkdownNative, type PreprocessConfig } from '@mediasync/core'
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'PREPROCESS_FOR_PLATFORMS') {

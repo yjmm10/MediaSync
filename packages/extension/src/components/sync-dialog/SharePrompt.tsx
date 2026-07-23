@@ -3,7 +3,7 @@ import { X, Star, Share2 } from 'lucide-react'
 
 const STORAGE_KEY = 'share_prompt_dismissed'
 const CHROME_STORE_URL = 'https://chromewebstore.google.com/detail/%E6%96%87%E7%AB%A0%E5%90%8C%E6%AD%A5%E5%8A%A9%E6%89%8B/hchobocdmclopcbnibdnoafilagadion/reviews'
-const SHARE_TEXT = '推荐一个开源免费的多平台文章同步工具，一键同步到知乎、掘金、头条、小红书等29+平台 https://www.wechatsync.com'
+const SHARE_TEXT = '推荐一个开源免费的多平台文章同步工具，一键同步到知乎、掘金、头条、小红书等29+平台 https://yjmm10.github.io/MediaSync'
 
 // 显示分享提示的里程碑次数
 const MILESTONES = [5, 20, 50]

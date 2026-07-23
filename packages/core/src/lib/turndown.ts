@@ -2,7 +2,7 @@
  * Turndown HTML→Markdown 转换工具
  *
  * 基于 turndown 库，添加表格和代码块扩展规则
- * 移植自旧版 @wechatsync/drivers/tools/turnDownExtend.js
+ * 移植自旧版 @mediasync/drivers/tools/turnDownExtend.js
  *
  * 架构说明:
  * - htmlToMarkdownNative: 使用原生 DOM，适用于 Content Script（推荐）

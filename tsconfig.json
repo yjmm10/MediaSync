@@ -18,8 +18,8 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@wechatsync/core": ["packages/core/src"],
-      "@wechatsync/core/*": ["packages/core/src/*"]
+      "@mediasync/core": ["packages/core/src"],
+      "@mediasync/core/*": ["packages/core/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]

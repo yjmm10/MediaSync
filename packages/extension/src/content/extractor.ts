@@ -13,7 +13,7 @@
  */
 
 import { extractArticle as extractWithReader, ReaderResult } from '../lib/reader'
-import { htmlToMarkdownNative, type PreprocessConfig } from '@wechatsync/core'
+import { htmlToMarkdownNative, type PreprocessConfig } from '@mediasync/core'
 import { createLogger } from '../lib/logger'
 import { preprocessContentDOM, preprocessForPlatform, backupAndSimplifyCodeBlocks, restoreCodeBlocks, type PreprocessResult } from '../lib/content-processor'
 import { createSyncFab } from '../lib/fab'
@@ -913,8 +913,8 @@ function injectFloatingButton() {
       chrome.runtime.sendMessage({ type: 'TRIGGER_OPEN_EDITOR' })
     },
   })
-  btn.id = 'wechatsync-floating-btn'
-  btn.setAttribute('data-wechatsync-ui', '')
+  btn.id = 'mediasync-floating-btn'
+  btn.setAttribute('data-mediasync-ui', '')
 
   document.body.appendChild(btn)
   floatingButton = btn as HTMLDivElement
@@ -949,7 +949,7 @@ chrome.storage.onChanged.addListener((changes) => {
 
 function showLoading(): { remove: () => void } {
   const overlay = document.createElement('div')
-  overlay.setAttribute('data-wechatsync-ui', '')
+  overlay.setAttribute('data-mediasync-ui', '')
   overlay.style.cssText = `
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     background: rgba(0,0,0,0.3); z-index: 2147483646;
@@ -983,8 +983,8 @@ function openEditor(article: ExtractedArticle, platforms: any[], selectedPlatfor
 
   // 创建全屏容器
   editorContainer = document.createElement('div')
-  editorContainer.id = 'wechatsync-editor-container'
-  editorContainer.setAttribute('data-wechatsync-ui', '')
+  editorContainer.id = 'mediasync-editor-container'
+  editorContainer.setAttribute('data-mediasync-ui', '')
   editorContainer.style.cssText = `
     position: fixed !important;
     top: 0 !important;

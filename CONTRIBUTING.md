@@ -18,7 +18,7 @@
 ## 开发步骤
 
 使用 yarn workspace 分包管理，项目核心代码在 `packages` 目录下
-- `@wechatsync/drivers`: 各平台发布 Driver 集合
+- `@mediasync/drivers`: 各平台发布 Driver 集合
 - `web-extension`: Chrome 插件
 - `markdown-editor`: 在线 Markdown 编辑器
 
@@ -59,7 +59,7 @@ yarn start
 
 ### Driver集合开发
 
-`packages/@wechatsync/drivers` 目录下直接开发即可
+`packages/@mediasync/drivers` 目录下直接开发即可
 
 ## 依赖管理
 
@@ -103,6 +103,6 @@ yarn add [repo-name]
   - web-extension
   - markdown-editor
   - driver-devtool
-  - @wechatsync/drivers
+  - @mediasync/drivers
   - empty
 - description: 简单描述该此提交，限制100个字符

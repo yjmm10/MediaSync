@@ -71,8 +71,8 @@ const mockAdapterRegistry = {
   runtime: null as any,
 }
 
-// Mock @wechatsync/core 模块
-vi.mock('@wechatsync/core', () => ({
+// Mock @mediasync/core 模块
+vi.mock('@mediasync/core', () => ({
   adapterRegistry: {
     setRuntime: vi.fn((runtime: any) => {
       mockAdapterRegistry.runtime = runtime

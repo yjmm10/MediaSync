@@ -22,7 +22,7 @@ export function createSyncFab(options: FabOptions): HTMLElement {
   const { onClick, bottom = '88px' } = options
 
   const btn = document.createElement('div')
-  btn.id = 'wechatsync-fab'
+  btn.id = 'mediasync-fab'
   btn.title = '同步文章'
   btn.style.cssText = `
     position: fixed !important;

@@ -1,8 +1,8 @@
-# 文章同步助手 (Wechatsync)
+# 同步派 (MediaSync)
 
-![](https://img.shields.io/github/v/release/yjmm10/Wechatsync.svg)
-![](https://img.shields.io/github/last-commit/yjmm10/Wechatsync)
-![](https://img.shields.io/github/issues/yjmm10/Wechatsync)
+![](https://img.shields.io/github/v/release/yjmm10/MediaSync.svg)
+![](https://img.shields.io/github/last-commit/yjmm10/MediaSync)
+![](https://img.shields.io/github/issues/yjmm10/MediaSync)
 
 **开源免费**的跨平台文章同步工具 | Chrome 浏览器扩展 | 自媒体内容分发神器
 
@@ -12,7 +12,7 @@
 
 ## 工作原理
 
-**文章同步助手不是爬虫，不模拟登录，不经过任何第三方服务器。**
+**同步派不是爬虫，不模拟登录，不经过任何第三方服务器。**
 
 它是一个 Chrome 浏览器扩展，工作方式与浏览器本身一致：
 
@@ -44,7 +44,7 @@
 
 **推荐**: [Chrome 网上应用店](https://chrome.google.com/webstore/detail/%E5%BE%AE%E4%BF%A1%E5%90%8C%E6%AD%A5%E5%8A%A9%E6%89%8B/hchobocdmclopcbnibdnoafilagadion) (自动更新)
 
-**手动安装**: 下载 [最新 Release](https://wpics.oss-cn-shanghai.aliyuncs.com/wechatsync-2.0.9.zip?date=20260324) 解压后加载到 Chrome 扩展
+**手动安装**: 下载 [最新 Release](https://wpics.oss-cn-shanghai.aliyuncs.com/mediasync-2.0.9.zip?date=20260324) 解压后加载到 Chrome 扩展
 
 支持 Chrome / Edge / 360 / QQ 等 Chromium 内核浏览器
 
@@ -93,22 +93,22 @@
 最简单的使用方式，无需配置 MCP，安装即用：
 
 ```bash
-npm install -g @wechatsync/cli
+npm install -g @mediasync/cli
 ```
 
 需要先安装 Chrome 扩展并在扩展设置中启用「MCP 连接」获取 Token，然后：
 
 ```bash
-export WECHATSYNC_TOKEN="你的token"
+export MEDIASYNC_TOKEN="你的token"
 
 # 同步文章到多个平台
-wechatsync sync article.md -p zhihu,juejin,csdn
+mediasync sync article.md -p zhihu,juejin,csdn
 
 # 查看平台登录状态
-wechatsync platforms --auth
+mediasync platforms --auth
 
 # 从浏览器当前页面提取文章
-wechatsync extract -o article.md
+mediasync extract -o article.md
 ```
 
 ### Claude Code Skill 集成
@@ -116,18 +116,18 @@ wechatsync extract -o article.md
 安装后可在 Claude Code 中直接用自然语言操作：
 
 ```bash
-/plugin marketplace add wechatsync
-/plugin install wechatsync
+/plugin marketplace add mediasync
+/plugin install mediasync
 ```
 
 然后直接说"把这篇文章同步到掘金和知乎"即可。
 
 ### OpenClaw 集成
 
-通过 [ClawHub](https://clawhub.ai/lljxx1/wechatsync) 技能市场一键安装：
+通过 [ClawHub](https://clawhub.ai/lljxx1/mediasync) 技能市场一键安装：
 
 ```bash
-clawhub install lljxx1/wechatsync
+clawhub install lljxx1/mediasync
 ```
 
 详细文档见 [packages/cli/README.md](packages/cli/README.md)
@@ -147,7 +147,7 @@ clawhub install lljxx1/wechatsync
   "mcpServers": {
     "sync-assistant": {
       "command": "node",
-      "args": ["/path/to/Wechatsync/packages/mcp-server/dist/index.js"],
+      "args": ["/path/to/MediaSync/packages/mcp-server/dist/index.js"],
       "env": {
         "MCP_TOKEN": "your-secret-token-here"
       }
@@ -194,7 +194,7 @@ window.syncPost(article)
 ### 项目结构
 
 ```
-Wechatsync/
+MediaSync/
 ├── packages/
 │   ├── extension/     # Chrome 扩展 (MV3)
 │   ├── mcp-server/    # MCP Server (stdio/SSE)
@@ -277,7 +277,7 @@ pnpm build
 
 **Q: 这是什么工具？**
 
-文章同步助手是一款开源免费的 Chrome 浏览器扩展，帮助自媒体作者、博主、内容创作者将文章一键同步到多个平台，避免重复复制粘贴，是自媒体运营必备的多平台发文工具。
+同步派是一款开源免费的 Chrome 浏览器扩展，帮助自媒体作者、博主、内容创作者将文章一键同步到多个平台，避免重复复制粘贴，是自媒体运营必备的多平台发文工具。
 
 **Q: 支持同步微信公众号文章吗？**
 
@@ -289,11 +289,11 @@ pnpm build
 
 **Q: 数据安全吗？会上传我的账号信息吗？**
 
-不会。所有操作在本地浏览器内完成，你的 Cookie、文章内容、账号信息不经过任何第三方服务器。代码完全开源，可自行审计：[查看源码](https://github.com/yjmm10/Wechatsync)
+不会。所有操作在本地浏览器内完成，你的 Cookie、文章内容、账号信息不经过任何第三方服务器。代码完全开源，可自行审计：[查看源码](https://github.com/yjmm10/MediaSync)
 
 **Q: 和微小宝、新媒体管家、简媒、蚁小二有什么区别？**
 
-文章同步助手是**开源免费**的，代码完全公开透明，无需付费订阅。作为浏览器扩展运行，数据本地存储，账号信息不上传，支持 MCP 协议可与 AI 工具集成。
+同步派是**开源免费**的，代码完全公开透明，无需付费订阅。作为浏览器扩展运行，数据本地存储，账号信息不上传，支持 MCP 协议可与 AI 工具集成。
 
 **Q: 如何同步文章到多个平台？**
 
