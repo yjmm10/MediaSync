@@ -1274,6 +1274,32 @@ clearOrphanedRules()
 
 logger.info('Service Worker started')
 
+// 应用侧边栏行为：点击扩展图标是否默认打开侧边栏（而非 popup）
+// 默认开启，可由设置页通过 SET_SIDE_PANEL_BEHAVIOR 消息切换
+async function applySidePanelBehavior() {
+  try {
+    const enabled = await applySidePanelBehaviorGet()
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: enabled })
+    logger.info('Side panel behavior applied:', enabled ? 'sidePanel' : 'popup')
+  } catch (e) {
+    logger.error('Failed to apply side panel behavior:', e)
+  }
+}
+async function applySidePanelBehaviorGet(): Promise<boolean> {
+  const r = await chrome.storage.local.get('sidePanelOnActionClick')
+  return r.sidePanelOnActionClick ?? true
+}
+applySidePanelBehavior()
+
+// 设置页切换时实时应用
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.sidePanelOnActionClick) {
+    chrome.sidePanel
+      .setPanelBehavior({ openPanelOnActionClick: changes.sidePanelOnActionClick.newValue ?? true })
+      .catch((e) => logger.error('Failed to update side panel behavior:', e))
+  }
+})
+
 // 同步结果（ActiveSyncState 使用；历史归档逻辑见 lib/history-doc.ts）
 interface SyncResult {
   platform: string

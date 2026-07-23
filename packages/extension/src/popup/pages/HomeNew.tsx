@@ -1,16 +1,24 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, Plus, Clock, X, Download, Info, PanelRight, FolderOpen } from 'lucide-react'
+import { Settings, Plus, Clock, X, Download, Info, PanelRight, FolderOpen, Eye, Loader2, Radar, RefreshCw } from 'lucide-react'
 import { useSyncStore } from '../stores/sync'
-import { SettingsDrawer } from '../components/SettingsDrawer'
 import { SyncDialog } from '@/components/sync-dialog'
 import type { Platform as DialogPlatform } from '@/components/sync-dialog'
 import { cn } from '@/lib/utils'
-import { trackPageView, trackFeatureDiscovery } from '../../lib/analytics'
+import { trackPageView } from '../../lib/analytics'
 import { createLogger } from '../../lib/logger'
 import { getCachedUpdateInfo, dismissUpdate, type UpdateCheckResult } from '../../lib/version-check'
+import { markdownToHtml } from '@mediasync/core'
 
 const logger = createLogger('HomeNew')
+
+/** 把文章渲染为 HTML：优先 html 字段；content 含标签视作 html；否则当 markdown 转换 */
+function articleToHtml(article: { html?: string; content?: string; markdown?: string }): string {
+  if (article.html) return article.html
+  const content = article.content || ''
+  if (/<[a-z][\s\S]*>/i.test(content)) return content
+  return markdownToHtml(article.markdown || content)
+}
 
 export function HomeNew() {
   const navigate = useNavigate()
@@ -23,6 +31,7 @@ export function HomeNew() {
     error,
 
     platformProgress,
+    imageUploadStage,
     recovered,
     loadPlatforms,
     loadArticle,
@@ -36,7 +45,6 @@ export function HomeNew() {
     checkRateLimit,
   } = useSyncStore()
 
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [rateLimitWarning, setRateLimitWarning] = useState<string | null>(null)
   const [allPlatforms, setAllPlatforms] = useState<DialogPlatform[]>([])
 
@@ -44,6 +52,9 @@ export function HomeNew() {
   const [floatingEnabled, setFloatingEnabled] = useState(false)
   const [isFirstSync, setIsFirstSync] = useState(false)
   const [showShareTip, setShowShareTip] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
+  const [previewTab, setPreviewTab] = useState<'render' | 'markdown'>('render')
+  const [realtimeDetect, setRealtimeDetect] = useState(true)
 
   // Load data
   useEffect(() => {
@@ -75,8 +86,60 @@ export function HomeNew() {
       }
     }
     init()
+    // 侧边栏由 popup 触发打开时，通过 pendingRoute 指定落地路由
+    chrome.storage.local.get('pendingRoute').then((r) => {
+      if (r.pendingRoute) {
+        navigate(r.pendingRoute as string)
+        chrome.storage.local.remove('pendingRoute').catch(() => {})
+      }
+    }).catch(() => {})
+
+    // 加载实时检测开关（与设置页共享 storage）
+    chrome.storage.local.get('realtimeDetect').then((r) => {
+      setRealtimeDetect(r.realtimeDetect ?? true)
+    }).catch(() => {})
+
     trackPageView('home').catch(() => {})
   }, [])
+
+  // 实时文章检测：切换标签页或「当前活动页」加载完成时，自动重新提取。
+  // 仅对「检测文章」生效；本地导入 / 已编辑文章锁定，不被覆盖。
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const trigger = async () => {
+      const src = useSyncStore.getState().article?.source
+      if (src === 'import' || src === 'edited') return
+      const r = await chrome.storage.local.get('realtimeDetect')
+      if (!(r.realtimeDetect ?? true)) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        // 定时触发时再次确认未锁定，避免导入/编辑竞态被冲掉
+        const src2 = useSyncStore.getState().article?.source
+        if (src2 === 'import' || src2 === 'edited') return
+        loadArticle().catch(() => {})
+      }, 500)
+    }
+    const onActivated = () => trigger()
+    const onUpdated = async (tabId: number, info: chrome.tabs.TabChangeInfo) => {
+      if (info.status !== 'complete') return
+      const [active] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (active?.id === tabId) trigger()
+    }
+    const onStorage = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
+      if (area === 'local' && changes.realtimeDetect) {
+        setRealtimeDetect(changes.realtimeDetect.newValue ?? true)
+      }
+    }
+    chrome.tabs.onActivated.addListener(onActivated)
+    chrome.tabs.onUpdated.addListener(onUpdated)
+    chrome.storage.onChanged.addListener(onStorage)
+    return () => {
+      if (timer) clearTimeout(timer)
+      chrome.tabs.onActivated.removeListener(onActivated)
+      chrome.tabs.onUpdated.removeListener(onUpdated)
+      chrome.storage.onChanged.removeListener(onStorage)
+    }
+  }, [loadArticle])
 
   const loadAllPlatforms = async () => {
     try {
@@ -93,18 +156,62 @@ export function HomeNew() {
     }
   }
 
-  // Open editor
-  const handleEditArticle = async () => {
+  const showOverlayToast = (msg: string) => {
+    setRateLimitWarning(msg)
+    setTimeout(() => setRateLimitWarning(null), 8000)
+  }
+
+  // 整页编辑/预览 overlay：正文走 storage，消息只传轻量元数据；不新开标签页
+  const openOverlay = async (mode: 'edit' | 'preview') => {
+    if (!article) return
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (tab?.id) {
-      chrome.tabs.sendMessage(tab.id, {
-        type: 'OPEN_EDITOR',
-        platforms: allPlatforms,
-        selectedPlatforms,
+    if (!tab?.id) {
+      showOverlayToast('无法获取当前标签页')
+      return
+    }
+    const url = tab.url || ''
+    if (!/^https?:/i.test(url)) {
+      showOverlayToast('请在普通网页上使用整页编辑/预览')
+      return
+    }
+    try {
+      await chrome.storage.local.set({
+        pendingEditorOpen: {
+          mode,
+          article: {
+            title: article.title,
+            html: articleToHtml(article),
+            markdown: article.markdown || '',
+            cover: article.cover,
+            source: { url, platform: '' },
+          },
+          ts: Date.now(),
+        },
       })
-      window.close()
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        type: 'OPEN_EDITOR',
+        mode,
+        fromStorage: true,
+        platforms: mode === 'edit' ? allPlatforms : [],
+        selectedPlatforms: mode === 'edit' ? selectedPlatforms : [],
+      })
+      if (!response?.success) {
+        showOverlayToast(response?.error || '无法打开整页，请刷新当前网页后重试')
+        return
+      }
+      if (mode === 'edit') {
+        useSyncStore.getState().updateArticle({ source: 'edited' })
+      }
+      if (!document.body.classList.contains('side-panel')) {
+        window.close()
+      }
+    } catch (e) {
+      logger.error('Failed to open overlay:', e)
+      showOverlayToast('无法打开整页，请刷新当前网页后重试')
     }
   }
+
+  const handleEditArticle = () => openOverlay('edit')
 
   // 在浏览器侧边栏打开（常驻显示，不因点击外部而关闭）
   const handleOpenSidePanel = async () => {
@@ -119,10 +226,40 @@ export function HomeNew() {
     window.close()
   }
 
-  // 打开本地 Markdown 导入页（popup 会因打开文件选择器失焦关闭，故在独立标签页处理）
-  const handleImportMarkdown = () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL('src/import-markdown/index.html') })
+  // 导入本地 Markdown：
+  // - 侧边栏中：直接进入 /import（侧边栏不会因文件选择器失焦关闭）
+  // - popup 中：打开侧边栏并带 pendingRoute 标记，让侧边栏落地后导航到 /import
+  const handleImportMarkdown = async () => {
+    if (document.body.classList.contains('side-panel')) {
+      navigate('/import')
+      return
+    }
+    try {
+      await chrome.storage.local.set({ pendingRoute: '/import' })
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tab?.windowId !== undefined) {
+        await chrome.sidePanel.open({ windowId: tab.windowId })
+      }
+    } catch (e) {
+      logger.error('Failed to open import in side panel:', e)
+    }
     window.close()
+  }
+
+  // 同步完成后追加平台：原地回到选择态（已成功平台自动排除但可重选）
+  const handleContinueSync = () => {
+    useSyncStore.getState().continueSync()
+  }
+
+  const handleOpenFullPreview = () => openOverlay('preview')
+
+  /** Logo：回主页；若当前为导入/编辑锁定，则强制重检当前页以切回网页检测 */
+  const handleLogoHome = () => {
+    navigate('/')
+    const src = useSyncStore.getState().article?.source
+    if (src === 'import' || src === 'edited') {
+      loadArticle({ force: true }).catch(() => {})
+    }
   }
 
   // Start sync with rate-limit check
@@ -142,8 +279,30 @@ export function HomeNew() {
       {/* Header */}
       <header className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b">
         <div className="flex items-center gap-2">
-          <img src="/assets/icon-48.png" alt="Logo" className="w-6 h-6" />
-          <h1 className="font-semibold">同步派</h1>
+          <button
+            type="button"
+            onClick={handleLogoHome}
+            className="flex items-center gap-2 rounded-lg hover:opacity-80 transition-opacity"
+            title="返回主页（导入/编辑锁定时点击可切回网页检测）"
+          >
+            <img src="/assets/icon-48.png" alt="Logo" className="w-6 h-6" />
+            <h1 className="font-semibold">同步派</h1>
+          </button>
+          {/* 实时检测开关（纯图标，独立于导航标签） */}
+          <button
+            onClick={() => {
+              const next = !realtimeDetect
+              setRealtimeDetect(next)
+              chrome.storage.local.set({ realtimeDetect: next })
+            }}
+            title={realtimeDetect ? '实时检测：开（切网页自动重新提取，点击关闭）' : '实时检测：关（仅打开时检测一次，点击开启）'}
+            className={cn(
+              'ml-1 p-1 rounded-full transition-colors',
+              realtimeDetect ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+            )}
+          >
+            <Radar className="w-3.5 h-3.5" />
+          </button>
         </div>
         <nav className="flex items-center gap-0.5">
           <button
@@ -184,10 +343,7 @@ export function HomeNew() {
             <span className="text-[10px] text-muted-foreground leading-none">关于</span>
           </button>
           <button
-            onClick={() => {
-              setSettingsOpen(true)
-              trackFeatureDiscovery('settings', 'header_icon').catch(() => {})
-            }}
+            onClick={() => navigate('/settings')}
             className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
           >
             <Settings className="w-3.5 h-3.5" />
@@ -279,6 +435,38 @@ export function HomeNew() {
         </div>
       )}
 
+      {/* 图床上传进度（同步前把本地图片 base64 上传到图床） */}
+      {imageUploadStage && (
+        <div className="mx-4 mt-2 p-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700 flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+          <span>
+            正在上传图片到「{platforms.find(p => p.id === imageUploadStage.host)?.name || imageUploadStage.host}」图床
+            {imageUploadStage.total > 0 ? ` ${imageUploadStage.done}/${imageUploadStage.total}` : ''}
+          </span>
+        </div>
+      )}
+
+      {/* 文章操作入口：切换来源（导入/编辑 → 重新检测当前页）与预览 */}
+      {article && (
+        <div className="px-4 py-1 flex items-center justify-between">
+          <button
+            onClick={() => loadArticle({ force: true })}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            title="放弃当前文章，重新检测当前页"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            检测当前页
+          </button>
+          <button
+            onClick={() => setShowPreview(true)}
+            className="flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            预览内容
+          </button>
+        </div>
+      )}
+
       {/* SyncDialog — the unified sync flow */}
       <SyncDialog
         article={article}
@@ -296,8 +484,74 @@ export function HomeNew() {
         onReset={reset}
         onCancel={reset}
         onEditArticle={handleEditArticle}
+        onContinueSync={handleContinueSync}
         className="flex-1 min-h-0"
       />
+
+      {/* 内容预览浮层 */}
+      {showPreview && article && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3"
+          onClick={() => setShowPreview(false)}
+        >
+          <div
+            className="bg-card rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-3 py-2 border-b">
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setPreviewTab('render')}
+                  className={`px-2.5 py-1 text-xs rounded ${previewTab === 'render' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
+                >
+                  渲染
+                </button>
+                <button
+                  onClick={() => setPreviewTab('markdown')}
+                  className={`px-2.5 py-1 text-xs rounded ${previewTab === 'markdown' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
+                >
+                  源码
+                </button>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleOpenFullPreview}
+                  title="在当前网页上整页预览（关闭后回到原页）"
+                  className="flex items-center gap-0.5 px-2 py-1 text-xs text-primary hover:bg-muted rounded"
+                >
+                  整页
+                </button>
+                <button onClick={() => setShowPreview(false)} title="关闭" className="p-1 rounded hover:bg-muted">
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto">
+              {previewTab === 'render' ? (
+                <div className="preview-article p-4" dangerouslySetInnerHTML={{ __html: articleToHtml(article) }} />
+              ) : (
+                <pre className="p-3 text-[11px] whitespace-pre-wrap break-all font-mono text-muted-foreground">
+                  {article.markdown || article.content || ''}
+                </pre>
+              )}
+            </div>
+          </div>
+          <style>{`
+            .preview-article { font-size: 13px; line-height: 1.7; color: #333; word-break: break-word; }
+            .preview-article p { margin: 0.8em 0; }
+            .preview-article h1, .preview-article h2, .preview-article h3 { margin: 1em 0 0.5em; font-weight: 600; }
+            .preview-article img { max-width: 100%; height: auto; margin: 1em 0; }
+            .preview-article pre { background: #f5f5f5; padding: 0.8em; border-radius: 6px; overflow-x: auto; font-size: 11px; }
+            .preview-article code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
+            .preview-article pre code { background: none; padding: 0; }
+            .preview-article blockquote { border-left: 3px solid #ddd; padding-left: 1em; color: #666; margin: 1em 0; }
+            .preview-article ul, .preview-article ol { padding-left: 1.5em; margin: 1em 0; }
+            .preview-article a { color: #2563eb; }
+            .preview-article table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+            .preview-article th, .preview-article td { border: 1px solid #ddd; padding: 6px 10px; }
+          `}</style>
+        </div>
+      )}
 
       {/* First sync success hint */}
       {status === 'completed' && isFirstSync && successCount > 0 && (
@@ -323,9 +577,6 @@ export function HomeNew() {
           </div>
         </div>
       )}
-
-      {/* Settings drawer */}
-      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {/* Rate limit warning (non-blocking toast) */}
       {rateLimitWarning && (

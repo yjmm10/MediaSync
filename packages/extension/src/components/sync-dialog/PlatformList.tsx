@@ -43,7 +43,7 @@ export function PlatformList({
   const handleOpenAllDrafts = () => {
     openUrlsInTabGroup(
       openableResults.map(r => r.postUrl!),
-      { title: '草稿', color: 'green' }
+      { title: '同步派', color: 'green' }
     )
   }
 
@@ -171,6 +171,7 @@ export function PlatformList({
                 isWaiting={isWaiting}
                 isInProgress={isInProgress}
                 result={result || null}
+                alreadySynced={isIdle && !!result?.success}
                 onToggle={() => onToggle(platform.id)}
               />
             )
@@ -186,6 +187,7 @@ export function PlatformList({
               isInProgress={isInProgress}
               result={result || null}
               progress={progress || null}
+              alreadySynced={isIdle && !!result?.success}
               onToggle={() => onToggle(platform.id)}
             />
           )
@@ -212,6 +214,7 @@ function PlatformGridCell({
   isWaiting,
   isInProgress,
   result,
+  alreadySynced,
   onToggle,
 }: {
   platform: Platform
@@ -220,11 +223,18 @@ function PlatformGridCell({
   isWaiting: boolean
   isInProgress: boolean
   result: SyncResult | null
+  alreadySynced: boolean
   onToggle: () => void
 }) {
   const isDone = !!result
 
   const handleClick = () => {
+    // 已同步（追加场景）：可重新勾选以强制重新同步；未勾选时不打开链接
+    if (alreadySynced) {
+      if (!isIdle) return
+      if (platform.isAuthenticated) onToggle()
+      return
+    }
     // 完成且成功：点击直接打开草稿/文章
     if (isDone && result?.success && result.postUrl) {
       chrome.tabs.create({ url: result.postUrl })
@@ -240,7 +250,9 @@ function PlatformGridCell({
 
   // 悬停提示：idle 显示用户名，completed 显示草稿/错误
   let title = platform.name
-  if (isIdle) {
+  if (alreadySynced) {
+    title = isSelected ? `${platform.name} · 将重新同步` : `${platform.name} · 已同步（点击重新同步）`
+  } else if (isIdle) {
     title = platform.isAuthenticated
       ? `${platform.name} · ${platform.username || '已登录'}`
       : `${platform.name} · 未登录，点击前往登录`
@@ -249,6 +261,8 @@ function PlatformGridCell({
       ? `${platform.name} · ${result.draftOnly ? '草稿' : '查看'}（点击打开）`
       : `${platform.name} · ${result.error || '失败'}`
   }
+
+  const syncedIdle = alreadySynced && !isSelected
 
   return (
     <div
@@ -259,8 +273,9 @@ function PlatformGridCell({
         isIdle && 'cursor-pointer hover:bg-muted/60',
         isIdle && platform.isAuthenticated && isSelected && 'bg-primary/5 ring-1 ring-primary',
         isIdle && !platform.isAuthenticated && 'opacity-50',
-        isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
-        isDone && result && !result.success && 'bg-red-50 dark:bg-red-950/20',
+        syncedIdle && 'opacity-50',
+        !syncedIdle && isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
+        !syncedIdle && isDone && result && !result.success && 'bg-red-50 dark:bg-red-950/20',
       )}
     >
       {/* 图标 + 状态角标 */}
@@ -271,20 +286,26 @@ function PlatformGridCell({
           className="w-6 h-6 rounded"
           onError={(e) => { (e.target as HTMLImageElement).src = '/assets/icon-48.png' }}
         />
-        {/* idle 已选中 */}
+        {/* idle 已选中（含已同步平台被用户重新勾选） */}
         {isIdle && platform.isAuthenticated && isSelected && (
           <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
             <Check className="w-2.5 h-2.5 text-white" />
           </span>
         )}
+        {/* 已同步但未勾选（追加场景）：灰✓ */}
+        {alreadySynced && !isSelected && (
+          <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-400 flex items-center justify-center ring-2 ring-background">
+            <Check className="w-2.5 h-2.5 text-white" />
+          </span>
+        )}
         {/* 完成成功 */}
-        {isDone && result?.success && (
+        {!alreadySynced && isDone && result?.success && (
           <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-green-500 flex items-center justify-center ring-2 ring-background">
             <Check className="w-2.5 h-2.5 text-white" />
           </span>
         )}
         {/* 完成失败 */}
-        {isDone && result && !result.success && (
+        {!alreadySynced && isDone && result && !result.success && (
           <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 flex items-center justify-center ring-2 ring-background">
             <X className="w-2.5 h-2.5 text-white" />
           </span>
@@ -318,6 +339,7 @@ function PlatformRow({
   isInProgress,
   result,
   progress,
+  alreadySynced,
   onToggle,
 }: {
   platform: Platform
@@ -327,18 +349,24 @@ function PlatformRow({
   isInProgress: boolean
   result: SyncResult | null
   progress: PlatformProgress | null
+  /** 继续同步/追加场景：该平台已成功同步过，置灰且不可重复勾选 */
+  alreadySynced: boolean
   onToggle: () => void
 }) {
   const isDone = !!result
 
   const handleClick = () => {
     if (!isIdle) return
+    // alreadySynced 可点击：取消/重新勾选（重新勾选 = 强制重新同步）
     if (platform.isAuthenticated) {
       onToggle()
     } else if (platform.homepage) {
       chrome.tabs.create({ url: platform.homepage })
     }
   }
+
+  // 未被用户勾选的已同步平台：浅灰（表示已同步，默认不再同步）
+  const syncedIdle = alreadySynced && !isSelected
 
   return (
     <div
@@ -348,8 +376,9 @@ function PlatformRow({
         isIdle && platform.isAuthenticated && 'cursor-pointer hover:bg-muted/60',
         isIdle && !platform.isAuthenticated && 'cursor-pointer opacity-50 hover:opacity-70',
         isIdle && isSelected && 'bg-primary/5',
-        isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
-        isDone && result && !result.success && 'bg-red-50 dark:bg-red-950/20',
+        syncedIdle && 'opacity-50',
+        !syncedIdle && isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
+        !syncedIdle && isDone && result && !result.success && 'bg-red-50 dark:bg-red-950/20',
       )}
     >
       {/* Status indicator */}
@@ -360,6 +389,7 @@ function PlatformRow({
         isWaiting={isWaiting}
         isInProgress={isInProgress}
         result={result}
+        alreadySynced={alreadySynced}
       />
 
       {/* Platform icon */}
@@ -383,6 +413,8 @@ function PlatformRow({
         isInProgress={isInProgress}
         result={result}
         progress={progress}
+        alreadySynced={alreadySynced}
+        isSelected={isSelected}
       />
     </div>
   )
@@ -397,6 +429,7 @@ function RowIndicator({
   isWaiting,
   isInProgress,
   result,
+  alreadySynced,
 }: {
   isIdle: boolean
   isSelected: boolean
@@ -404,7 +437,23 @@ function RowIndicator({
   isWaiting: boolean
   isInProgress: boolean
   result: SyncResult | null
+  alreadySynced: boolean
 }) {
+  if (alreadySynced) {
+    // 用户重新勾选的已同步平台：深色勾（将强制重新同步）；否则浅灰勾（仅提示已同步）
+    if (isSelected) {
+      return (
+        <div className="w-[18px] h-[18px] rounded border-2 bg-primary border-primary flex items-center justify-center flex-shrink-0" title="将重新同步">
+          <Check className="w-3 h-3 text-white" />
+        </div>
+      )
+    }
+    return (
+      <div className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-700/40 flex items-center justify-center flex-shrink-0" title="已同步（点击可重新同步）">
+        <Check className="w-3 h-3 text-gray-400 dark:text-gray-300" />
+      </div>
+    )
+  }
   if (result) {
     return result.success ? (
       <div className="w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
@@ -447,6 +496,8 @@ function RowInfo({
   isInProgress,
   result,
   progress,
+  alreadySynced,
+  isSelected,
 }: {
   platform: Platform
   isIdle: boolean
@@ -454,7 +505,18 @@ function RowInfo({
   isInProgress: boolean
   result: SyncResult | null
   progress: PlatformProgress | null
+  alreadySynced: boolean
+  isSelected: boolean
 }) {
+  // 追加同步场景：已同步过的平台
+  if (alreadySynced) {
+    return (
+      <span className="text-xs text-muted-foreground flex-shrink-0">
+        {isSelected ? '重新同步' : '已同步'}
+      </span>
+    )
+  }
+
   // Done
   if (result) {
     if (result.success && result.postUrl) {

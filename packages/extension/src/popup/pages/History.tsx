@@ -33,7 +33,8 @@ export function HistoryPage() {
 
   /**
    * 对已同步过的文档追加同步到更多平台：
-   * 把历史里的正文快照写入 storage，打开导入页（预加载该文档，跳过文件选择）。
+   * 把历史里的正文快照写入 storage，在侧边栏内进入导入页（预加载该文档），
+   * 复用导入同步流程选择追加平台。不再打开整页。
    */
   const continueSync = async (item: typeof history[number]) => {
     const markdown = item.markdown || item.html
@@ -51,9 +52,8 @@ export function HistoryPage() {
         excludePlatforms: (item.results || []).filter(r => r.success).map(r => r.platform),
       },
     })
-    chrome.tabs.create({
-      url: chrome.runtime.getURL('src/import-markdown/index.html'),
-    })
+    // 在当前窗口（侧边栏/popup）内导航到导入页
+    navigate('/import')
   }
 
   const formatTime = (timestamp: number) => {
@@ -206,7 +206,7 @@ export function HistoryPage() {
                     {draftUrls.length > 1 && (
                       <button
                         onClick={() => openUrlsInTabGroup(draftUrls, {
-                          title: item.title ? item.title.slice(0, 8) : '草稿',
+                          title: item.title ? item.title.slice(0, 8) : '同步派',
                           color: 'green',
                         })}
                         title={`在标签组中打开 ${draftUrls.length} 个草稿/文章链接`}

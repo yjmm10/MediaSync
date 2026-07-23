@@ -974,10 +974,10 @@ let editorContainer: HTMLDivElement | null = null
 /**
  * 打开编辑器
  */
-function openEditor(article: ExtractedArticle, platforms: any[], selectedPlatformIds?: string[]) {
+function openEditor(article: ExtractedArticle, platforms: any[], selectedPlatformIds?: string[], mode: 'edit' | 'preview' = 'edit') {
   if (editorContainer) {
     // 已经打开，重新发送数据
-    sendDataToEditor(article, platforms, selectedPlatformIds)
+    sendDataToEditor(article, platforms, selectedPlatformIds, mode)
     return
   }
 
@@ -1020,7 +1020,7 @@ function openEditor(article: ExtractedArticle, platforms: any[], selectedPlatfor
     try {
       const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
       if (data.type === 'EDITOR_READY') {
-        sendDataToEditor(article, platforms, selectedPlatformIds)
+        sendDataToEditor(article, platforms, selectedPlatformIds, mode)
         window.removeEventListener('message', handleEditorReady)
       }
     } catch (e) {
@@ -1033,15 +1033,17 @@ function openEditor(article: ExtractedArticle, platforms: any[], selectedPlatfor
 /**
  * 发送数据到编辑器
  */
-function sendDataToEditor(article: ExtractedArticle, platforms: any[], selectedPlatformIds?: string[]) {
+function sendDataToEditor(article: ExtractedArticle, platforms: any[], selectedPlatformIds?: string[], mode: 'edit' | 'preview' = 'edit') {
   if (!editorIframe?.contentWindow) return
 
   // 发送文章数据
   editorIframe.contentWindow.postMessage(JSON.stringify({
     type: 'ARTICLE_DATA',
+    mode,
     article: {
       title: article.title,
       content: article.html || article.markdown,
+      markdown: article.markdown,
       cover: article.cover,
       url: article.source.url,
       extractor: article.source.platform,
@@ -1110,6 +1112,12 @@ window.addEventListener('message', async (event) => {
     const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
 
     if (data.type === 'CLOSE_EDITOR') {
+      if (data.article) {
+        chrome.runtime.sendMessage({
+          type: 'EDITOR_ARTICLE_SAVED',
+          article: data.article,
+        }).catch(() => {})
+      }
       closeEditor()
     } else if (data.type === 'START_SYNC') {
       // 只处理来自编辑器的 START_SYNC，忽略来自 sync-dialog 的
@@ -1171,10 +1179,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // 复用按钮点击时已显示的 loading，否则新建
     const loading = pendingLoading || showLoading()
     pendingLoading = null
-    extractArticle().then(article => {
+    // fromStorage：正文经 storage 传递（避免大文章撑爆 sendMessage）
+    // message.article：兼容旧调用方；否则从当前页面提取
+    const prepare: Promise<any> = message.fromStorage
+      ? chrome.storage.local.get('pendingEditorOpen').then(async (r) => {
+          const payload = r.pendingEditorOpen as { article?: any } | undefined
+          await chrome.storage.local.remove('pendingEditorOpen').catch(() => {})
+          return payload?.article || null
+        })
+      : message.article
+        ? Promise.resolve(message.article as any)
+        : extractArticle()
+    prepare.then(article => {
       loading.remove()
       if (article) {
-        openEditor(article, message.platforms || [], message.selectedPlatforms || [])
+        openEditor(article, message.platforms || [], message.selectedPlatforms || [], message.mode || 'edit')
         sendResponse({ success: true })
       } else {
         sendResponse({ success: false, error: '无法提取文章内容' })
