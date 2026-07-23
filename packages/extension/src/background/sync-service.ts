@@ -13,6 +13,10 @@ import {
 import * as wordpressAdapter from '../adapters/cms/wordpress'
 import * as metaweblogAdapter from '../adapters/cms/metaweblog'
 import { createLogger } from '../lib/logger'
+import {
+  upsertHistoryItem,
+  mergeHistoryItem,
+} from '../lib/history-doc'
 
 const logger = createLogger('SyncService')
 
@@ -46,18 +50,6 @@ interface ActiveSyncState {
   startTime: number
 }
 
-// 历史记录项
-interface SyncHistoryItem {
-  id: string
-  status: SyncHistoryStatus
-  title: string
-  cover?: string
-  platforms: string[]
-  results: SyncResult[]
-  startTime: number
-  endTime?: number
-}
-
 // 同步配置
 interface SyncOptions {
   skipHistory?: boolean
@@ -72,7 +64,6 @@ export interface SyncProgressCallbacks {
 }
 
 const SYNC_STATE_KEY = 'activeSyncState'
-const MAX_HISTORY_ITEMS = 25
 
 // Badge 颜色
 const BADGE_COLORS = {
@@ -145,72 +136,6 @@ async function saveSyncState(state: ActiveSyncState) {
   await updateBadge(state)
 }
 
-/**
- * 创建同步历史记录
- */
-async function createHistoryItem(
-  syncId: string,
-  article: { title: string; cover?: string },
-  platforms: string[]
-): Promise<void> {
-  try {
-    const storage = await chrome.storage.local.get('syncHistory')
-    const existingHistory: SyncHistoryItem[] = storage.syncHistory || []
-
-    const historyItem: SyncHistoryItem = {
-      id: syncId,
-      status: 'syncing',
-      title: article.title || '未知文章',
-      cover: article.cover,
-      platforms,
-      results: [],
-      startTime: Date.now(),
-    }
-
-    const newHistory = [historyItem, ...existingHistory].slice(0, MAX_HISTORY_ITEMS)
-    await chrome.storage.local.set({ syncHistory: newHistory })
-    logger.info('History created:', syncId, historyItem.title)
-  } catch (error) {
-    logger.error('Failed to create history:', error)
-  }
-}
-
-/**
- * 更新同步历史记录
- */
-async function updateHistoryItem(
-  syncId: string,
-  status: SyncHistoryStatus,
-  results: SyncResult[],
-  allPlatformMetas: Array<{ id: string; name: string }>
-): Promise<void> {
-  try {
-    const storage = await chrome.storage.local.get('syncHistory')
-    const existingHistory: SyncHistoryItem[] = storage.syncHistory || []
-
-    const resultsWithNames = results.map(r => ({
-      ...r,
-      platformName: r.platformName || allPlatformMetas.find(p => p.id === r.platform)?.name || r.platform,
-    }))
-
-    const updatedHistory = existingHistory.map(item => {
-      if (item.id === syncId) {
-        return {
-          ...item,
-          status,
-          results: resultsWithNames,
-          endTime: Date.now(),
-        }
-      }
-      return item
-    })
-
-    await chrome.storage.local.set({ syncHistory: updatedHistory })
-    logger.info('History updated:', syncId, status)
-  } catch (error) {
-    logger.error('Failed to update history:', error)
-  }
-}
 
 /**
  * 执行文章同步
@@ -277,7 +202,7 @@ export async function performSync(
 
   // 创建历史记录
   if (!skipHistory) {
-    await createHistoryItem(syncId, normalizedArticle, platforms)
+    await upsertHistoryItem(normalizedArticle, platforms)
   }
 
   // 预处理内容（与 SYNC_ARTICLE 路径一致）
@@ -439,7 +364,7 @@ export async function performSync(
 
   // 更新历史记录
   if (!skipHistory) {
-    await updateHistoryItem(syncId, finalStatus, allResults, allPlatformMetas)
+    await mergeHistoryItem(processedArticle, finalStatus, allResults, allPlatformMetas)
   }
 
   return { results: allResults, syncId }

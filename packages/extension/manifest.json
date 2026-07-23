@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "文章同步助手",
+  "name": "同步派",
   "description": "一键同步文章到知乎、头条、掘金等 20+ 平台，支持 WordPress 等自建站",
   "version": "2.0.10",
   "icons": {
@@ -69,7 +69,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["assets/*", "src/editor/index.html", "src/sync-dialog/index.html", "inject-api.js"],
+      "resources": ["assets/*", "src/editor/index.html", "src/sync-dialog/index.html", "src/import-markdown/index.html", "inject-api.js"],
       "matches": ["<all_urls>"]
     }
   ]

@@ -10,6 +10,7 @@ import {
 } from '../../lib/analytics'
 import { checkSyncFrequency } from '../../lib/rate-limit'
 import { createLogger } from '../../lib/logger'
+import type { SyncHistoryItem } from '../../lib/history-doc'
 
 const logger = createLogger('SyncStore')
 
@@ -90,21 +91,6 @@ interface PlatformProgress {
   stage: SyncStage
   imageProgress?: { current: number; total: number }
   error?: string
-}
-
-type SyncHistoryStatus = 'syncing' | 'completed' | 'failed' | 'cancelled'
-
-interface SyncHistoryItem {
-  id: string  // syncId
-  status: SyncHistoryStatus
-  title: string
-  cover?: string
-  platforms: string[]  // 选中的平台ID列表
-  results: SyncResult[]
-  startTime: number
-  endTime?: number
-  // 兼容旧格式
-  timestamp?: number
 }
 
 interface SyncState {
@@ -478,9 +464,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
     try {
       // SYNC_ARTICLE 现在同时处理 DSL 和 CMS 平台
+      // 不再 skipHistory：新历史模型按文档归档，retry 会 upsert+merge 到同一条
       const response = await chrome.runtime.sendMessage({
         type: 'SYNC_ARTICLE',
-        payload: { article, platforms: failedPlatformIds, skipHistory: true, syncId },
+        payload: { article, platforms: failedPlatformIds, syncId },
       })
 
       const retryResults: SyncResult[] = response.results || []
@@ -493,18 +480,9 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
       const allResults = [...successResults, ...retryResultsWithNames]
 
-      // 更新历史记录中最新的条目 - 从 storage 读取
+      // 历史由 background 的 mergeHistoryItem 统一归档，这里只刷新显示
       const storage = await chrome.storage.local.get('syncHistory')
-      const existingHistory: SyncHistoryItem[] = storage.syncHistory || []
-      if (existingHistory.length > 0) {
-        const updatedHistory = [...existingHistory]
-        updatedHistory[0] = {
-          ...updatedHistory[0],
-          results: allResults,
-        }
-        await chrome.storage.local.set({ syncHistory: updatedHistory })
-        set({ history: updatedHistory })
-      }
+      set({ history: (storage.syncHistory as SyncHistoryItem[]) || [] })
 
       set({
         status: 'completed',

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, Plus, Clock, X, Download, Info, PanelRight } from 'lucide-react'
+import { Settings, Plus, Clock, X, Download, Info, PanelRight, FolderOpen } from 'lucide-react'
 import { useSyncStore } from '../stores/sync'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { SyncDialog } from '@/components/sync-dialog'
@@ -119,6 +119,12 @@ export function HomeNew() {
     window.close()
   }
 
+  // 打开本地 Markdown 导入页（popup 会因打开文件选择器失焦关闭，故在独立标签页处理）
+  const handleImportMarkdown = () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/import-markdown/index.html') })
+    window.close()
+  }
+
   // Start sync with rate-limit check
   const handleStartSync = async () => {
     const warning = await checkRateLimit()
@@ -137,7 +143,7 @@ export function HomeNew() {
       <header className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b">
         <div className="flex items-center gap-2">
           <img src="/assets/icon-48.png" alt="Logo" className="w-6 h-6" />
-          <h1 className="font-semibold">文章同步助手</h1>
+          <h1 className="font-semibold">同步派</h1>
         </div>
         <nav className="flex items-center gap-0.5">
           <button
@@ -147,6 +153,14 @@ export function HomeNew() {
           >
             <PanelRight className="w-3.5 h-3.5" />
             <span className="text-[10px] text-muted-foreground leading-none">侧栏</span>
+          </button>
+          <button
+            onClick={handleImportMarkdown}
+            title="导入本地 Markdown 文件"
+            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+            <span className="text-[10px] text-muted-foreground leading-none">导入</span>
           </button>
           <button
             onClick={() => navigate('/add-cms')}
@@ -241,7 +255,7 @@ export function HomeNew() {
               <br />
               如果你是开发者，欢迎参与进来{' '}
               <a
-                href="https://github.com/yjmm10/Wechatsync"
+                href="https://github.com/yjmm10/MediaSync"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
@@ -253,7 +267,7 @@ export function HomeNew() {
             <p className="text-xs text-muted-foreground text-right">
               by{' '}
               <a
-                href="https://fun0.netlify.app/about/?utm_source=wechatsync"
+                href="https://github.com/yjmm10"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
