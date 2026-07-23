@@ -1,8 +1,8 @@
 {
   "name": "@mediasync/extension",
-  "version": "2.0.10",
+  "version": "2.1.0",
   "private": true,
-  "description": "微信公众号同步助手 Chrome 扩展",
+  "description": "同步派（MediaSync）— 多平台文章一键同步 Chrome 扩展",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -26,7 +26,7 @@ export function AboutPage() {
 
         {/* Description */}
         <p className="text-sm text-muted-foreground text-center mt-4 leading-relaxed">
-          一键将文章同步到多个平台
+          开源免费的多平台文章同步工具。支持 29+ 平台一键分发、本地 Markdown 导入与浏览器侧栏常驻。
         </p>
 
         {/* Links */}

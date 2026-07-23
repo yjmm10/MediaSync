@@ -32,6 +32,9 @@
 
 - **一键批量发布**: 微信公众号文章同步到知乎、掘金、头条、CSDN、简书、微博、小红书、抖音等 29+ 自媒体平台
 - **网页转 Markdown**: 任意网页智能提取正文，自动过滤广告噪音，图片本地化，打包为 Markdown + 图片 ZIP 压缩包
+- **本地 Markdown 导入**: 选择含 `.md` 与本地图片的文件夹，预览后同步多平台
+- **历史按文档归档**: 同文合并、支持追加平台
+- **侧边栏模式**: 可设置点击图标直接打开侧栏，UI 常驻
 - **自建站支持**: WordPress、Typecho、博客园 (MetaWeblog API)
 - **智能提取**: 自动从网页提取文章标题、内容、封面图（基于 Safari 阅读模式）
 - **图片自动上传**: 自动转存文章图片到目标平台，无需手动处理
@@ -44,7 +47,7 @@
 
 **推荐**: [Chrome 网上应用店](https://chrome.google.com/webstore/detail/%E5%BE%AE%E4%BF%A1%E5%90%8C%E6%AD%A5%E5%8A%A9%E6%89%8B/hchobocdmclopcbnibdnoafilagadion) (自动更新)
 
-**手动安装**: 下载 [最新 Release](https://wpics.oss-cn-shanghai.aliyuncs.com/mediasync-2.0.9.zip?date=20260324) 解压后加载到 Chrome 扩展
+**手动安装**: 下载 [最新 Release](https://github.com/yjmm10/MediaSync/releases) 解压后加载到 Chrome 扩展
 
 支持 Chrome / Edge / 360 / QQ 等 Chromium 内核浏览器
 
@@ -218,6 +221,14 @@ pnpm build
 然后在 Chrome 中加载 `packages/extension/dist` 目录。
 
 ## 更新日志
+
+### v2.1.0 (2026-07-23)
+
+- 🆕 本地 Markdown 文件夹导入（本地图片、预览、继续同步）
+- 🆕 历史按文档归档（同文合并、追加同步）
+- 🆕 侧边栏行为设置（点击图标可直接打开侧栏）
+- 🆕 编辑器增强（编辑/预览、防抖回写、本地下载）
+- 🔧 实时检测状态反馈与设置优化
 
 ### v2.0.10 (2026-07-22)
 

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（无需 v 前缀，如 2.0.10）。留空则读取扩展 manifest 的 version。'
+        description: '版本号（无需 v 前缀，如 2.1.0）。留空则读取扩展 manifest 的 version。'
         required: false
 
 permissions:
