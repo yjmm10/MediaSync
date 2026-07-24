@@ -1,8 +1,22 @@
 import { useState, useEffect } from 'react'
-import { Check, X, Loader2, ExternalLink, ChevronRight, LayoutGrid, List } from 'lucide-react'
+import type { DragEvent } from 'react'
+import { Check, X, Loader2, ExternalLink, ChevronRight, LayoutGrid, List, GripVertical } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { openUrlsInTabGroup } from '@/lib/tabs'
 import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './types'
+
+const PLATFORM_ORDER_KEY = 'platformOrder'
+
+/** 按自定义顺序排列平台；未记录在 order 中的保持相对顺序追加在后 */
+function sortByOrder<T extends { id: string }>(list: T[], order: string[]): T[] {
+  if (order.length === 0) return list
+  const indexMap = new Map<string, number>()
+  order.forEach((id, i) => indexMap.set(id, i))
+  const pinned = list.filter(p => indexMap.has(p.id))
+  const rest = list.filter(p => !indexMap.has(p.id))
+  pinned.sort((a, b) => (indexMap.get(a.id)!) - (indexMap.get(b.id)!))
+  return [...pinned, ...rest]
+}
 
 interface PlatformListProps {
   platforms: Platform[]
@@ -60,9 +74,36 @@ export function PlatformList({
     chrome.storage.local.set({ platformViewMode: next })
   }
 
-  // Idle: show all (authenticated first), syncing/completed: only selected
+  // 自定义平台排序（仅 idle + 列表视图可拖拽；顺序持久化到 storage）
+  const [platformOrder, setPlatformOrder] = useState<string[]>([])
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
+  useEffect(() => {
+    chrome.storage.local.get(PLATFORM_ORDER_KEY).then(r => {
+      if (Array.isArray(r[PLATFORM_ORDER_KEY])) setPlatformOrder(r[PLATFORM_ORDER_KEY])
+    })
+  }, [])
+  const persistOrder = (next: string[]) => {
+    setPlatformOrder(next)
+    chrome.storage.local.set({ [PLATFORM_ORDER_KEY]: next })
+  }
+  // 把当前拖动的平台移到目标平台的位置（drop 时单次触发，避免抖动）
+  const handleReorder = (targetId: string) => {
+    if (!dragId || dragId === targetId) return
+    const ordered = sortByOrder(authenticatedPlatforms, platformOrder)
+    const fromIdx = ordered.findIndex(p => p.id === dragId)
+    const toIdx = ordered.findIndex(p => p.id === targetId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const next = [...ordered]
+    const [moved] = next.splice(fromIdx, 1)
+    next.splice(toIdx, 0, moved)
+    persistOrder(next.map(p => p.id))
+  }
+  const canDrag = isIdle && viewMode === 'list'
+
+  // Idle: show all (authenticated first, 按自定义排序), syncing/completed: only selected
   const visiblePlatforms = isIdle
-    ? [...authenticatedPlatforms, ...unauthenticatedPlatforms]
+    ? [...sortByOrder(authenticatedPlatforms, platformOrder), ...unauthenticatedPlatforms]
     : selectedPlatforms
         .map(id => platforms.find(p => p.id === id))
         .filter(Boolean) as Platform[]
@@ -189,6 +230,14 @@ export function PlatformList({
               progress={progress || null}
               alreadySynced={isIdle && !!result?.success}
               onToggle={() => onToggle(platform.id)}
+              draggable={canDrag}
+              isDragging={dragId === platform.id}
+              isDragOver={overId === platform.id}
+              onDragStart={() => { setDragId(platform.id); setOverId(null) }}
+              onDragEnter={() => setOverId(platform.id)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleReorder(platform.id)}
+              onDragEnd={() => { setDragId(null); setOverId(null) }}
             />
           )
         })}
@@ -341,6 +390,14 @@ function PlatformRow({
   progress,
   alreadySynced,
   onToggle,
+  draggable,
+  isDragging,
+  isDragOver,
+  onDragStart,
+  onDragEnter,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   platform: Platform
   isSelected: boolean
@@ -352,6 +409,14 @@ function PlatformRow({
   /** 继续同步/追加场景：该平台已成功同步过，置灰且不可重复勾选 */
   alreadySynced: boolean
   onToggle: () => void
+  draggable?: boolean
+  isDragging?: boolean
+  isDragOver?: boolean
+  onDragStart?: (e: DragEvent<HTMLDivElement>) => void
+  onDragEnter?: (e: DragEvent<HTMLDivElement>) => void
+  onDragOver?: (e: DragEvent<HTMLDivElement>) => void
+  onDrop?: (e: DragEvent<HTMLDivElement>) => void
+  onDragEnd?: (e: DragEvent<HTMLDivElement>) => void
 }) {
   const isDone = !!result
 
@@ -371,16 +436,31 @@ function PlatformRow({
   return (
     <div
       onClick={handleClick}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      title={draggable ? `${platform.name} · 可拖动排序` : undefined}
       className={cn(
         'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-200',
         isIdle && platform.isAuthenticated && 'cursor-pointer hover:bg-muted/60',
         isIdle && !platform.isAuthenticated && 'cursor-pointer opacity-50 hover:opacity-70',
         isIdle && isSelected && 'bg-primary/5',
         syncedIdle && 'opacity-50',
+        draggable && 'cursor-grab active:cursor-grabbing',
+        isDragging && 'opacity-40',
+        isDragOver && 'ring-2 ring-primary/50',
         !syncedIdle && isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
         !syncedIdle && isDone && result && !result.success && 'bg-red-50 dark:bg-red-950/20',
       )}
     >
+      {/* 拖拽手柄（仅 idle 列表视图） */}
+      {draggable && (
+        <GripVertical className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
+      )}
+
       {/* Status indicator */}
       <RowIndicator
         isIdle={isIdle}

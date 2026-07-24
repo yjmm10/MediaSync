@@ -96,6 +96,11 @@
     td code { background: var(--code-bg); padding: 2px 7px; border-radius: 5px; font-size: 12px; color: #374151; }
     .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; background: var(--bg-soft); color: var(--muted); }
     .new { color: var(--green); font-weight: 600; }
+    .md-full { color: var(--green); font-weight: 600; white-space: nowrap; }
+    .md-partial { color: #b45309; white-space: nowrap; }
+    .md-weak { color: var(--muted); white-space: nowrap; }
+    .legend { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; margin-top: 16px; font-size: 13px; color: var(--muted); }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
 
     /* Authors */
     .authors { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
@@ -230,41 +235,46 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>平台</th><th>ID</th><th>类型</th><th>状态</th></tr></thead>
+          <thead><tr><th>平台</th><th>ID</th><th>类型</th><th>Markdown</th><th>状态</th></tr></thead>
           <tbody>
-            <tr><td>微信公众号</td><td><code>weixin</code></td><td><span class="tag">主流自媒体</span></td><td>✅</td></tr>
-            <tr><td>知乎</td><td><code>zhihu</code></td><td><span class="tag">主流自媒体</span></td><td>✅</td></tr>
-            <tr><td>微博</td><td><code>weibo</code></td><td><span class="tag">主流自媒体</span></td><td>✅</td></tr>
-            <tr><td>小红书</td><td><code>xiaohongshu</code></td><td><span class="tag">主流自媒体</span></td><td>✅</td></tr>
-            <tr><td>抖音图文</td><td><code>douyin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="new">✅ 🆕</span></td></tr>
-            <tr><td>掘金</td><td><code>juejin</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
-            <tr><td>CSDN</td><td><code>csdn</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
-            <tr><td>简书</td><td><code>jianshu</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>头条号</td><td><code>toutiao</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>B 站专栏</td><td><code>bilibili</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>百家号</td><td><code>baijiahao</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>语雀</td><td><code>yuque</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
-            <tr><td>豆瓣</td><td><code>douban</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>搜狐号</td><td><code>sohu</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>雪球</td><td><code>xueqiu</code></td><td><span class="tag">财经</span></td><td>✅</td></tr>
-            <tr><td>东方财富</td><td><code>eastmoney</code></td><td><span class="tag">财经</span></td><td>✅</td></tr>
-            <tr><td>人人都是产品经理</td><td><code>woshipm</code></td><td><span class="tag">产品</span></td><td>✅</td></tr>
-            <tr><td>大鱼号</td><td><code>dayu</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>一点号</td><td><code>yidian</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>51CTO</td><td><code>51cto</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
-            <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
-            <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
-            <tr><td>SegmentFault</td><td><code>segmentfault</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
-            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td>✅</td></tr>
-            <tr><td>搜狐焦点</td><td><code>sohufocus</code></td><td><span class="tag">房产</span></td><td>✅</td></tr>
-            <tr><td>什么值得买</td><td><code>smzdm</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>网易号</td><td><code>netease</code></td><td><span class="tag">通用</span></td><td>✅</td></tr>
-            <tr><td>X (Twitter)</td><td><code>x</code></td><td><span class="tag">海外</span></td><td>✅</td></tr>
-            <tr><td>WordPress</td><td><code>wordpress</code></td><td><span class="tag">建站/CMS</span></td><td>✅</td></tr>
-            <tr><td>Typecho</td><td><code>typecho</code></td><td><span class="tag">建站/CMS</span></td><td>✅</td></tr>
-            <tr><td>Hexo / Hugo</td><td><code>zip-download</code></td><td><span class="tag">建站/CMS</span></td><td>✅ Markdown 下载</td></tr>
+            <tr><td>微信公众号</td><td><code>weixin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>知乎</td><td><code>zhihu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>微博</td><td><code>weibo</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>✅</td></tr>
+            <tr><td>小红书</td><td><code>xiaohongshu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>✅</td></tr>
+            <tr><td>抖音图文</td><td><code>douyin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td><span class="new">✅ 🆕</span></td></tr>
+            <tr><td>掘金</td><td><code>juejin</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>CSDN</td><td><code>csdn</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>简书</td><td><code>jianshu</code></td><td><span class="tag">通用</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>头条号</td><td><code>toutiao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>B 站专栏</td><td><code>bilibili</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>百家号</td><td><code>baijiahao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>语雀</td><td><code>yuque</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>豆瓣</td><td><code>douban</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>搜狐号</td><td><code>sohu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>雪球</td><td><code>xueqiu</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>东方财富</td><td><code>eastmoney</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>人人都是产品经理</td><td><code>woshipm</code></td><td><span class="tag">产品</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>大鱼号</td><td><code>dayu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>一点号</td><td><code>yidian</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>51CTO</td><td><code>51cto</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>SegmentFault</td><td><code>segmentfault</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>搜狐焦点</td><td><code>sohufocus</code></td><td><span class="tag">房产</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>什么值得买</td><td><code>smzdm</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>网易号</td><td><code>netease</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>X (Twitter)</td><td><code>x</code></td><td><span class="tag">海外</span></td><td><span class="md-weak">⚪ 弱</span></td><td>✅</td></tr>
+            <tr><td>WordPress</td><td><code>wordpress</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>Typecho</td><td><code>typecho</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
+            <tr><td>Hexo / Hugo</td><td><code>zip-download</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>✅ Markdown 下载</td></tr>
           </tbody>
         </table>
+      </div>
+      <div class="legend">
+        <span><b style="color:var(--green)">✅ 完整</b>：原生 Markdown，代码块 / 表格 / 标题 / 列表全保留</span>
+        <span><b style="color:#b45309">🟡 部分</b>：富文本，代码块或表格会被降级（转文本 / 换行调整）</span>
+        <span><b style="color:var(--muted)">⚪ 弱</b>：短内容 / 图文平台，不适合长文 Markdown</span>
       </div>
       <p style="margin-top:16px;text-align:center"><a href="https://github.com/yjmm10/MediaSync/issues" target="_blank" rel="noopener">需要支持新平台？提个 Issue →</a></p>
     </section>
@@ -313,7 +323,16 @@
       </div>
       <div class="releases">
         <div class="release">
-          <h3>v2.1.1 <span class="ver-tag">最新</span></h3>
+          <h3>v2.1.2 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-07-24</div>
+          <ul>
+            <li>🆕 平台列表支持拖拽排序（列表视图下长按拖动，顺序持久化保存）</li>
+            <li>🆕 平台表新增「Markdown 支持程度」标注（完整 / 部分 / 弱三档）</li>
+            <li>🔧 简书适配器重构为纯 API 模式（Service Worker 直连）</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.1</h3>
           <div class="date">2026-07-24</div>
           <ul>
             <li>🆕 新增大鱼号、网易号、简书平台适配（纯 API 草稿同步）</li>

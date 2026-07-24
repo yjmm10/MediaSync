@@ -34,6 +34,8 @@
 - **网页转 Markdown**: 任意网页智能提取正文，自动过滤广告噪音，图片本地化，打包为 Markdown + 图片 ZIP 压缩包
 - **本地 Markdown 导入**: 选择含 `.md` 与本地图片的文件夹，预览后同步多平台
 - **历史按文档归档**: 同文合并、支持追加平台
+- **平台拖拽排序**: 列表视图下长按拖动平台即可调整顺序，顺序持久化保存
+- **Markdown 支持标注**: 平台表标注各平台对 Markdown 语法的支持程度（完整 / 部分 / 弱）
 - **侧边栏模式**: 可设置点击图标直接打开侧栏，UI 常驻
 - **自建站支持**: WordPress、Typecho、博客园 (MetaWeblog API)
 - **智能提取**: 自动从网页提取文章标题、内容、封面图（基于 Safari 阅读模式）
@@ -54,40 +56,42 @@
 
 ## 支持 29+ 主流平台
 
-| 平台 | ID | 类型 | 状态 |
-|-----|-----|-----|-----|
-| 微信公众号 | weixin | 主流自媒体 | ✅ |
-| 知乎 | zhihu | 主流自媒体 | ✅ |
-| 微博 | weibo | 主流自媒体 | ✅ |
-| 小红书 | xiaohongshu | 主流自媒体 | ✅ |
-| 掘金 | juejin | 技术社区 | ✅ |
-| CSDN | csdn | 技术社区 | ✅ |
-| 简书 | jianshu | 通用 | ✅ 🆕 |
-| 头条号 | toutiao | 通用 | ✅ |
-| 抖音图文 | douyin | 主流自媒体 | ✅ 🆕 |
-| B站专栏 | bilibili | 通用 | ✅ |
-| 百家号 | baijiahao | 通用 | ✅ |
-| 语雀 | yuque | 技术社区 | ✅ |
-| 豆瓣 | douban | 通用 | ✅ |
-| 搜狐号 | sohu | 通用 | ✅ |
-| 雪球 | xueqiu | 财经 | ✅ |
-| 人人都是产品经理 | woshipm | 产品 | ✅ |
-| 大鱼号 | dayu | 通用 | ✅ 🆕 |
-| 一点号 | yidian | 通用 | ✅ |
-| 51CTO | 51cto | 技术社区 | ✅ |
-| 慕课网 | imooc | 技术社区 | ✅ |
-| 开源中国 | oschina | 技术社区 | ✅ |
-| SegmentFault | segmentfault | 技术社区 | ✅ |
-| 博客园 | cnblogs | 技术社区 | ✅ |
-| 搜狐焦点 | sohufocus | 房产 | ✅ |
-| X (Twitter) | x | 海外 | ✅ |
-| 东方财富 | eastmoney | 财经 | ✅ |
-| 什么值得买 | smzdm | 通用 | ✅ |
-| 网易号 | netease | 通用 | ✅ 🆕 |
-| WordPress | wordpress | 建站/CMS | ✅ |
-| Typecho | typecho | 建站/CMS | ✅ |
-| Hexo | zip-download | 建站/CMS | ✅ 通过 Markdown 下载 |
-| Hugo | zip-download | 建站/CMS | ✅ 通过 Markdown 下载 |
+| 平台 | ID | 类型 | Markdown | 状态 |
+|-----|-----|-----|-----|-----|
+| 微信公众号 | weixin | 主流自媒体 | 🟡 部分 | ✅ |
+| 知乎 | zhihu | 主流自媒体 | ✅ 完整 | ✅ |
+| 微博 | weibo | 主流自媒体 | ⚪ 弱 | ✅ |
+| 小红书 | xiaohongshu | 主流自媒体 | ⚪ 弱 | ✅ |
+| 掘金 | juejin | 技术社区 | ✅ 完整 | ✅ |
+| CSDN | csdn | 技术社区 | ✅ 完整 | ✅ |
+| 简书 | jianshu | 通用 | ✅ 完整 | ✅ 🆕 |
+| 头条号 | toutiao | 通用 | 🟡 部分 | ✅ |
+| 抖音图文 | douyin | 主流自媒体 | ⚪ 弱 | ✅ 🆕 |
+| B站专栏 | bilibili | 通用 | 🟡 部分 | ✅ |
+| 百家号 | baijiahao | 通用 | 🟡 部分 | ✅ |
+| 语雀 | yuque | 技术社区 | ✅ 完整 | ✅ |
+| 豆瓣 | douban | 通用 | 🟡 部分 | ✅ |
+| 搜狐号 | sohu | 通用 | 🟡 部分 | ✅ |
+| 雪球 | xueqiu | 财经 | 🟡 部分 | ✅ |
+| 人人都是产品经理 | woshipm | 产品 | 🟡 部分 | ✅ |
+| 大鱼号 | dayu | 通用 | 🟡 部分 | ✅ 🆕 |
+| 一点号 | yidian | 通用 | 🟡 部分 | ✅ |
+| 51CTO | 51cto | 技术社区 | ✅ 完整 | ✅ |
+| 慕课网 | imooc | 技术社区 | ✅ 完整 | ✅ |
+| 开源中国 | oschina | 技术社区 | ✅ 完整 | ✅ |
+| SegmentFault | segmentfault | 技术社区 | ✅ 完整 | ✅ |
+| 博客园 | cnblogs | 技术社区 | ✅ 完整 | ✅ |
+| 搜狐焦点 | sohufocus | 房产 | 🟡 部分 | ✅ |
+| X (Twitter) | x | 海外 | ⚪ 弱 | ✅ |
+| 东方财富 | eastmoney | 财经 | 🟡 部分 | ✅ |
+| 什么值得买 | smzdm | 通用 | 🟡 部分 | ✅ |
+| 网易号 | netease | 通用 | 🟡 部分 | ✅ 🆕 |
+| WordPress | wordpress | 建站/CMS | ✅ 完整 | ✅ |
+| Typecho | typecho | 建站/CMS | ✅ 完整 | ✅ |
+| Hexo | zip-download | 建站/CMS | ✅ 完整 | ✅ 通过 Markdown 下载 |
+| Hugo | zip-download | 建站/CMS | ✅ 完整 | ✅ 通过 Markdown 下载 |
+
+> **Markdown 支持程度**：✅ 完整 = 原生 Markdown，代码块 / 表格 / 标题 / 列表全保留；🟡 部分 = 富文本编辑器，代码块或表格会被降级（转文本 / 换行调整）；⚪ 弱 = 短内容 / 图文平台，不适合长文 Markdown。详见 [站点平台表](https://yjmm10.github.io/MediaSync/#platforms)。
 
 - [提交新平台请求](https://airtable.com/shrLSJMnTC2BlmP29)
 
@@ -221,6 +225,12 @@ pnpm build
 然后在 Chrome 中加载 `packages/extension/dist` 目录。
 
 ## 更新日志
+
+### v2.1.2 (2026-07-24)
+
+- 🆕 平台列表支持拖拽排序（列表视图下长按拖动平台行调整顺序，持久化保存）
+- 🆕 站点平台表新增「Markdown 支持程度」标注（完整 / 部分 / 弱），README 同步说明
+- 🔧 简书适配器重构为纯 API 模式
 
 ### v2.1.1 (2026-07-24)
 
