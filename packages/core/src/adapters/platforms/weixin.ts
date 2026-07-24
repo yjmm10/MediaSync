@@ -6,6 +6,7 @@ import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
 import type { PublishOptions } from '../types'
 import { createLogger } from '../../lib/logger'
 import juice from 'juice'
+import { normalizeWeixinHtml } from './weixin-html'
 
 const logger = createLogger('Weixin')
 
@@ -25,6 +26,9 @@ p {
   font-size: 15px;
   line-height: 1.75em;
   margin: 0 0 1em 0;
+  word-break: normal;
+  overflow-wrap: break-word;
+  line-break: strict;
 }
 h1, h2, h3, h4, h5, h6 {
   font-weight: bold;
@@ -161,6 +165,7 @@ export class WeixinAdapter extends CodeAdapter {
             onProgress: options?.onImageProgress,
           }
         )
+        content = normalizeWeixinHtml(content)
         content = this.processContent(content)
       }
 
@@ -345,7 +350,7 @@ export class WeixinAdapter extends CodeAdapter {
   }
 
   private processContent(content: string): string {
-    const wrapped = `<section style="margin-left: 6px; margin-right: 6px; line-height: 1.75em;">${content}</section>`
+    const wrapped = `<section style="margin-left: 6px; margin-right: 6px; line-height: 1.75em; word-break: normal; overflow-wrap: break-word; line-break: strict;">${content}</section>`
     return juice.inlineContent(wrapped, WEIXIN_CSS)
   }
 

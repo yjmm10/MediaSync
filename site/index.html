@@ -256,6 +256,7 @@
             <tr><td>人人都是产品经理</td><td><code>woshipm</code></td><td><span class="tag">产品</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
             <tr><td>大鱼号</td><td><code>dayu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
             <tr><td>一点号</td><td><code>yidian</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
+            <tr><td>虎扑</td><td><code>hupu</code></td><td><span class="tag">体育社区</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
             <tr><td>51CTO</td><td><code>51cto</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
             <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
             <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
@@ -272,10 +273,48 @@
         </table>
       </div>
       <div class="legend">
-        <span><b style="color:var(--green)">✅ 完整</b>：原生 Markdown，代码块 / 表格 / 标题 / 列表全保留</span>
-        <span><b style="color:#b45309">🟡 部分</b>：富文本，代码块或表格会被降级（转文本 / 换行调整）</span>
-        <span><b style="color:var(--muted)">⚪ 弱</b>：短内容 / 图文平台，不适合长文 Markdown</span>
+        <span><b>常用语法</b>：标题 / 加粗 / 斜体 / 行内代码 / 代码块 / 引用 / 有序·无序列表 / 表格 / 图片 / 链接 / 分隔线</span>
+        <span><b style="color:var(--green)">✅ 完整</b>：原生 Markdown，常用语法全部保留</span>
+        <span><b style="color:#b45309">🟡 部分</b>：富文本，标题 / 加粗 / 斜体 / 列表 / 图片 / 链接保留；代码块降级为等宽段落、表格降级为「列名: 值」文本行、引用降级为左边线段落</span>
+        <span><b style="color:var(--muted)">⚪ 弱</b>：短内容 / 图文平台，仅基础排版，不适合代码块 / 表格 / 引用</span>
       </div>
+      <p style="margin-top:24px;margin-bottom:8px"><b>常用 Markdown 语法支持矩阵</b>　<span style="color:var(--green)">✅ 原生</span> · <span style="color:#b45309">⚠️ 降级</span>（代码块→等宽段落、表格→文本行）· <span style="color:var(--muted)">❌ 不支持</span></p>
+      <table>
+        <thead><tr><th>平台</th><th>加粗</th><th>斜体</th><th>代码块</th><th>引用</th><th>表格</th><th>列表</th></tr></thead>
+        <tbody>
+          <tr><td>微信公众号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>知乎</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>微博</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td></tr>
+          <tr><td>小红书</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td></tr>
+          <tr><td>抖音图文</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td></tr>
+          <tr><td>掘金</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>CSDN</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>简书</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>头条号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>B 站专栏</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>百家号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>语雀</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>豆瓣</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>搜狐号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>雪球</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>东方财富</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>人人都是产品经理</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>大鱼号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>一点号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>51CTO</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>慕课网</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>开源中国</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>SegmentFault</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>博客园</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>搜狐焦点</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>什么值得买</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>网易号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
+          <tr><td>X (Twitter)</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td></tr>
+          <tr><td>WordPress</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Typecho</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Hexo / Hugo</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        </tbody>
+      </table>
       <p style="margin-top:16px;text-align:center"><a href="https://github.com/yjmm10/MediaSync/issues" target="_blank" rel="noopener">需要支持新平台？提个 Issue →</a></p>
     </section>
 
@@ -323,7 +362,15 @@
       </div>
       <div class="releases">
         <div class="release">
-          <h3>v2.1.2 <span class="ver-tag">最新</span></h3>
+          <h3>v2.1.3 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-07-24</div>
+          <ul>
+            <li>🆕 新增虎扑平台适配（步行街发帖，支持图文上传）</li>
+            <li>🔧 重新适配一点号平台（SW 直连 + 页面上下文兜底，提升稳定性）</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.2</h3>
           <div class="date">2026-07-24</div>
           <ul>
             <li>🆕 平台列表支持拖拽排序（列表视图下长按拖动，顺序持久化保存）</li>

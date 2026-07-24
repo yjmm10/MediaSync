@@ -46,6 +46,8 @@ export interface ImageProcessOptions {
   skipPatterns?: string[]
   /** 进度回调 */
   onProgress?: (current: number, total: number) => void
+  /** 并发上传数（默认 1，串行）。外链图多、单图偏慢时可设 3~5 */
+  concurrency?: number
 }
 
 /**
@@ -57,6 +59,9 @@ export abstract class CodeAdapter implements PlatformAdapter {
 
   /** Header 规则 ID 列表（用于请求拦截） */
   protected headerRuleIds: string[] = []
+
+  /** 本次操作为页面请求临时创建的 tab（不含用户原有标签） */
+  protected ephemeralTabIds = new Set<number>()
 
   async init(runtime: RuntimeInterface): Promise<void> {
     this.runtime = runtime
@@ -230,7 +235,7 @@ export abstract class CodeAdapter implements PlatformAdapter {
     uploadFn: (src: string) => Promise<ImageUploadResult>,
     options?: ImageProcessOptions
   ): Promise<string> {
-    const { skipPatterns = [], onProgress } = options || {}
+    const { skipPatterns = [], onProgress, concurrency = 1 } = options || {}
 
     // 提取所有图片（HTML + Markdown）
     const matches: { full: string; src: string; alt?: string; type: 'html' | 'markdown' }[] = []
@@ -253,32 +258,39 @@ export abstract class CodeAdapter implements PlatformAdapter {
 
     logger.debug(`Found ${matches.length} images to process (HTML + Markdown)`)
 
-    let result = content
+    const total = matches.length
     const uploadedMap = new Map<string, ImageUploadResult>()
+    const replaced: Array<{ full: string; replacement: string }> = []
     let processed = 0
 
-    for (const { full, src, alt, type } of matches) {
+    const processOne = async (task: {
+      full: string
+      src: string
+      alt?: string
+      type: 'html' | 'markdown'
+    }) => {
+      const { full, src, alt, type } = task
       // 跳过空 src
-      if (!src) continue
+      if (!src) return
 
       // 跳过匹配的模式（但不跳过 data URI）
       if (!src.startsWith('data:')) {
         const shouldSkip = skipPatterns.some(pattern => src.includes(pattern))
         if (shouldSkip) {
           logger.debug(`Skipping matched pattern: ${src}`)
-          continue
+          return
         }
       }
 
       processed++
-      onProgress?.(processed, matches.length)
+      onProgress?.(processed, total)
 
       try {
         // 检查是否已上传过
         let uploadResult = uploadedMap.get(src)
 
         if (!uploadResult) {
-          logger.debug(`Uploading image ${processed}/${matches.length}: ${src.startsWith('data:') ? 'data URI' : src}`)
+          logger.debug(`Uploading image ${processed}/${total}: ${src.startsWith('data:') ? 'data URI' : src}`)
           // uploadFn 应该能处理 URL 和 data URI（通过 fetch）
           uploadResult = await uploadFn(src)
           uploadedMap.set(src, uploadResult)
@@ -300,9 +312,7 @@ export abstract class CodeAdapter implements PlatformAdapter {
           replacement = `![${alt || ''}](${uploadResult.url})`
         }
 
-        // 替换原内容
-        result = result.replace(full, replacement)
-
+        replaced.push({ full, replacement })
         logger.debug(`Image uploaded: ${uploadResult.url}`)
       } catch (error) {
         logger.error(`Failed to upload image: ${src}`, error)
@@ -313,6 +323,23 @@ export abstract class CodeAdapter implements PlatformAdapter {
       await this.delay(300)
     }
 
+    // 并发池：concurrency=1 时退化为串行（其他适配器行为不变）
+    const queue = [...matches]
+    const size = Math.max(1, Math.min(concurrency, queue.length))
+    const runWorker = async () => {
+      while (queue.length > 0) {
+        const task = queue.shift()
+        if (!task) break
+        await processOne(task)
+      }
+    }
+    await Promise.all(Array.from({ length: size }, () => runWorker()))
+
+    // 串行替换，避免并发改写同一字符串
+    let result = content
+    for (const { full, replacement } of replaced) {
+      result = result.replace(full, replacement)
+    }
     return result
   }
 
@@ -369,6 +396,228 @@ export abstract class CodeAdapter implements PlatformAdapter {
    */
   protected delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  /**
+   * 关闭本次操作为页面请求临时创建的标签（不影响用户原有标签）
+   */
+  protected async releaseEphemeralTabs(): Promise<void> {
+    const remove = this.runtime.tabs?.remove
+    if (!remove || this.ephemeralTabIds.size === 0) {
+      this.ephemeralTabIds.clear()
+      return
+    }
+
+    for (const id of this.ephemeralTabIds) {
+      try {
+        await remove(id)
+      } catch {
+        // 标签可能已被用户关闭
+      }
+    }
+    this.ephemeralTabIds.clear()
+  }
+
+  /**
+   * 选取可用站点标签：优先 pageUrl 路径，否则任意同站可用标签；都没有则后台新建并登记为临时标签
+   */
+  protected async ensurePageTab(urlPattern: string, pageUrl: string): Promise<number> {
+    if (!this.runtime.tabs) {
+      throw new Error('当前运行时不支持 Tab 操作')
+    }
+
+    // 仅过滤明确登录页路径；勿把 SPA hash（如 #/Login）以外的正常页误杀
+    const loginRe = /sign[_-]?in|sign[_-]?up|\/login(?:\/|$|\?)|passport|\/sso\b|\/auth\b/i
+    let preferredPath = ''
+    let host = ''
+    try {
+      const u = new URL(pageUrl)
+      preferredPath = u.pathname.replace(/\/$/, '') || ''
+      host = u.hostname
+    } catch {
+      preferredPath = ''
+    }
+
+    const isUsable = (t: { id?: number; url?: string }) =>
+      !!(t.id && t.url && !loginRe.test(t.url) && !t.url.includes('chrome-error'))
+
+    // 1) 按传入 pattern 查
+    let tabs = await this.runtime.tabs.query(urlPattern)
+
+    // 2) SPA / 无尾斜杠时 match pattern 常漏匹配，按 hostname 再查一次
+    if (!tabs.some(isUsable) && host) {
+      const byHost = await this.runtime.tabs.query([`*://${host}/*`, `*://${host}/`])
+      if (byHost.length > 0) {
+        tabs = byHost
+      } else {
+        // 3) 最终兜底：扫全部标签按 hostname 过滤
+        const all = await this.runtime.tabs.query()
+        tabs = all.filter((t) => {
+          if (!t.url) return false
+          try {
+            return new URL(t.url).hostname === host
+          } catch {
+            return false
+          }
+        })
+      }
+    }
+
+    const usable = tabs.filter(isUsable)
+
+    const preferred = preferredPath
+      ? usable.find((t) => t.url?.includes(preferredPath))
+      : undefined
+
+    // 优先匹配路径；否则复用任意同站可用标签（页面内仅做 fetch，不依赖特定 DOM）
+    const pick = preferred || usable[0]
+
+    if (pick?.id) {
+      return pick.id
+    }
+
+    const tab = await this.runtime.tabs.create(pageUrl, false)
+    await this.runtime.tabs.waitForLoad(tab.id)
+    await this.delay(800)
+    this.ephemeralTabIds.add(tab.id)
+    return tab.id
+  }
+
+  /**
+   * 在目标站点页面上下文执行 fetch；失败时导航已有标签到 pageUrl 后重试一次（不新建第二个标签）
+   */
+  protected async pageFetchJson<T = unknown>(
+    urlPattern: string,
+    pageUrl: string,
+    fetchUrl: string,
+    init: {
+      method?: string
+      headers?: Record<string, string>
+      body?: string
+    } = {}
+  ): Promise<T> {
+    if (!this.runtime.tabs) {
+      throw new Error('当前运行时不支持 Tab 操作')
+    }
+
+    const executeFetch = async (tabId: number): Promise<{
+      ok: boolean
+      status: number
+      text: string
+      error?: string
+    }> => {
+      try {
+        const result = await this.runtime.tabs!.executeScript(
+          tabId,
+          async (
+            url: string,
+            method: string,
+            headers: Record<string, string>,
+            body: string,
+            timeoutMs: number
+          ) => {
+            try {
+              const controller = new AbortController()
+              const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+              const reqInit: RequestInit = {
+                method,
+                headers,
+                credentials: 'include',
+                signal: controller.signal,
+              }
+              if (body && method !== 'GET' && method !== 'HEAD') {
+                reqInit.body = body
+              }
+              let response: Response
+              try {
+                response = await fetch(url, reqInit)
+              } finally {
+                clearTimeout(timeoutId)
+              }
+              const text = await response.text()
+              return {
+                ok: response.ok,
+                status: response.status,
+                text,
+              }
+            } catch (error) {
+              const err = error as Error
+              const msg =
+                err?.name === 'AbortError'
+                  ? `页面请求超时（${Math.round(timeoutMs / 1000)}秒）`
+                  : err.message
+              return {
+                ok: false,
+                status: 0,
+                text: '',
+                error: msg,
+              }
+            }
+          },
+          [
+            fetchUrl,
+            init.method || 'GET',
+            init.headers || {},
+            init.body ?? '',
+            30000,
+          ] as [string, string, Record<string, string>, string, number]
+        )
+        return result || { ok: false, status: 0, text: '', error: '页面请求失败' }
+      } catch (error) {
+        return {
+          ok: false,
+          status: 0,
+          text: '',
+          error: (error as Error).message || 'executeScript 失败',
+        }
+      }
+    }
+
+    const tabId = await this.ensurePageTab(urlPattern, pageUrl)
+    let result = await executeFetch(tabId)
+    const shouldRetry =
+      !!result.error ||
+      !result.text.trim() ||
+      result.status === 0
+    if (shouldRetry) {
+      logger.warn(
+        'pageFetchJson first attempt failed, retry after navigating tab:',
+        result.error || `HTTP ${result.status}`
+      )
+      if (!this.runtime.tabs.update) {
+        throw new Error(result.error || '页面请求失败')
+      }
+      await this.runtime.tabs.update(tabId, pageUrl)
+      await this.runtime.tabs.waitForLoad(tabId)
+      await this.delay(800)
+      result = await executeFetch(tabId)
+    }
+
+    if (!result || result.error) {
+      throw new Error(result?.error || '页面请求失败')
+    }
+    if (!result.text.trim()) {
+      throw new Error(`页面请求空响应 HTTP ${result.status}`)
+    }
+
+    const trimmed = result.text.trim()
+    // 未登录常被重定向到 HTML 登录页
+    if (trimmed.startsWith('<') || /<!DOCTYPE|<html/i.test(trimmed.slice(0, 80))) {
+      throw new Error('未登录或会话已失效（页面返回了登录页 HTML）')
+    }
+
+    let data: T
+    try {
+      data = JSON.parse(result.text) as T
+    } catch {
+      throw new Error(`页面响应非 JSON HTTP ${result.status}: ${result.text.slice(0, 120)}`)
+    }
+
+    if (!result.ok) {
+      throw new Error(`页面请求失败 HTTP ${result.status}: ${result.text.slice(0, 160)}`)
+    }
+
+    return data
   }
 
   /**

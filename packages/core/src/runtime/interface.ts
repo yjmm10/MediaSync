@@ -77,13 +77,21 @@ export interface RuntimeInterface {
    */
   tabs?: {
     /**
-     * 查找匹配 URL 的 tab
+     * 查找匹配 URL 的 tab；不传 pattern 时返回全部标签（用于 SPA hostname 兜底）
      */
-    query(urlPattern: string): Promise<Array<{ id: number; url?: string }>>
+    query(urlPattern?: string | string[]): Promise<Array<{ id: number; url?: string }>>
     /**
      * 创建新 tab
      */
     create(url: string, active?: boolean): Promise<{ id: number }>
+    /**
+     * 关闭 tab
+     */
+    remove(tabId: number): Promise<void>
+    /**
+     * 导航 tab 到新 URL
+     */
+    update(tabId: number, url: string): Promise<void>
     /**
      * 等待 tab 加载完成
      */

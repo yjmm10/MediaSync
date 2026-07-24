@@ -46,6 +46,8 @@ import {
   DaYuAdapter,
   NeteaseAdapter,
   JianshuAdapter,
+  YidianAdapter,
+  HupuAdapter,
 } from '@mediasync/core'
 
 // 私有适配器 - private/ 目录通过 git submodule 管理
@@ -103,6 +105,8 @@ const ADAPTER_CLASSES: AdapterConstructor[] = [
   DaYuAdapter,
   NeteaseAdapter,
   JianshuAdapter,
+  YidianAdapter,
+  HupuAdapter,
   ...getPrivateAdapters(),
 ]
 

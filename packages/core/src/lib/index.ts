@@ -11,3 +11,6 @@ export * from './logger'
 
 // AWS4 签名（用于字节跳动 ImageX 等）
 export * from './aws4'
+
+// 弱编辑器 HTML 兼容（一点号等自媒体后台）
+export * from './weak-editor-html'

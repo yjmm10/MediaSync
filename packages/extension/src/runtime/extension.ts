@@ -200,8 +200,8 @@ export class ExtensionRuntime implements RuntimeInterface {
    * Tab 管理
    */
   tabs = {
-    async query(urlPattern: string): Promise<Array<{ id: number; url?: string }>> {
-      const tabs = await chrome.tabs.query({ url: urlPattern })
+    async query(urlPattern?: string | string[]): Promise<Array<{ id: number; url?: string }>> {
+      const tabs = await chrome.tabs.query(urlPattern ? { url: urlPattern } : {})
       return tabs.filter(t => t.id !== undefined).map(t => ({ id: t.id!, url: t.url }))
     },
 
@@ -210,7 +210,30 @@ export class ExtensionRuntime implements RuntimeInterface {
       return { id: tab.id! }
     },
 
+    async remove(tabId: number): Promise<void> {
+      try {
+        await chrome.tabs.remove(tabId)
+      } catch {
+        // 标签可能已被用户关闭
+      }
+    },
+
+    async update(tabId: number, url: string): Promise<void> {
+      await chrome.tabs.update(tabId, { url })
+    },
+
     async waitForLoad(tabId: number, timeout = 30000): Promise<void> {
+      // 已加载完成时 onUpdated 不会再触发 complete，必须先查当前状态
+      try {
+        const current = await chrome.tabs.get(tabId)
+        if (current.status === 'complete') {
+          await new Promise((resolve) => setTimeout(resolve, 500))
+          return
+        }
+      } catch {
+        // tab 可能刚创建，继续走监听
+      }
+
       return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
           chrome.tabs.onUpdated.removeListener(listener)
