@@ -473,14 +473,53 @@ export abstract class CodeAdapter implements PlatformAdapter {
     const pick = preferred || usable[0]
 
     if (pick?.id) {
-      return pick.id
+      // 再确认一次仍存在（并发关闭 / 刚被其它适配器当 ephemeral 关掉）
+      const still = await this.runtime.tabs.query()
+      if (still.some((t) => t.id === pick.id)) {
+        return pick.id
+      }
     }
 
     const tab = await this.runtime.tabs.create(pageUrl, false)
-    await this.runtime.tabs.waitForLoad(tab.id)
-    await this.delay(800)
+    try {
+      await this.runtime.tabs.waitForLoad(tab.id)
+      await this.delay(800)
+    } catch (error) {
+      // 加载失败或中途被关：清掉坏 id，抛出让上层重试
+      try {
+        await this.runtime.tabs.remove(tab.id)
+      } catch {
+        // ignore
+      }
+      throw error
+    }
     this.ephemeralTabIds.add(tab.id)
     return tab.id
+  }
+
+  /**
+   * 在站点页面执行操作；遇「no tab with id」自动重建标签重试一次。
+   */
+  protected async runOnPageTab<T>(
+    urlPattern: string,
+    pageUrl: string,
+    runner: (tabId: number) => Promise<T>
+  ): Promise<T> {
+    const attempt = async (): Promise<T> => {
+      const tabId = await this.ensurePageTab(urlPattern, pageUrl)
+      return runner(tabId)
+    }
+    try {
+      return await attempt()
+    } catch (error) {
+      const msg = String((error as Error)?.message || error)
+      if (!/no tab with id/i.test(msg)) {
+        throw error
+      }
+      // 丢掉已失效的 ephemeral id，避免 release 时无意义报错；再开新 tab
+      this.ephemeralTabIds.clear()
+      return attempt()
+    }
   }
 
   /**

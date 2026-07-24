@@ -207,7 +207,14 @@ export class ExtensionRuntime implements RuntimeInterface {
 
     async create(url: string, active = false): Promise<{ id: number }> {
       const tab = await chrome.tabs.create({ url, active })
-      return { id: tab.id! }
+      const id = tab.id!
+      // 后台 tab 易被 Chrome 丢弃，丢弃/关闭后 executeScript 会报 no tab with id
+      try {
+        await chrome.tabs.update(id, { autoDiscardable: false })
+      } catch {
+        // ignore
+      }
+      return { id }
     },
 
     async remove(tabId: number): Promise<void> {
@@ -257,15 +264,23 @@ export class ExtensionRuntime implements RuntimeInterface {
       func: (...args: A) => T | Promise<T>,
       args: A
     ): Promise<T> {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: func as (...args: unknown[]) => unknown,
-        args: args as unknown[],
-      })
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: func as (...args: unknown[]) => unknown,
+          args: args as unknown[],
+        })
 
-      const result = results[0]?.result as T
-      return result
+        const result = results[0]?.result as T
+        return result
+      } catch (error) {
+        const msg = String((error as Error)?.message || error)
+        if (/no tab with id/i.test(msg)) {
+          throw new Error(`no tab with id: ${tabId}`)
+        }
+        throw error
+      }
     },
   }
 

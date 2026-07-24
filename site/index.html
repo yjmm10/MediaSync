@@ -130,6 +130,17 @@
     .install-card p { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
     pre { background: var(--code-bg); padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
 
+    /* Sponsors / WeChat */
+    .qr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 220px)); gap: 20px; justify-content: center; margin-bottom: 36px; }
+    .qr-card { text-align: center; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+    .qr-card img { width: 100%; max-width: 180px; border-radius: 10px; background: #fff; display: block; margin: 0 auto 10px; }
+    .qr-card .label { font-size: 14px; font-weight: 600; }
+    .qr-card .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .sponsor-note { text-align: center; font-size: 14px; color: var(--muted); max-width: 560px; margin: 0 auto 28px; }
+    .sponsor-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; max-width: 640px; margin: 0 auto; }
+    .sponsor-list table { margin: 0; }
+    .sponsor-empty { text-align: center; padding: 28px 20px; color: var(--muted); font-size: 14px; background: var(--bg-soft); }
+
     footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-size: 14px; background: var(--bg-soft); }
     footer .links { margin-bottom: 10px; }
     footer a { margin: 0 10px; }
@@ -150,6 +161,7 @@
       <div class="links">
         <a href="#intro">介绍</a>
         <a href="#platforms">平台</a>
+        <a href="#sponsors">赞赏</a>
         <a href="#authors">作者</a>
         <a href="#changelog">更新</a>
         <a href="#install">安装</a>
@@ -202,7 +214,7 @@
         <div class="principle">
           <span class="num">4</span>
           <h3>草稿优先</h3>
-          <p>默认将文章同步为草稿，发布前由你人工确认，扩展不会自动发布任何内容。</p>
+          <p>默认将文章同步为草稿，发布前由你人工确认，扩展不会自动发布任何内容。<a href="#platform-limits">少数平台例外 →</a></p>
         </div>
       </div>
 
@@ -235,40 +247,42 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>平台</th><th>ID</th><th>类型</th><th>Markdown</th><th>状态</th></tr></thead>
+          <thead><tr><th>平台</th><th>ID</th><th>类型</th><th>Markdown</th><th>限制</th><th>状态</th></tr></thead>
           <tbody>
-            <tr><td>微信公众号</td><td><code>weixin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>知乎</td><td><code>zhihu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>微博</td><td><code>weibo</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>✅</td></tr>
-            <tr><td>小红书</td><td><code>xiaohongshu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>✅</td></tr>
-            <tr><td>抖音图文</td><td><code>douyin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td><span class="new">✅ 🆕</span></td></tr>
-            <tr><td>掘金</td><td><code>juejin</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>CSDN</td><td><code>csdn</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>简书</td><td><code>jianshu</code></td><td><span class="tag">通用</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>头条号</td><td><code>toutiao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>B 站专栏</td><td><code>bilibili</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>百家号</td><td><code>baijiahao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>语雀</td><td><code>yuque</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>豆瓣</td><td><code>douban</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>搜狐号</td><td><code>sohu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>雪球</td><td><code>xueqiu</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>东方财富</td><td><code>eastmoney</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>人人都是产品经理</td><td><code>woshipm</code></td><td><span class="tag">产品</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>大鱼号</td><td><code>dayu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>一点号</td><td><code>yidian</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>虎扑</td><td><code>hupu</code></td><td><span class="tag">体育社区</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>51CTO</td><td><code>51cto</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>SegmentFault</td><td><code>segmentfault</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>搜狐焦点</td><td><code>sohufocus</code></td><td><span class="tag">房产</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>什么值得买</td><td><code>smzdm</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>网易号</td><td><code>netease</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅</td></tr>
-            <tr><td>X (Twitter)</td><td><code>x</code></td><td><span class="tag">海外</span></td><td><span class="md-weak">⚪ 弱</span></td><td>✅</td></tr>
-            <tr><td>WordPress</td><td><code>wordpress</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>Typecho</td><td><code>typecho</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>✅</td></tr>
-            <tr><td>Hexo / Hugo</td><td><code>zip-download</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>✅ Markdown 下载</td></tr>
+            <tr><td>微信公众号</td><td><code>weixin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-partial">🟡 部分</span></td><td>标题≤64 / 摘要≤120；正文视频≤3（平台校验）</td><td>✅</td></tr>
+            <tr><td>知乎</td><td><code>zhihu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>微博</td><td><code>weibo</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>小红书</td><td><code>xiaohongshu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>标题≤64 / 正文≤约1万字（超限截断）；仅长文草稿</td><td>✅</td></tr>
+            <tr><td>抖音图文</td><td><code>douyin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td><span class="new">✅ 🆕</span></td></tr>
+            <tr><td>掘金</td><td><code>juejin</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>CSDN</td><td><code>csdn</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>简书</td><td><code>jianshu</code></td><td><span class="tag">通用</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>头条号</td><td><code>toutiao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>B 站专栏</td><td><code>bilibili</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>百家号</td><td><code>baijiahao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>语雀</td><td><code>yuque</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>豆瓣</td><td><code>douban</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>搜狐号</td><td><code>sohu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>雪球</td><td><code>xueqiu</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>东方财富</td><td><code>eastmoney</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>人人都是产品经理</td><td><code>woshipm</code></td><td><span class="tag">产品</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>大鱼号</td><td><code>dayu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>一点号</td><td><code>yidian</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>虎扑</td><td><code>hupu</code></td><td><span class="tag">体育社区</span></td><td><span class="md-partial">🟡 部分</span></td><td>无草稿（直接发帖）；标题 4–40 字</td><td>✅</td></tr>
+            <tr><td>美篇</td><td><code>meipian</code></td><td><span class="tag">图文创作</span></td><td><span class="md-partial">🟡 部分</span></td><td>无草稿箱，同步后公开</td><td>✅</td></tr>
+            <tr><td>企鹅号</td><td><code>qiehao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>标题 5–64 字（过短报错 / 超长截断）；仅草稿</td><td><span class="new">✅ 🆕</span></td></tr>
+            <tr><td>51CTO</td><td><code>51cto</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>强制仅草稿</td><td>✅</td></tr>
+            <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>强制仅草稿</td><td>✅</td></tr>
+            <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>强制仅草稿</td><td>✅</td></tr>
+            <tr><td>SegmentFault</td><td><code>segmentfault</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>强制仅草稿</td><td>✅</td></tr>
+            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>搜狐焦点</td><td><code>sohufocus</code></td><td><span class="tag">房产</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>什么值得买</td><td><code>smzdm</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>网易号</td><td><code>netease</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>X (Twitter)</td><td><code>x</code></td><td><span class="tag">海外</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>WordPress</td><td><code>wordpress</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>Typecho</td><td><code>typecho</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
+            <tr><td>Hexo / Hugo</td><td><code>zip-download</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅ Markdown 下载</td></tr>
           </tbody>
         </table>
       </div>
@@ -277,6 +291,7 @@
         <span><b style="color:var(--green)">✅ 完整</b>：原生 Markdown，常用语法全部保留</span>
         <span><b style="color:#b45309">🟡 部分</b>：富文本，标题 / 加粗 / 斜体 / 列表 / 图片 / 链接保留；代码块降级为等宽段落、表格降级为「列名: 值」文本行、引用降级为左边线段落</span>
         <span><b style="color:var(--muted)">⚪ 弱</b>：短内容 / 图文平台，仅基础排版，不适合代码块 / 表格 / 引用</span>
+        <span><b>限制</b>：适配器内已实现或明确映射的平台约束（字数截断/校验、强制草稿、无草稿直接发布等）。「—」表示未做额外字数截断或特殊发布策略（仍受平台自身审核与接口约束；多数平台默认同步为草稿）</span>
       </div>
       <p style="margin-top:24px;margin-bottom:8px"><b>常用 Markdown 语法支持矩阵</b>　<span style="color:var(--green)">✅ 原生</span> · <span style="color:#b45309">⚠️ 降级</span>（代码块→等宽段落、表格→文本行）· <span style="color:var(--muted)">❌ 不支持</span></p>
       <table>
@@ -315,6 +330,40 @@
           <tr><td>Hexo / Hugo</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
         </tbody>
       </table>
+      <div id="platform-limits" style="margin-top:28px;padding:20px 22px;border:1px solid var(--border);border-radius:12px;background:rgba(0,0,0,.02)">
+        <h3 style="margin:0 0 10px;font-size:18px">平台限制</h3>
+        <p style="margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.6">默认策略是同步为<strong>草稿</strong>，由你确认后再发布。下列为适配器内已实现或明确映射的约束（字数、草稿策略等）：</p>
+        <table>
+          <thead><tr><th>平台</th><th>限制说明</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>微信公众号</b></td>
+              <td>标题≤64 字、摘要≤120 字；正文插入视频≤3 个（超限由平台接口报错）。</td>
+            </tr>
+            <tr>
+              <td><b>小红书</b></td>
+              <td>长文草稿：标题≤64 字、正文≤约 1 万字（超限自动截断）。需已登录创作者中心；同步后到草稿箱 → 长文查看。<strong>已知问题</strong>：图片上传/转存尚不稳定，将在下版本修复；本版本建议纯文本或同步后手工补图。</td>
+            </tr>
+            <tr>
+              <td><b>虎扑</b></td>
+              <td>无草稿接口。同步后直接发帖到步行街（即时可见）；标题需 4–40 字（过短报错 / 超长截断）。</td>
+            </tr>
+            <tr>
+              <td><b>美篇</b></td>
+              <td>无独立草稿箱。同步后直接以<strong>公开</strong>状态发布（不会保存为「仅作者可见 / 私密」）。内容为段落式图文，Markdown 仅部分保留。登录态在页面 localStorage，需先在浏览器打开 <a href="https://www.meipian.cn/editor" target="_blank" rel="noopener">美篇编辑器</a> 并完成登录。<strong>已知问题</strong>：图片上传/转存尚不稳定，将在下版本修复；本版本建议纯文本或同步后手工补图。</td>
+            </tr>
+            <tr>
+              <td><b>企鹅号</b></td>
+              <td>标题需 5–64 字（过短报错 / 超长截断）；仅保存草稿，不调用发布接口。</td>
+            </tr>
+            <tr>
+              <td><b>51CTO / 慕课网 / 开源中国 / SegmentFault</b></td>
+              <td>适配器强制仅草稿（忽略「直接发布」选项）。</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="margin:12px 0 0;color:var(--muted);font-size:13px">其余平台仍遵循「草稿优先」，适配器未做额外字数截断（仍受各平台自身审核与接口约束）；同步完成后请在各平台后台确认再正式公开。</p>
+      </div>
       <p style="margin-top:16px;text-align:center"><a href="https://github.com/yjmm10/MediaSync/issues" target="_blank" rel="noopener">需要支持新平台？提个 Issue →</a></p>
     </section>
 
@@ -354,6 +403,47 @@
       <p style="margin-top:20px;text-align:center;font-size:14px;color:var(--muted)">本项目基于 <a href="https://github.com/wechatsync/Wechatsync" target="_blank" rel="noopener">wechatsync/Wechatsync</a> 开源项目，遵循 GPL-3.0 协议。感谢所有为项目贡献代码的平台适配器作者。</p>
     </section>
 
+    <!-- 赞赏与留名 -->
+    <section id="sponsors">
+      <div class="section-head">
+        <h2>赞赏与留名</h2>
+        <p class="subtitle">开源不易，感谢每一位支持者</p>
+      </div>
+      <p class="sponsor-note">
+        可通过下方微信<strong>赞赏码</strong>支持项目；也可扫<strong>好友码</strong>加微信交流。
+        <br />所有赞赏的朋友将在本页<strong>留名致谢</strong>（赞赏时请备注希望公示的昵称）。
+      </p>
+      <div class="qr-grid">
+        <div class="qr-card">
+          <img src="assets/wechat-friend-qr.png" alt="微信好友码" width="180" height="180" />
+          <div class="label">好友码</div>
+          <div class="hint">扫码添加微信好友</div>
+        </div>
+        <div class="qr-card">
+          <img src="assets/wechat-reward-qr.png" alt="微信赞赏码" width="180" height="180" />
+          <div class="label">赞赏码</div>
+          <div class="hint">微信扫码赞赏支持</div>
+        </div>
+      </div>
+      <div class="sponsor-list">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40%">昵称</th>
+              <th style="width:30%">日期</th>
+              <th>备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- 收到赞赏后在此追加一行，例如：
+            <tr><td>某位朋友</td><td>2026-07-25</td><td>加油</td></tr>
+            -->
+          </tbody>
+        </table>
+        <div class="sponsor-empty">暂无记录，期待你成为第一位留名的朋友 💚</div>
+      </div>
+    </section>
+
     <!-- 版本更新记录 -->
     <section id="changelog">
       <div class="section-head">
@@ -362,7 +452,18 @@
       </div>
       <div class="releases">
         <div class="release">
-          <h3>v2.1.3 <span class="ver-tag">最新</span></h3>
+          <h3>v2.1.4 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-07-25</div>
+          <ul>
+            <li>🆕 新增美篇平台适配（图文创作，七牛图床转存；无独立草稿箱，同步后公开发布）</li>
+            <li>🆕 新增小红书长文草稿同步（图文上传 + IndexedDB article-draft；标题≤64 / 正文≤约1万字超限截断）</li>
+            <li>🆕 新增企鹅号适配；平台表新增「限制」列</li>
+            <li>🔧 加固页面临时标签生命周期（no tab with id 自动重建重试）</li>
+            <li>⚠️ 已知问题（下版本处理）：美篇、小红书图片上传/转存仍不稳定，建议本版本优先同步纯文本或同步后手工补图</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.3</h3>
           <div class="date">2026-07-24</div>
           <ul>
             <li>🆕 新增虎扑平台适配（步行街发帖，支持图文上传）</li>
@@ -493,6 +594,7 @@ mediasync sync article.md -p zhihu,juejin</pre>
       <div class="links">
         <a href="https://github.com/yjmm10/MediaSync" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/yjmm10/MediaSync/issues" target="_blank" rel="noopener">问题反馈</a>
+        <a href="#sponsors">赞赏留名</a>
         <a href="https://github.com/yjmm10/MediaSync/blob/v2/CHANGELOG.md" target="_blank" rel="noopener">更新日志</a>
       </div>
       <p>同步派 MediaSync · GPL-3.0</p>
