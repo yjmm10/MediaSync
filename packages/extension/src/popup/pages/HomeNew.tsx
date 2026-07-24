@@ -210,7 +210,8 @@ export function HomeNew() {
         window.close()
       }
     } catch (e) {
-      logger.error('Failed to open overlay:', e)
+      // content script 未就绪/未注入（预期情况），降为 debug
+      logger.debug('Failed to open overlay:', e)
       showOverlayToast('无法打开整页，请刷新当前网页后重试')
     }
   }

@@ -346,17 +346,37 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         return
       }
 
-      // 与先前一致：拿到 tab 即发起 EXTRACT，不因 loading / 空 url / about:blank 提前放弃。
-      // 检测耗时由 content script 决定；状态栏展示结果，无需在此用状态门控。
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       logger.debug('loadArticle - current tab:', tab?.url, tab?.status)
       if (!tab?.id) return
+      const tabId = tab.id
 
-      let response: { article?: unknown } | undefined
-      try {
-        response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_ARTICLE' })
-      } catch (e) {
-        logger.error('Failed to extract article (no content script?):', e)
+      // URL 预检：非 http/https 页面（chrome://、扩展页、about: 等）不会注入 content script，
+      // 直接给友好提示，避免 sendMessage 必然抛 "Receiving end does not exist"。
+      const tabUrl = (tab.url || '').toLowerCase()
+      if (!tabUrl.startsWith('http://') && !tabUrl.startsWith('https://')) {
+        logger.debug('loadArticle - skip non-http(s) tab:', tabUrl)
+        set({ extractError: '请在普通网页（http/https）上使用，当前页面不支持检测' })
+        return
+      }
+
+      // content script 未就绪/未注入时 sendMessage 会抛异常——属于预期情况（页面加载中、
+      // 扩展刚更新、CSP 拦截等），降为 debug 不打 error；extractor 在 document_end 注入，
+      // 页面 loading 时可能尚未就绪，故 loading 时延迟重试一次。
+      const tryExtract = async (): Promise<{ article?: unknown } | undefined> => {
+        try {
+          return await chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_ARTICLE' })
+        } catch (e) {
+          logger.debug('extract article: no content script / not ready:', e)
+          return undefined
+        }
+      }
+      let response = await tryExtract()
+      if (response === undefined && tab.status !== 'complete') {
+        await new Promise(r => setTimeout(r, 800))
+        response = await tryExtract()
+      }
+      if (response === undefined) {
         set({ extractError: '无法检测当前页，请刷新页面后重试' })
         return
       }
