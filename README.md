@@ -62,7 +62,7 @@
 | 小红书 | xiaohongshu | 主流自媒体 | ✅ |
 | 掘金 | juejin | 技术社区 | ✅ |
 | CSDN | csdn | 技术社区 | ✅ |
-| 简书 | jianshu | 通用 | ✅ |
+| 简书 | jianshu | 通用 | ✅ 🆕 |
 | 头条号 | toutiao | 通用 | ✅ |
 | 抖音图文 | douyin | 主流自媒体 | ✅ 🆕 |
 | B站专栏 | bilibili | 通用 | ✅ |
@@ -72,7 +72,7 @@
 | 搜狐号 | sohu | 通用 | ✅ |
 | 雪球 | xueqiu | 财经 | ✅ |
 | 人人都是产品经理 | woshipm | 产品 | ✅ |
-| 大鱼号 | dayu | 通用 | ✅ |
+| 大鱼号 | dayu | 通用 | ✅ 🆕 |
 | 一点号 | yidian | 通用 | ✅ |
 | 51CTO | 51cto | 技术社区 | ✅ |
 | 慕课网 | imooc | 技术社区 | ✅ |
@@ -83,7 +83,7 @@
 | X (Twitter) | x | 海外 | ✅ |
 | 东方财富 | eastmoney | 财经 | ✅ |
 | 什么值得买 | smzdm | 通用 | ✅ |
-| 网易号 | netease | 通用 | ✅ |
+| 网易号 | netease | 通用 | ✅ 🆕 |
 | WordPress | wordpress | 建站/CMS | ✅ |
 | Typecho | typecho | 建站/CMS | ✅ |
 | Hexo | zip-download | 建站/CMS | ✅ 通过 Markdown 下载 |
@@ -221,6 +221,12 @@ pnpm build
 然后在 Chrome 中加载 `packages/extension/dist` 目录。
 
 ## 更新日志
+
+### v2.1.1 (2026-07-24)
+
+- 🆕 新增大鱼号、网易号、简书平台适配（纯 API 草稿同步）
+- 🔧 大鱼号 / 网易号内容兼容适配（代码块换行、标题降级、表格转文本等）
+- 🔧 简书 Markdown 草稿与图片上传适配
 
 ### v2.1.0 (2026-07-23)
 

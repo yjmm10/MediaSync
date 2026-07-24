@@ -43,6 +43,9 @@ import {
   CnblogsAdapter,
   ZipDownloadAdapter,
   EastmoneyAdapter,
+  DaYuAdapter,
+  NeteaseAdapter,
+  JianshuAdapter,
 } from '@mediasync/core'
 
 // 私有适配器 - private/ 目录通过 git submodule 管理
@@ -97,6 +100,9 @@ const ADAPTER_CLASSES: AdapterConstructor[] = [
   CnblogsAdapter,
   ZipDownloadAdapter,
   EastmoneyAdapter,
+  DaYuAdapter,
+  NeteaseAdapter,
+  JianshuAdapter,
   ...getPrivateAdapters(),
 ]
 

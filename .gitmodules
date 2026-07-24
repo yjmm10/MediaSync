@@ -1,3 +1,0 @@
-[submodule "private-adapters"]
-	path = packages/core/src/adapters/platforms/private
-	url = git@github.com:wechatsync/wechatsync-private-adapters.git

@@ -31,9 +31,3 @@ packages/*/src/**/*.d.ts.map
 package-lock.json
 yarn-error.log
 CLAUDE.md
-
-# Private adapters (not open source)
-packages/core/src/adapters/platforms/xiaohongshu.ts
-packages/core/src/adapters/platforms/x.ts
-packages/core/src/content/
-packages/extension/src/content/xiaohongshu.ts
