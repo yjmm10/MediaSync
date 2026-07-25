@@ -7,7 +7,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "prod": "npm run build && cd dist && rm -rf .vite && zip -r ../mediasync-v$(node -p \"require('../package.json').version\").zip .",
+    "pack": "node scripts/pack-zip.mjs all",
+    "pack:edge": "node scripts/pack-zip.mjs edge",
+    "pack:firefox": "node scripts/pack-zip.mjs firefox",
+    "prod": "npm run build && npm run pack",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",

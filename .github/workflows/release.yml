@@ -1,7 +1,7 @@
 name: Release
 
 # 推送 v* 标签时：
-# 1. 构建 Chrome 扩展并打包 zip → GitHub Release
+# 1. 构建扩展并分别打包 Edge / Firefox zip → GitHub Release
 # 2. 构建 @mediasync/mcp-server、@mediasync/cli 并发布到 npm（需 NPM_TOKEN）
 on:
   push:
@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 jobs:
-  # ── 构建 Chrome 扩展 ──
+  # ── 构建扩展（Edge + Firefox 两套包）──
   build-extension:
     runs-on: ubuntu-latest
     steps:
@@ -44,18 +44,16 @@ jobs:
         id: ver
         run: echo "version=$(node -p "require('./packages/extension/package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Package extension zip
-        run: |
-          cd packages/extension/dist
-          # Chrome Web Store 不允许包内出现多个 manifest.json（Vite 会生成 .vite/manifest.json）
-          rm -rf .vite
-          zip -r "$GITHUB_WORKSPACE/mediasync-${{ steps.ver.outputs.version }}.zip" .
+      - name: Package Edge + Firefox zips
+        run: pnpm --filter @mediasync/extension pack
 
-      - name: Upload extension artifact
+      - name: Upload extension artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: extension-zip
-          path: mediasync-*.zip
+          name: extension-zips
+          path: |
+            mediasync-*-edge.zip
+            mediasync-*-firefox.zip
 
   # ── 发布 npm 包（mcp-server、cli）──
   publish-npm:
@@ -109,10 +107,10 @@ jobs:
         id: ver
         run: echo "version=$(node -p "require('./packages/extension/package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Download extension artifact
+      - name: Download extension artifacts
         uses: actions/download-artifact@v4
         with:
-          name: extension-zip
+          name: extension-zips
 
       - name: Extract release notes from CHANGELOG
         id: notes
@@ -132,6 +130,11 @@ jobs:
             echo "## 更新内容"
             echo
             cat release-notes.md
+            echo
+            echo "## 扩展包"
+            echo
+            echo "- \`mediasync-${VERSION}-edge.zip\` — Chrome / Edge（仅 \`background.service_worker\`）"
+            echo "- \`mediasync-${VERSION}-firefox.zip\` — Firefox AMO（含 \`scripts\` 回退与 \`gecko\` 声明）"
           } > release-notes-full.md
           mv release-notes-full.md release-notes.md
           echo "----- release notes -----"
@@ -144,5 +147,7 @@ jobs:
           name: v${{ steps.ver.outputs.version }}
           body_path: release-notes.md
           generate_release_notes: false
-          files: mediasync-*.zip
+          files: |
+            mediasync-*-edge.zip
+            mediasync-*-firefox.zip
           make_latest: true

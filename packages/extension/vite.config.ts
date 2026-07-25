@@ -8,11 +8,12 @@ import baseManifest from './manifest.json'
 
 const manifest = baseManifest
 
-// 复制静态文件并修改 manifest 的插件
+// 复制静态文件并修改 manifest 的插件（须在 crx 写出 manifest 之后运行）
 function copyStaticFilesPlugin() {
   return {
     name: 'copy-static-files',
-    writeBundle() {
+    enforce: 'post' as const,
+    closeBundle() {
 
       // 复制 rules 目录
       const rulesDir = resolve(__dirname, 'rules')
@@ -68,8 +69,30 @@ function copyStaticFilesPlugin() {
           ...manifestContent.content_scripts
         ]
 
+        // Firefox AMO：MV3 必须有 gecko.id；background.service_worker 需配 scripts 回退
+        // Chrome/Edge 会忽略 gecko，且较新 Chromium 支持 scripts + service_worker 并存
+        const sw = manifestContent.background?.service_worker
+        if (sw) {
+          manifestContent.background = {
+            service_worker: sw,
+            scripts: [sw],
+            type: 'module',
+          }
+        }
+        manifestContent.browser_specific_settings = {
+          gecko: {
+            id: 'mediasync@yjmm10.github.io',
+            // data_collection_permissions 仅 Firefox 140+ 支持；AMO 新扩展强制要求声明
+            strict_min_version: '140.0',
+            data_collection_permissions: {
+              // 不经过开发者服务器收集/外传个人数据（同步走用户本机登录态直连各平台）
+              required: ['none'],
+            },
+          },
+        }
+
         writeFileSync(manifestPath, JSON.stringify(manifestContent, null, 2))
-        console.log('[copy-static] Updated manifest.json with reader scripts')
+        console.log('[copy-static] Updated manifest.json with reader scripts + Firefox compatibility')
       }
     }
   }

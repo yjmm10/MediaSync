@@ -50,9 +50,9 @@
 
 **推荐**: [Chrome 网上应用店](https://chrome.google.com/webstore/detail/%E5%BE%AE%E4%BF%A1%E5%90%8C%E6%AD%A5%E5%8A%A9%E6%89%8B/hchobocdmclopcbnibdnoafilagadion) (自动更新)
 
-**手动安装**: 下载 [最新 Release](https://github.com/yjmm10/MediaSync/releases) 解压后加载到 Chrome 扩展
+**手动安装**: 下载 [最新 Release](https://github.com/yjmm10/MediaSync/releases) 中的 `mediasync-*-edge.zip`（Chrome / Edge）或 `mediasync-*-firefox.zip`（Firefox）解压后加载
 
-支持 Chrome / Edge / 360 / QQ 等 Chromium 内核浏览器
+支持 Chrome / Edge / Firefox / 360 / QQ 等浏览器（商店包按目标分别构建，无通用包）
 
 
 ## 支持 29+ 主流平台
