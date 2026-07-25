@@ -207,7 +207,25 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     case 'CHECK_AUTH': {
       const { platformId } = message.payload
       const auth = await checkPlatformAuth(platformId)
-      return { auth }
+      // 同步更新平台列表缓存中的该项，便于 UI 立即反映
+      try {
+        const storage = await chrome.storage.local.get('platformListCache')
+        const list = Array.isArray(storage.platformListCache) ? storage.platformListCache : []
+        const next = list.map((p: any) =>
+          p.id === platformId
+            ? {
+                ...p,
+                isAuthenticated: auth.isAuthenticated,
+                username: auth.username,
+                error: auth.error,
+              }
+            : p
+        )
+        if (next.length > 0) {
+          await chrome.storage.local.set({ platformListCache: next })
+        }
+      } catch {}
+      return { auth, platformId }
     }
 
     case 'SYNC_ARTICLE': {

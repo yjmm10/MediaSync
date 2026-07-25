@@ -8,7 +8,7 @@
     {
       "name": "sync",
       "source": "./",
-      "version": "2.1.4",
+      "version": "2.1.5",
       "description": "Sync articles to 29+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
       "author": {
         "name": "lusca",

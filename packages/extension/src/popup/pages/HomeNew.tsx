@@ -164,6 +164,48 @@ export function HomeNew() {
     setTimeout(() => setRateLimitWarning(null), 8000)
   }
 
+  /** 手动检测单个平台登录状态（强制实时 checkAuth） */
+  const handleRecheckAuth = async (platformId: string) => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'CHECK_AUTH',
+        payload: { platformId },
+      })
+      if (chrome.runtime.lastError) {
+        throw new Error(chrome.runtime.lastError.message)
+      }
+      if (response?.error) {
+        throw new Error(String(response.error))
+      }
+      const auth = response?.auth
+      if (!auth) {
+        logger.error('CHECK_AUTH empty response', platformId, response)
+        return
+      }
+      logger.debug('recheck auth result', platformId, auth)
+      setAllPlatforms(prev =>
+        prev.map(p =>
+          p.id === platformId
+            ? {
+                ...p,
+                isAuthenticated: !!auth.isAuthenticated,
+                username: auth.username,
+              }
+            : p
+        )
+      )
+      // 登录态变化后刷新 store 中的可选平台
+      await loadPlatforms()
+      if (!auth.isAuthenticated) {
+        const name = allPlatforms.find(p => p.id === platformId)?.name || platformId
+        showOverlayToast(`${name} 仍未登录，可点「去登录」后重试检测`)
+      }
+    } catch (error) {
+      logger.error('Failed to recheck auth:', platformId, error)
+      showOverlayToast(`检测失败：${(error as Error).message || '未知错误'}`)
+    }
+  }
+
   // 整页编辑/预览 overlay：正文走 storage，消息只传轻量元数据；不新开标签页
   const openOverlay = async (mode: 'edit' | 'preview') => {
     if (!article) return
@@ -536,6 +578,7 @@ export function HomeNew() {
         onTogglePlatform={togglePlatform}
         onSelectAll={selectAll}
         onDeselectAll={deselectAll}
+        onRecheckAuth={handleRecheckAuth}
         onStartSync={handleStartSync}
         onRetryFailed={retryFailed}
         onReset={reset}

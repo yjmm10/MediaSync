@@ -1,5 +1,61 @@
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Github, Globe, Heart, MessageSquare, ExternalLink } from 'lucide-react'
+import {
+  ArrowLeft,
+  Github,
+  Globe,
+  Heart,
+  MessageSquare,
+  ExternalLink,
+  Shield,
+  Layers,
+  PanelRight,
+} from 'lucide-react'
+
+const LINKS = [
+  {
+    href: 'https://yjmm10.github.io/MediaSync/?utm_source=extension_about',
+    label: '官网',
+    desc: '功能介绍与下载',
+    icon: Globe,
+  },
+  {
+    href: 'https://github.com/yjmm10/MediaSync',
+    label: 'GitHub',
+    desc: '源码与更新日志',
+    icon: Github,
+  },
+  {
+    href: 'https://github.com/yjmm10/MediaSync/issues',
+    label: '反馈',
+    desc: 'Bug / 新平台需求',
+    icon: MessageSquare,
+  },
+  {
+    href: 'https://github.com/yjmm10',
+    label: '作者',
+    desc: 'lusca',
+    icon: Heart,
+    iconClass: 'text-red-500',
+  },
+] as const
+
+const HIGHLIGHTS = [
+  {
+    icon: Layers,
+    title: '29+ 平台',
+    desc: '一键同步草稿或发布',
+  },
+  {
+    icon: Shield,
+    title: '本地直连',
+    desc: '用浏览器登录态，不经第三方服务器',
+  },
+  {
+    icon: PanelRight,
+    title: '侧栏常驻',
+    desc: '支持 Markdown 导入与编辑',
+  },
+] as const
 
 export function AboutPage() {
   const navigate = useNavigate()
@@ -7,104 +63,110 @@ export function AboutPage() {
 
   return (
     <div className="page-root flex flex-col h-[500px]">
-      {/* Header */}
       <header className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b">
         <button
+          type="button"
           onClick={() => navigate(-1)}
           className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+          aria-label="返回"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
         <h1 className="font-semibold">关于</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="flex flex-col items-center">
-          {/* Logo & Title */}
-          <img src="/assets/icon-128.png" alt="Logo" className="w-16 h-16 mb-3" />
-          <h2 className="text-lg font-semibold">同步派</h2>
-          <p className="text-sm text-muted-foreground mt-1">v{version}</p>
-
-          {/* Description */}
-          <p className="text-sm text-muted-foreground text-center mt-4 leading-relaxed">
-            开源免费的多平台文章同步工具。支持 29+ 平台一键分发、本地 Markdown 导入与浏览器侧栏常驻。
-          </p>
-
-          {/* Links */}
-          <div className="flex flex-col gap-2 mt-6 w-full max-w-[240px]">
-            <a
-              href="https://github.com/yjmm10/MediaSync"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
-            >
-              <Github className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">GitHub</span>
-              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-            </a>
-            <a
-              href="https://yjmm10.github.io/MediaSync/?utm_source=extension_about"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
-            >
-              <Globe className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">官网</span>
-              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-            </a>
-            <a
-              href="https://github.com/yjmm10"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
-            >
-              <Heart className="w-4 h-4 flex-shrink-0 text-red-400" />
-              <span className="flex-1">作者: lusca</span>
-              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-            </a>
-            <a
-              href="https://github.com/yjmm10/MediaSync/issues"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border hover:bg-muted transition-colors text-sm"
-            >
-              <MessageSquare className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">问题反馈</span>
-              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-            </a>
+      <div className="flex-1 overflow-y-auto">
+        {/* Brand */}
+        <section className="px-5 pt-5 pb-4 text-center border-b border-border/60">
+          <img
+            src="/assets/icon-128.png"
+            alt=""
+            className="w-14 h-14 mx-auto mb-2.5 rounded-xl"
+          />
+          <div className="flex items-center justify-center gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">同步派</h2>
+            <span className="text-[11px] tabular-nums text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+              v{version}
+            </span>
           </div>
-
-          {/* WeChat QR codes */}
-          <div className="mt-7 w-full max-w-[280px]">
-            <p className="text-sm font-medium text-center mb-3">微信联系 / 赞赏</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col items-center gap-1.5">
-                <img
-                  src="/assets/wechat-friend-qr.png"
-                  alt="微信好友码"
-                  className="w-full rounded-lg border bg-white"
-                />
-                <span className="text-xs text-muted-foreground">好友码</span>
-              </div>
-              <div className="flex flex-col items-center gap-1.5">
-                <img
-                  src="/assets/wechat-reward-qr.png"
-                  alt="微信赞赏码"
-                  className="w-full rounded-lg border bg-white"
-                />
-                <span className="text-xs text-muted-foreground">赞赏码</span>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground text-center mt-3 leading-relaxed">
-              所有赞赏的朋友将在官网主页留名致谢。可扫码添加微信备注昵称，便于公示。
-            </p>
-          </div>
-
-          {/* Footer */}
-          <p className="text-xs text-muted-foreground mt-6 mb-2">
-            如果觉得不错，请分享给你的朋友 ✌️
+          <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-[280px] mx-auto">
+            开源免费的多平台文章同步工具，把一篇内容分发到知乎、掘金、头条等平台。
           </p>
-        </div>
+        </section>
+
+        {/* Highlights */}
+        <section className="px-5 py-4 border-b border-border/60">
+          <ul className="space-y-2.5">
+            {HIGHLIGHTS.map(({ icon: Icon, title, desc }) => (
+              <li key={title} className="flex items-start gap-2.5">
+                <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted">
+                  <Icon className="w-3.5 h-3.5 text-foreground/80" />
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <p className="text-sm font-medium leading-none">{title}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{desc}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* Links */}
+        <section className="px-5 py-4 border-b border-border/60">
+          <h3 className="text-xs font-medium text-muted-foreground mb-2.5">链接</h3>
+          <div className="grid grid-cols-2 gap-2">
+            {LINKS.map(({ href, label, desc, icon: Icon, ...rest }) => (
+              <a
+                key={label}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-start gap-2 rounded-lg border px-2.5 py-2 hover:bg-muted/70 transition-colors"
+              >
+                <Icon
+                  className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${'iconClass' in rest ? rest.iconClass : 'text-foreground/70'}`}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1 text-sm font-medium">
+                    {label}
+                    <ExternalLink className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground truncate">{desc}</span>
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+
+        {/* WeChat */}
+        <section className="px-5 py-4">
+          <h3 className="text-xs font-medium text-muted-foreground mb-1">微信</h3>
+          <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
+            扫码加好友或赞赏。赞赏将在官网致谢；加好友可备注昵称便于公示。
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <figure className="flex flex-col items-center gap-1.5 m-0">
+              <img
+                src="/assets/wechat-friend-qr.png"
+                alt="微信好友二维码"
+                className="w-full max-w-[120px] aspect-square object-contain rounded-lg border bg-white p-1"
+              />
+              <figcaption className="text-xs text-muted-foreground">加好友</figcaption>
+            </figure>
+            <figure className="flex flex-col items-center gap-1.5 m-0">
+              <img
+                src="/assets/wechat-reward-qr.png"
+                alt="微信赞赏二维码"
+                className="w-full max-w-[120px] aspect-square object-contain rounded-lg border bg-white p-1"
+              />
+              <figcaption className="text-xs text-muted-foreground">赞赏支持</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <p className="px-5 pb-5 text-center text-[11px] text-muted-foreground">
+          开源免费 · 欢迎 Star 与分享
+        </p>
       </div>
     </div>
   )

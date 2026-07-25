@@ -221,7 +221,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string): 
 }
 
 /**
- * 检查平台登录状态
+ * 检查平台登录状态（强制实时检测，并更新认证缓存）
  */
 export async function checkPlatformAuth(platformId: string) {
   const adapter = await getAdapter(platformId)
@@ -229,13 +229,31 @@ export async function checkPlatformAuth(platformId: string) {
     return { isAuthenticated: false, error: 'Platform not found' }
   }
   try {
-    return await withTimeout(
+    const auth = await withTimeout(
       adapter.checkAuth(),
       AUTH_CHECK_TIMEOUT,
       `认证检查超时（${AUTH_CHECK_TIMEOUT / 1000}秒）`
     )
+    const cache = await getCachedAuth()
+    cache[platformId] = {
+      isAuthenticated: auth.isAuthenticated,
+      username: auth.username,
+      error: auth.error,
+      timestamp: Date.now(),
+    }
+    await setCachedAuth(cache)
+    trackAuthCheck(platformId, auth.isAuthenticated).catch(() => {})
+    return auth
   } catch (error) {
-    return { isAuthenticated: false, error: (error as Error).message }
+    const message = (error as Error).message
+    const cache = await getCachedAuth()
+    cache[platformId] = {
+      isAuthenticated: false,
+      error: message,
+      timestamp: Date.now(),
+    }
+    await setCachedAuth(cache)
+    return { isAuthenticated: false, error: message }
   }
 }
 

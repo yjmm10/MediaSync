@@ -5,8 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>同步派 MediaSync · 多平台文章一键同步</title>
   <meta name="description" content="开源免费的 Chrome 浏览器扩展，一键同步文章到知乎、掘金、CSDN、头条等 29+ 平台。" />
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('mediasync-theme');
+        var theme = saved === 'light' || saved === 'dark'
+          ? saved
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
   <style>
-    :root {
+    :root, [data-theme="light"] {
       --primary: #16a34a;
       --primary-dark: #15803d;
       --primary-soft: #ecfdf3;
@@ -16,19 +30,48 @@
       --muted: #6b7280;
       --border: #e8ebed;
       --code-bg: #f3f4f6;
+      --code-fg: #374151;
+      --lead: #374151;
       --green: #16a34a;
+      --amber: #b45309;
       --red: #ef4444;
       --radius: 14px;
       --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04);
+      --nav-bg: rgba(255,255,255,0.85);
+      --hero-pill-bg: #ffffff;
+      --surface-tint: rgba(0,0,0,.02);
+      --qr-bg: #ffffff;
+    }
+    [data-theme="dark"] {
+      --primary: #22c55e;
+      --primary-dark: #4ade80;
+      --primary-soft: rgba(34,197,94,0.12);
+      --bg: #0f1419;
+      --bg-soft: #161b22;
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --border: #30363d;
+      --code-bg: #21262d;
+      --code-fg: #c9d1d9;
+      --lead: #c9d1d9;
+      --green: #3fb950;
+      --amber: #d29922;
+      --red: #f85149;
+      --shadow: 0 1px 3px rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.35);
+      --nav-bg: rgba(15,20,25,0.88);
+      --hero-pill-bg: #161b22;
+      --surface-tint: rgba(255,255,255,.03);
+      --qr-bg: #ffffff;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: smooth; color-scheme: light dark; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
       color: var(--fg);
       background: var(--bg);
       line-height: 1.7;
       -webkit-font-smoothing: antialiased;
+      transition: background-color .2s ease, color .2s ease;
     }
     a { color: var(--primary); text-decoration: none; }
     a:hover { text-decoration: underline; }
@@ -37,19 +80,30 @@
     /* Nav */
     nav {
       position: sticky; top: 0; z-index: 50;
-      background: rgba(255,255,255,0.85); backdrop-filter: saturate(180%) blur(10px);
+      background: var(--nav-bg); backdrop-filter: saturate(180%) blur(10px);
       border-bottom: 1px solid var(--border);
     }
-    nav .container { display: flex; align-items: center; justify-content: space-between; height: 60px; }
-    nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+    nav .container { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 12px; }
+    nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; color: var(--fg); }
     nav .brand .logo { width: 30px; height: 30px; border-radius: 8px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; }
-    nav .links { display: flex; gap: 24px; font-size: 14px; }
+    nav .links { display: flex; align-items: center; gap: 20px; font-size: 14px; }
     nav .links a { color: var(--muted); }
     nav .links a:hover { color: var(--fg); text-decoration: none; }
+    .theme-toggle {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--bg-soft);
+      color: var(--fg); cursor: pointer; flex-shrink: 0;
+      transition: background .15s, border-color .15s;
+    }
+    .theme-toggle:hover { background: var(--code-bg); }
+    .theme-toggle svg { width: 16px; height: 16px; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: none; }
+    [data-theme="dark"] .theme-toggle .icon-moon { display: none; }
 
     /* Hero */
     .hero { text-align: center; padding: 88px 24px 56px; background: linear-gradient(180deg, var(--primary-soft), var(--bg) 70%); }
-    .hero .pill { display: inline-block; padding: 5px 14px; border-radius: 999px; background: #fff; border: 1px solid var(--border); font-size: 13px; color: var(--primary-dark); margin-bottom: 20px; box-shadow: var(--shadow); }
+    .hero .pill { display: inline-block; padding: 5px 14px; border-radius: 999px; background: var(--hero-pill-bg); border: 1px solid var(--border); font-size: 13px; color: var(--primary-dark); margin-bottom: 20px; box-shadow: var(--shadow); }
     .hero h1 { font-size: 44px; font-weight: 800; letter-spacing: -1px; margin-bottom: 14px; }
     .hero .tagline { font-size: 19px; color: var(--muted); max-width: 620px; margin: 0 auto 10px; }
     .hero .badges { margin: 20px 0 30px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
@@ -57,7 +111,7 @@
     .hero .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
     .btn { display: inline-flex; align-items: center; gap: 6px; padding: 12px 24px; border-radius: 999px; font-size: 15px; font-weight: 600; transition: all .15s; cursor: pointer; border: none; }
     .btn-primary { background: var(--primary); color: #fff; }
-    .btn-primary:hover { background: var(--primary-dark); text-decoration: none; transform: translateY(-1px); }
+    .btn-primary:hover { background: var(--primary-dark); text-decoration: none; transform: translateY(-1px); color: #fff; }
     .btn-ghost { background: var(--bg); color: var(--fg); border: 1px solid var(--border); }
     .btn-ghost:hover { background: var(--bg-soft); text-decoration: none; }
 
@@ -68,7 +122,7 @@
     .section-head { text-align: center; margin-bottom: 40px; }
 
     /* Intro / principles */
-    .lead { font-size: 17px; color: #374151; max-width: 760px; margin: 0 auto 36px; text-align: center; }
+    .lead { font-size: 17px; color: var(--lead); max-width: 760px; margin: 0 auto 36px; text-align: center; }
     .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; counter-reset: step; }
     .principle { padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); position: relative; }
     .principle .num { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: var(--primary-soft); color: var(--primary-dark); font-weight: 700; font-size: 14px; margin-bottom: 10px; }
@@ -93,18 +147,19 @@
     tbody tr:last-child td { border-bottom: none; }
     th { background: var(--bg-soft); font-weight: 600; color: var(--muted); font-size: 13px; }
     tbody tr:hover { background: var(--bg-soft); }
-    td code { background: var(--code-bg); padding: 2px 7px; border-radius: 5px; font-size: 12px; color: #374151; }
+    td code { background: var(--code-bg); padding: 2px 7px; border-radius: 5px; font-size: 12px; color: var(--code-fg); }
     .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; background: var(--bg-soft); color: var(--muted); }
     .new { color: var(--green); font-weight: 600; }
     .md-full { color: var(--green); font-weight: 600; white-space: nowrap; }
-    .md-partial { color: #b45309; white-space: nowrap; }
+    .md-partial { color: var(--amber); white-space: nowrap; }
     .md-weak { color: var(--muted); white-space: nowrap; }
     .legend { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; margin-top: 16px; font-size: 13px; color: var(--muted); }
     .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .limits-box { margin-top:28px;padding:20px 22px;border:1px solid var(--border);border-radius:12px;background:var(--surface-tint); }
 
     /* Authors */
     .authors { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
-    .author-card { display: flex; gap: 16px; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); align-items: flex-start; }
+    .author-card { display: flex; gap: 16px; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); align-items: flex-start; background: var(--bg); }
     .author-card .avatar { width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; color: #fff; }
     .author-card .avatar.fun { background: linear-gradient(135deg, #16a34a, #15803d); }
     .author-card .avatar.maintainer { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
@@ -114,7 +169,7 @@
     .author-card .links { display: flex; gap: 14px; font-size: 13px; }
 
     /* Changelog */
-    .releases { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .releases { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg); }
     .release { padding: 20px 24px; border-bottom: 1px solid var(--border); }
     .release:last-child { border-bottom: none; }
     .release h3 { font-size: 17px; margin-bottom: 2px; display: flex; align-items: center; gap: 10px; }
@@ -125,19 +180,19 @@
 
     /* Install */
     .install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-    .install-card { padding: 26px; border: 1px solid var(--border); border-radius: var(--radius); }
+    .install-card { padding: 26px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
     .install-card h3 { margin-bottom: 8px; font-size: 17px; }
     .install-card p { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
-    pre { background: var(--code-bg); padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+    pre { background: var(--code-bg); color: var(--code-fg); padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.6; border: 1px solid var(--border); }
 
     /* Sponsors / WeChat */
     .qr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 220px)); gap: 20px; justify-content: center; margin-bottom: 36px; }
     .qr-card { text-align: center; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
-    .qr-card img { width: 100%; max-width: 180px; border-radius: 10px; background: #fff; display: block; margin: 0 auto 10px; }
+    .qr-card img { width: 100%; max-width: 180px; border-radius: 10px; background: var(--qr-bg); display: block; margin: 0 auto 10px; }
     .qr-card .label { font-size: 14px; font-weight: 600; }
     .qr-card .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
     .sponsor-note { text-align: center; font-size: 14px; color: var(--muted); max-width: 560px; margin: 0 auto 28px; }
-    .sponsor-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; max-width: 640px; margin: 0 auto; }
+    .sponsor-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; max-width: 640px; margin: 0 auto; background: var(--bg); }
     .sponsor-list table { margin: 0; }
     .sponsor-empty { text-align: center; padding: 28px 20px; color: var(--muted); font-size: 14px; background: var(--bg-soft); }
 
@@ -146,8 +201,8 @@
     footer a { margin: 0 10px; }
     @media (max-width: 640px) {
       .hero h1 { font-size: 32px; }
-      nav .links { gap: 14px; }
-      nav .links a:nth-child(n+4) { display: none; }
+      nav .links { gap: 12px; }
+      nav .links a:nth-child(n+4):not(.theme-toggle):not([href*="github"]) { display: none; }
     }
   </style>
 </head>
@@ -166,6 +221,10 @@
         <a href="#changelog">更新</a>
         <a href="#install">安装</a>
         <a href="https://github.com/yjmm10/MediaSync" target="_blank" rel="noopener">GitHub</a>
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="切换深浅色" title="切换深浅色">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </button>
       </div>
     </div>
   </nav>
@@ -293,7 +352,7 @@
         <span><b style="color:var(--muted)">⚪ 弱</b>：短内容 / 图文平台，仅基础排版，不适合代码块 / 表格 / 引用</span>
         <span><b>限制</b>：适配器内已实现或明确映射的平台约束（字数截断/校验、强制草稿、无草稿直接发布等）。「—」表示未做额外字数截断或特殊发布策略（仍受平台自身审核与接口约束；多数平台默认同步为草稿）</span>
       </div>
-      <p style="margin-top:24px;margin-bottom:8px"><b>常用 Markdown 语法支持矩阵</b>　<span style="color:var(--green)">✅ 原生</span> · <span style="color:#b45309">⚠️ 降级</span>（代码块→等宽段落、表格→文本行）· <span style="color:var(--muted)">❌ 不支持</span></p>
+      <p style="margin-top:24px;margin-bottom:8px"><b>常用 Markdown 语法支持矩阵</b>　<span style="color:var(--green)">✅ 原生</span> · <span style="color:var(--amber)">⚠️ 降级</span>（代码块→等宽段落、表格→文本行）· <span style="color:var(--muted)">❌ 不支持</span></p>
       <table>
         <thead><tr><th>平台</th><th>加粗</th><th>斜体</th><th>代码块</th><th>引用</th><th>表格</th><th>列表</th></tr></thead>
         <tbody>
@@ -330,7 +389,7 @@
           <tr><td>Hexo / Hugo</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
         </tbody>
       </table>
-      <div id="platform-limits" style="margin-top:28px;padding:20px 22px;border:1px solid var(--border);border-radius:12px;background:rgba(0,0,0,.02)">
+      <div id="platform-limits" class="limits-box">
         <h3 style="margin:0 0 10px;font-size:18px">平台限制</h3>
         <p style="margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.6">默认策略是同步为<strong>草稿</strong>，由你确认后再发布。下列为适配器内已实现或明确映射的约束（字数、草稿策略等）：</p>
         <table>
@@ -452,7 +511,19 @@
       </div>
       <div class="releases">
         <div class="release">
-          <h3>v2.1.4 <span class="ver-tag">最新</span></h3>
+          <h3>v2.1.5 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-07-25</div>
+          <ul>
+            <li>🆕 平台选择支持「全选 / 取消全选」；网格布局按宽度自适应列数</li>
+            <li>🆕 单平台可手动「检测」登录状态（未登录点整行也可触发）</li>
+            <li>🆕 关于页内容与布局优化</li>
+            <li>🆕 官网支持深浅色主题切换（跟随系统 / 手动切换并记忆）</li>
+            <li>🔧 Release / CI 分别产出 Edge 与 Firefox 扩展包（商店要求冲突，不再提供通用包）</li>
+            <li>⚠️ 美篇、小红书图片上传/转存问题仍待下版本继续修复</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.4</h3>
           <div class="date">2026-07-25</div>
           <ul>
             <li>🆕 新增美篇平台适配（图文创作，七牛图床转存；无独立草稿箱，同步后公开发布）</li>
@@ -601,5 +672,29 @@ mediasync sync article.md -p zhihu,juejin</pre>
       <p style="margin-top:6px;font-size:13px">基于 <a href="https://github.com/wechatsync/Wechatsync" target="_blank" rel="noopener">wechatsync/Wechatsync</a> 开源项目 · 致敬原作者 fun</p>
     </div>
   </footer>
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var btn = document.getElementById('theme-toggle');
+      if (!btn) return;
+      function apply(theme) {
+        root.setAttribute('data-theme', theme);
+        try { localStorage.setItem('mediasync-theme', theme); } catch (e) {}
+        btn.setAttribute('aria-label', theme === 'dark' ? '切换到浅色' : '切换到深色');
+        btn.setAttribute('title', theme === 'dark' ? '切换到浅色' : '切换到深色');
+      }
+      btn.addEventListener('click', function () {
+        apply(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+      });
+      // 未手动选择时，跟随系统偏好变化
+      try {
+        if (!localStorage.getItem('mediasync-theme') && window.matchMedia) {
+          window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+            if (!localStorage.getItem('mediasync-theme')) apply(e.matches ? 'dark' : 'light');
+          });
+        }
+      } catch (e) {}
+    })();
+  </script>
 </body>
 </html>

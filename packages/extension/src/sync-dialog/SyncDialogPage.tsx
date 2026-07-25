@@ -123,6 +123,36 @@ export function SyncDialogPage() {
     saveSelectedPlatforms([])
   }
 
+  const handleRecheckAuth = async (platformId: string) => {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'CHECK_AUTH',
+        payload: { platformId },
+      })
+      if (chrome.runtime.lastError) {
+        throw new Error(chrome.runtime.lastError.message)
+      }
+      if (response?.error) {
+        throw new Error(String(response.error))
+      }
+      const auth = response?.auth
+      if (!auth) return
+      setPlatforms(prev =>
+        prev.map(p =>
+          p.id === platformId
+            ? {
+                ...p,
+                isAuthenticated: !!auth.isAuthenticated,
+                username: auth.username,
+              }
+            : p
+        )
+      )
+    } catch {
+      // ignore
+    }
+  }
+
   const handleStartSync = () => {
     if (!article || selectedPlatforms.length === 0) return
     const syncId = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -193,6 +223,7 @@ export function SyncDialogPage() {
         onTogglePlatform={handleToggle}
         onSelectAll={handleSelectAll}
         onDeselectAll={handleDeselectAll}
+        onRecheckAuth={handleRecheckAuth}
         onStartSync={handleStartSync}
         onRetryFailed={handleRetryFailed}
         onReset={handleReset}

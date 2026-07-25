@@ -22,6 +22,7 @@ export function SyncDialog({
   onTogglePlatform,
   onSelectAll,
   onDeselectAll,
+  onRecheckAuth,
   onStartSync,
   onRetryFailed,
   onReset,
@@ -38,14 +39,6 @@ export function SyncDialog({
   const isIdle = status === 'idle' || status === 'loading'
   const isSyncing = status === 'syncing'
   const isCompleted = status === 'completed'
-
-  const handleSelectAll = () => {
-    if (selectedPlatforms.length === authenticatedPlatforms.length) {
-      onDeselectAll()
-    } else {
-      onSelectAll()
-    }
-  }
 
   return (
     <div className={cn('flex flex-col', className)}>
@@ -64,8 +57,8 @@ export function SyncDialog({
         {/* Promo banner — idle, show after article when article exists */}
         {isIdle && article && <PromoBanner />}
 
-        {/* Unified platform list — transitions in-place */}
-        {article && (
+        {/* Unified platform list — 有文章时选平台；无文章也可检测登录 */}
+        {platforms.length > 0 && (article || isIdle) && (
           <PlatformList
             platforms={platforms}
             selected={selectedSet}
@@ -74,7 +67,9 @@ export function SyncDialog({
             platformProgress={platformProgress}
             selectedPlatforms={selectedPlatforms}
             onToggle={onTogglePlatform}
-            onSelectAll={handleSelectAll}
+            onSelectAll={onSelectAll}
+            onDeselectAll={onDeselectAll}
+            onRecheckAuth={onRecheckAuth}
           />
         )}
 

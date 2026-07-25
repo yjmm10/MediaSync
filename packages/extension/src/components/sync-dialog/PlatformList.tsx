@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import type { DragEvent } from 'react'
-import { Check, X, Loader2, ExternalLink, ChevronRight, LayoutGrid, List, GripVertical } from 'lucide-react'
+import type { DragEvent, MouseEvent } from 'react'
+import { Check, X, Loader2, ExternalLink, ChevronRight, LayoutGrid, List, GripVertical, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { openUrlsInTabGroup } from '@/lib/tabs'
 import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './types'
@@ -27,6 +27,8 @@ interface PlatformListProps {
   selectedPlatforms: string[]
   onToggle: (id: string) => void
   onSelectAll: () => void
+  onDeselectAll: () => void
+  onRecheckAuth?: (platformId: string) => void | Promise<void>
 }
 
 export function PlatformList({
@@ -38,6 +40,8 @@ export function PlatformList({
   selectedPlatforms,
   onToggle,
   onSelectAll,
+  onDeselectAll,
+  onRecheckAuth,
 }: PlatformListProps) {
   const isIdle = status === 'idle' || status === 'loading'
   const isSyncing = status === 'syncing'
@@ -46,6 +50,7 @@ export function PlatformList({
   const authenticatedPlatforms = platforms.filter(p => p.isAuthenticated)
   const unauthenticatedPlatforms = platforms.filter(p => !p.isAuthenticated)
   const selectedCount = selected.size
+  const selectedAuthCount = authenticatedPlatforms.filter(p => selected.has(p.id)).length
   const successCount = results.filter(r => r.success).length
   const failedCount = results.filter(r => !r.success).length
   // 成功且有可访问链接的结果（草稿/文章页），用于"打开全部"
@@ -72,6 +77,22 @@ export function PlatformList({
     const next = viewMode === 'list' ? 'grid' : 'list'
     setViewMode(next)
     chrome.storage.local.set({ platformViewMode: next })
+  }
+
+  // 单平台手动登录检测中
+  const [checkingIds, setCheckingIds] = useState<Set<string>>(() => new Set())
+  const handleRecheckAuth = async (platformId: string) => {
+    if (!onRecheckAuth || checkingIds.has(platformId)) return
+    setCheckingIds(prev => new Set(prev).add(platformId))
+    try {
+      await onRecheckAuth(platformId)
+    } finally {
+      setCheckingIds(prev => {
+        const next = new Set(prev)
+        next.delete(platformId)
+        return next
+      })
+    }
   }
 
   // 自定义平台排序（仅 idle + 列表视图可拖拽；顺序持久化到 storage）
@@ -122,15 +143,28 @@ export function PlatformList({
             </span>
             <div className="flex items-center gap-2">
               {authenticatedPlatforms.length > 0 && (
-                <button
-                  onClick={onSelectAll}
-                  className="text-xs text-primary hover:underline"
-                >
-                  {selectedCount === authenticatedPlatforms.length ? '取消全选' : '全选'}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={onSelectAll}
+                    disabled={selectedAuthCount === authenticatedPlatforms.length}
+                    className="text-xs text-primary hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-default"
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onDeselectAll}
+                    disabled={selectedAuthCount === 0}
+                    className="text-xs text-primary hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-default"
+                  >
+                    取消全选
+                  </button>
+                </>
               )}
               {authenticatedPlatforms.length > 0 && (
                 <button
+                  type="button"
                   onClick={toggleViewMode}
                   title={viewMode === 'list' ? '切换到网格视图' : '切换到列表视图'}
                   className="text-muted-foreground hover:text-foreground transition-colors"
@@ -194,7 +228,7 @@ export function PlatformList({
       )}
 
       {/* Platform rows */}
-      <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2' : 'space-y-0.5'}>
+      <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
         {visiblePlatforms.map(platform => {
           const result = results.find(r => r.platform === platform.id)
           const progress = platformProgress.get(platform.id)
@@ -211,9 +245,11 @@ export function PlatformList({
                 isIdle={isIdle}
                 isWaiting={isWaiting}
                 isInProgress={isInProgress}
+                isCheckingAuth={checkingIds.has(platform.id)}
                 result={result || null}
                 alreadySynced={isIdle && !!result?.success}
                 onToggle={() => onToggle(platform.id)}
+                onRecheckAuth={() => handleRecheckAuth(platform.id)}
               />
             )
           }
@@ -226,11 +262,13 @@ export function PlatformList({
               isIdle={isIdle}
               isWaiting={isWaiting}
               isInProgress={isInProgress}
+              isCheckingAuth={checkingIds.has(platform.id)}
               result={result || null}
               progress={progress || null}
               alreadySynced={isIdle && !!result?.success}
               onToggle={() => onToggle(platform.id)}
-              draggable={canDrag}
+              onRecheckAuth={() => handleRecheckAuth(platform.id)}
+              draggable={canDrag && platform.isAuthenticated}
               isDragging={dragId === platform.id}
               isDragOver={overId === platform.id}
               onDragStart={() => { setDragId(platform.id); setOverId(null) }}
@@ -247,7 +285,7 @@ export function PlatformList({
       {isIdle && platforms.length > 0 && authenticatedPlatforms.length === 0 && (
         <div className="text-center py-4">
           <p className="text-sm text-muted-foreground">还没有登录任何平台</p>
-          <p className="text-xs text-muted-foreground mt-1">点击平台名称前往登录</p>
+          <p className="text-xs text-muted-foreground mt-1">点击平台图标或名称可重新检测登录状态</p>
         </div>
       )}
     </div>
@@ -262,18 +300,22 @@ function PlatformGridCell({
   isIdle,
   isWaiting,
   isInProgress,
+  isCheckingAuth,
   result,
   alreadySynced,
   onToggle,
+  onRecheckAuth,
 }: {
   platform: Platform
   isSelected: boolean
   isIdle: boolean
   isWaiting: boolean
   isInProgress: boolean
+  isCheckingAuth: boolean
   result: SyncResult | null
   alreadySynced: boolean
   onToggle: () => void
+  onRecheckAuth: () => void
 }) {
   const isDone = !!result
 
@@ -289,22 +331,24 @@ function PlatformGridCell({
       chrome.tabs.create({ url: result.postUrl })
       return
     }
-    if (!isIdle) return
+    if (!isIdle || isCheckingAuth) return
     if (platform.isAuthenticated) {
       onToggle()
-    } else if (platform.homepage) {
-      chrome.tabs.create({ url: platform.homepage })
+    } else {
+      onRecheckAuth()
     }
   }
 
   // 悬停提示：idle 显示用户名，completed 显示草稿/错误
   let title = platform.name
-  if (alreadySynced) {
+  if (isCheckingAuth) {
+    title = `${platform.name} · 正在检测登录…`
+  } else if (alreadySynced) {
     title = isSelected ? `${platform.name} · 将重新同步` : `${platform.name} · 已同步（点击重新同步）`
   } else if (isIdle) {
     title = platform.isAuthenticated
       ? `${platform.name} · ${platform.username || '已登录'}`
-      : `${platform.name} · 未登录，点击前往登录`
+      : `${platform.name} · 未登录，点击检测登录状态`
   } else if (isDone && result) {
     title = result.success
       ? `${platform.name} · ${result.draftOnly ? '草稿' : '查看'}（点击打开）`
@@ -318,8 +362,9 @@ function PlatformGridCell({
       onClick={handleClick}
       title={title}
       className={cn(
-        'relative flex flex-col items-center gap-1.5 p-2 rounded-lg transition-all duration-200',
-        isIdle && 'cursor-pointer hover:bg-muted/60',
+        // 与「添加平台」第三方平台格子一致：p-2 + 24px 图标，列数由容器宽度自适应
+        'relative flex flex-col items-center gap-1 p-2 rounded-lg transition-all duration-200',
+        isIdle && 'cursor-pointer hover:bg-muted',
         isIdle && platform.isAuthenticated && isSelected && 'bg-primary/5 ring-1 ring-primary',
         isIdle && !platform.isAuthenticated && 'opacity-50',
         syncedIdle && 'opacity-50',
@@ -335,45 +380,50 @@ function PlatformGridCell({
           className="w-6 h-6 rounded"
           onError={(e) => { (e.target as HTMLImageElement).src = '/assets/icon-48.png' }}
         />
+        {isCheckingAuth && (
+          <span className="absolute inset-0 flex items-center justify-center bg-background/60 rounded">
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+          </span>
+        )}
         {/* idle 已选中（含已同步平台被用户重新勾选） */}
-        {isIdle && platform.isAuthenticated && isSelected && (
+        {!isCheckingAuth && isIdle && platform.isAuthenticated && isSelected && (
           <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary flex items-center justify-center ring-2 ring-background">
             <Check className="w-2.5 h-2.5 text-white" />
           </span>
         )}
         {/* 已同步但未勾选（追加场景）：灰✓ */}
-        {alreadySynced && !isSelected && (
+        {!isCheckingAuth && alreadySynced && !isSelected && (
           <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-400 flex items-center justify-center ring-2 ring-background">
             <Check className="w-2.5 h-2.5 text-white" />
           </span>
         )}
         {/* 完成成功 */}
-        {!alreadySynced && isDone && result?.success && (
+        {!isCheckingAuth && !alreadySynced && isDone && result?.success && (
           <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-green-500 flex items-center justify-center ring-2 ring-background">
             <Check className="w-2.5 h-2.5 text-white" />
           </span>
         )}
         {/* 完成失败 */}
-        {!alreadySynced && isDone && result && !result.success && (
+        {!isCheckingAuth && !alreadySynced && isDone && result && !result.success && (
           <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 flex items-center justify-center ring-2 ring-background">
             <X className="w-2.5 h-2.5 text-white" />
           </span>
         )}
         {/* 进行中 */}
-        {isInProgress && (
+        {!isCheckingAuth && isInProgress && (
           <span className="absolute inset-0 flex items-center justify-center bg-background/60 rounded">
             <Loader2 className="w-4 h-4 animate-spin text-primary" />
           </span>
         )}
         {/* 等待中 */}
-        {isWaiting && (
+        {!isCheckingAuth && isWaiting && (
           <span className="absolute inset-0 flex items-center justify-center bg-background/40 rounded">
             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" />
           </span>
         )}
       </div>
       {/* 名称 */}
-      <span className="text-xs text-center truncate w-full">{platform.name}</span>
+      <span className="text-[10px] text-muted-foreground leading-tight text-center truncate w-full">{platform.name}</span>
     </div>
   )
 }
@@ -386,10 +436,12 @@ function PlatformRow({
   isIdle,
   isWaiting,
   isInProgress,
+  isCheckingAuth,
   result,
   progress,
   alreadySynced,
   onToggle,
+  onRecheckAuth,
   draggable,
   isDragging,
   isDragOver,
@@ -404,11 +456,13 @@ function PlatformRow({
   isIdle: boolean
   isWaiting: boolean
   isInProgress: boolean
+  isCheckingAuth: boolean
   result: SyncResult | null
   progress: PlatformProgress | null
   /** 继续同步/追加场景：该平台已成功同步过，置灰且不可重复勾选 */
   alreadySynced: boolean
   onToggle: () => void
+  onRecheckAuth: () => void
   draggable?: boolean
   isDragging?: boolean
   isDragOver?: boolean
@@ -420,14 +474,21 @@ function PlatformRow({
 }) {
   const isDone = !!result
 
-  const handleClick = () => {
-    if (!isIdle) return
-    // alreadySynced 可点击：取消/重新勾选（重新勾选 = 强制重新同步）
+  const handleRowClick = () => {
+    if (!isIdle || isCheckingAuth) return
     if (platform.isAuthenticated) {
       onToggle()
-    } else if (platform.homepage) {
-      chrome.tabs.create({ url: platform.homepage })
+      return
     }
+    // 未登录：点击整行触发手动检测
+    onRecheckAuth()
+  }
+
+  const handleRecheckClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!isIdle || isCheckingAuth) return
+    onRecheckAuth()
   }
 
   // 未被用户勾选的已同步平台：浅灰（表示已同步，默认不再同步）
@@ -435,21 +496,29 @@ function PlatformRow({
 
   return (
     <div
-      onClick={handleClick}
-      draggable={draggable}
+      onClick={handleRowClick}
+      draggable={!!draggable && platform.isAuthenticated}
       onDragStart={onDragStart}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      title={draggable ? `${platform.name} · 可拖动排序` : undefined}
+      title={
+        isCheckingAuth
+          ? `${platform.name} · 正在检测登录…`
+          : !platform.isAuthenticated
+            ? `${platform.name} · 点击检测登录状态`
+            : draggable
+              ? `${platform.name} · 可拖动排序`
+              : undefined
+      }
       className={cn(
         'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-200',
         isIdle && platform.isAuthenticated && 'cursor-pointer hover:bg-muted/60',
-        isIdle && !platform.isAuthenticated && 'cursor-pointer opacity-50 hover:opacity-70',
+        isIdle && !platform.isAuthenticated && 'cursor-pointer opacity-60 hover:opacity-100',
         isIdle && isSelected && 'bg-primary/5',
         syncedIdle && 'opacity-50',
-        draggable && 'cursor-grab active:cursor-grabbing',
+        draggable && platform.isAuthenticated && 'cursor-grab active:cursor-grabbing',
         isDragging && 'opacity-40',
         isDragOver && 'ring-2 ring-primary/50',
         !syncedIdle && isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
@@ -457,20 +526,24 @@ function PlatformRow({
       )}
     >
       {/* 拖拽手柄（仅 idle 列表视图） */}
-      {draggable && (
+      {draggable && platform.isAuthenticated && (
         <GripVertical className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
       )}
 
       {/* Status indicator */}
-      <RowIndicator
-        isIdle={isIdle}
-        isSelected={isSelected}
-        isAuthenticated={platform.isAuthenticated}
-        isWaiting={isWaiting}
-        isInProgress={isInProgress}
-        result={result}
-        alreadySynced={alreadySynced}
-      />
+      {isCheckingAuth ? (
+        <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0" />
+      ) : (
+        <RowIndicator
+          isIdle={isIdle}
+          isSelected={isSelected}
+          isAuthenticated={platform.isAuthenticated}
+          isWaiting={isWaiting}
+          isInProgress={isInProgress}
+          result={result}
+          alreadySynced={alreadySynced}
+        />
+      )}
 
       {/* Platform icon */}
       <img
@@ -485,17 +558,37 @@ function PlatformRow({
       {/* Platform name */}
       <span className="text-sm flex-1 truncate">{platform.name}</span>
 
-      {/* Right side info */}
-      <RowInfo
-        platform={platform}
-        isIdle={isIdle}
-        isWaiting={isWaiting}
-        isInProgress={isInProgress}
-        result={result}
-        progress={progress}
-        alreadySynced={alreadySynced}
-        isSelected={isSelected}
-      />
+      {/* Right side info + 手动检测 */}
+      <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+        {isIdle && (
+          <button
+            type="button"
+            title="重新检测登录状态"
+            disabled={isCheckingAuth}
+            onClick={handleRecheckClick}
+            className={cn(
+              'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] transition-colors',
+              isCheckingAuth
+                ? 'text-primary'
+                : 'text-muted-foreground hover:text-primary hover:bg-muted'
+            )}
+          >
+            <RefreshCw className={cn('w-3 h-3', isCheckingAuth && 'animate-spin')} />
+            {isCheckingAuth ? '检测中' : '检测'}
+          </button>
+        )}
+        <RowInfo
+          platform={platform}
+          isIdle={isIdle}
+          isWaiting={isWaiting}
+          isInProgress={isInProgress}
+          isCheckingAuth={isCheckingAuth}
+          result={result}
+          progress={progress}
+          alreadySynced={alreadySynced}
+          isSelected={isSelected}
+        />
+      </div>
     </div>
   )
 }
@@ -574,6 +667,7 @@ function RowInfo({
   isIdle,
   isWaiting,
   isInProgress,
+  isCheckingAuth,
   result,
   progress,
   alreadySynced,
@@ -583,6 +677,7 @@ function RowInfo({
   isIdle: boolean
   isWaiting: boolean
   isInProgress: boolean
+  isCheckingAuth?: boolean
   result: SyncResult | null
   progress: PlatformProgress | null
   alreadySynced: boolean
@@ -670,12 +765,23 @@ function RowInfo({
     return <span className="text-xs text-muted-foreground flex-shrink-0">等待中</span>
   }
 
-  // Idle
+  // Idle：检测中由行内「检测」按钮展示；此处只保留去登录 / 用户名
+  if (isCheckingAuth) {
+    return null
+  }
   if (!platform.isAuthenticated) {
     return (
-      <span className="text-xs text-muted-foreground flex items-center gap-0.5 flex-shrink-0">
+      <button
+        type="button"
+        className="text-xs text-muted-foreground flex items-center gap-0.5 flex-shrink-0 hover:text-primary"
+        title="打开平台登录页"
+        onClick={(e) => {
+          e.stopPropagation()
+          if (platform.homepage) chrome.tabs.create({ url: platform.homepage })
+        }}
+      >
         去登录 <ChevronRight className="w-3 h-3" />
-      </span>
+      </button>
     )
   }
   return (

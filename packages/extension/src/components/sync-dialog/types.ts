@@ -50,6 +50,8 @@ export interface SyncDialogProps {
   onTogglePlatform: (id: string) => void
   onSelectAll: () => void
   onDeselectAll: () => void
+  /** 手动检测单个平台登录状态（未登录时点击 logo/名称） */
+  onRecheckAuth?: (platformId: string) => void | Promise<void>
   onStartSync: () => void
   onRetryFailed: () => void
   onReset: () => void
