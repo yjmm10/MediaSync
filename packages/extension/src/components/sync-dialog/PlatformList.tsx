@@ -487,7 +487,7 @@ function PlatformRow({
   const handleRecheckClick = (e: MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
-    if (!isIdle || isCheckingAuth) return
+    if (!isIdle || isCheckingAuth || platform.isAuthenticated) return
     onRecheckAuth()
   }
 
@@ -558,9 +558,9 @@ function PlatformRow({
       {/* Platform name */}
       <span className="text-sm flex-1 truncate">{platform.name}</span>
 
-      {/* Right side info + 手动检测 */}
+      {/* Right side info + 手动检测（仅未登录） */}
       <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-        {isIdle && (
+        {isIdle && !platform.isAuthenticated && (
           <button
             type="button"
             title="重新检测登录状态"

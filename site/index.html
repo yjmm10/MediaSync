@@ -161,7 +161,6 @@
     .authors { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
     .author-card { display: flex; gap: 16px; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); align-items: flex-start; background: var(--bg); }
     .author-card .avatar { width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; color: #fff; }
-    .author-card .avatar.fun { background: linear-gradient(135deg, #16a34a, #15803d); }
     .author-card .avatar.maintainer { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
     .author-card h3 { font-size: 16px; margin-bottom: 2px; }
     .author-card .role { font-size: 12px; color: var(--primary-dark); margin-bottom: 8px; font-weight: 600; }
@@ -240,7 +239,7 @@
       <img src="https://img.shields.io/github/license/yjmm10/MediaSync" alt="license" />
     </div>
     <div class="cta">
-      <a class="btn btn-primary" href="https://chrome.google.com/webstore/detail/hchobocdmclopcbnibdnoafilagadion" target="_blank" rel="noopener">安装 Chrome 扩展</a>
+      <a class="btn btn-primary" href="" title="商店链接待补充">安装 Chrome 扩展</a>
       <a class="btn btn-ghost" href="https://github.com/yjmm10/MediaSync" target="_blank" rel="noopener">查看源码</a>
     </div>
   </div>
@@ -434,7 +433,7 @@
       </div>
       <div class="authors">
         <div class="author-card">
-          <div class="avatar fun">L</div>
+          <div class="avatar maintainer">L</div>
           <div>
             <h3>lusca</h3>
             <div class="role">仓库作者 · 维护者</div>
@@ -446,20 +445,7 @@
             </div>
           </div>
         </div>
-        <div class="author-card">
-          <div class="avatar maintainer">F</div>
-          <div>
-            <h3>fun</h3>
-            <div class="role">上游原作者</div>
-            <p>本项目的上游 wechatsync/Wechatsync 原作者，主导了从 v1 到 v2 全新架构（Manifest V3 + React）的完整设计与开发，并以 GPL-3.0 开源。本项目基于其开源成果延续。</p>
-            <div class="links">
-              <a href="https://github.com/lljxx1" target="_blank" rel="noopener">GitHub</a>
-              <a href="https://fun0.netlify.app/about/" target="_blank" rel="noopener">个人主页</a>
-            </div>
-          </div>
-        </div>
       </div>
-      <p style="margin-top:20px;text-align:center;font-size:14px;color:var(--muted)">本项目基于 <a href="https://github.com/wechatsync/Wechatsync" target="_blank" rel="noopener">wechatsync/Wechatsync</a> 开源项目，遵循 GPL-3.0 协议。感谢所有为项目贡献代码的平台适配器作者。</p>
     </section>
 
     <!-- 赞赏与留名 -->
@@ -646,7 +632,7 @@
         <div class="install-card">
           <h3>🖥️ Chrome 扩展（推荐）</h3>
           <p>从 Chrome 网上应用店安装，支持 Chrome / Edge / 360 / QQ 等 Chromium 内核浏览器，自动更新。</p>
-          <a class="btn btn-primary" href="https://chrome.google.com/webstore/detail/hchobocdmclopcbnibdnoafilagadion" target="_blank" rel="noopener">安装扩展</a>
+          <a class="btn btn-primary" href="" title="商店链接待补充">安装扩展</a>
         </div>
         <div class="install-card">
           <h3>⌨️ CLI 命令行工具</h3>
@@ -669,7 +655,6 @@ mediasync sync article.md -p zhihu,juejin</pre>
         <a href="https://github.com/yjmm10/MediaSync/blob/v2/CHANGELOG.md" target="_blank" rel="noopener">更新日志</a>
       </div>
       <p>同步派 MediaSync · GPL-3.0</p>
-      <p style="margin-top:6px;font-size:13px">基于 <a href="https://github.com/wechatsync/Wechatsync" target="_blank" rel="noopener">wechatsync/Wechatsync</a> 开源项目 · 致敬原作者 fun</p>
     </div>
   </footer>
   <script>

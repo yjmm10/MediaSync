@@ -87,6 +87,7 @@
 | 博客园 | cnblogs | 技术社区 | ✅ 完整 | — | ✅ |
 | 搜狐焦点 | sohufocus | 房产 | 🟡 部分 | — | ✅ |
 | X (Twitter) | x | 海外 | ⚪ 弱 | — | ✅ |
+| Reddit | reddit | 海外 | ✅ 完整 | 固定个人 profile；GraphQL 草稿；有图则 IMAGE gallery 草稿 | ✅ 🆕 |
 | 东方财富 | eastmoney | 财经 | 🟡 部分 | — | ✅ |
 | 什么值得买 | smzdm | 通用 | 🟡 部分 | — | ✅ |
 | 网易号 | netease | 通用 | 🟡 部分 | — | ✅ 🆕 |
@@ -294,6 +295,10 @@ pnpm build
 然后在 Chrome 中加载 `packages/extension/dist` 目录。
 
 ## 更新日志
+
+### v2.1.6 (2026-07-25)
+
+- 🔧 平台列表「检测」仅对未登录平台显示与触发；已登录平台点击只负责勾选
 
 ### v2.1.5 (2026-07-25)
 
