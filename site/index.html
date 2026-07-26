@@ -497,7 +497,42 @@
       </div>
       <div class="releases">
         <div class="release">
-          <h3>v2.1.5 <span class="ver-tag">最新</span></h3>
+          <h3>v2.1.9 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-07-26</div>
+          <ul>
+            <li>🔧 Logo 点击清空文章回到空主页（关闭实时会话态，避免立刻再抽文）；空主页始终可「检测当前页」</li>
+            <li>🔧 美篇、小红书等需开标签鉴权的平台：打开插件不再自动真检；仅手动「重新检测」时开标签</li>
+            <li>🔧 移除同步完成后的「去好评 / 分享」引导</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.8</h3>
+          <div class="date">2026-07-26</div>
+          <ul>
+            <li>🔧 同步进行中/完成后切浏览器标签不再覆盖文章或把 UI 打回主页；预处理固定发起同步时的标签页</li>
+            <li>🔧 多平台同步改为分批准备图床再同步（每批 3），全选时更快出现首个平台结果</li>
+            <li>🔧 同步消息通道异常时若后台仍在同步，侧栏保持同步中状态</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.7</h3>
+          <div class="date">2026-07-26</div>
+          <ul>
+            <li>🆕 新增 Reddit 平台适配（个人 profile 草稿；图片上传暂关闭，仅同步文字）</li>
+            <li>🔧 美篇、小红书登录检测与手动重检策略调整，降低自动开标签</li>
+            <li>🔧 实时检测文章：设置总开关关闭后首页切页不再自动检测</li>
+            <li>🔧 同步中间层按平台副本处理内嵌图，避免 Reddit mediaId 等污染本地预览</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.6</h3>
+          <div class="date">2026-07-25</div>
+          <ul>
+            <li>🔧 平台列表「检测」仅对未登录平台显示与触发；已登录平台点击只负责勾选</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.5</h3>
           <div class="date">2026-07-25</div>
           <ul>
             <li>🆕 平台选择支持「全选 / 取消全选」；网格布局按宽度自适应列数</li>
