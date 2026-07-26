@@ -242,8 +242,10 @@ export function SettingsPage() {
 
           <div className="flex items-center justify-between gap-3 p-3 bg-muted/50 rounded-lg">
             <div className="min-w-0">
-              <p className="text-sm font-medium">实时检测文章（全局默认）</p>
-              <p className="text-xs text-muted-foreground">侧栏打开时的默认值；顶栏雷达为当前态，可与此处不同</p>
+              <p className="text-sm font-medium">实时检测文章</p>
+              <p className="text-xs text-muted-foreground">
+                总开关：关闭后首页不会随切页自动检测；开启后可由顶栏雷达控制当前是否检测
+              </p>
             </div>
             <Toggle on={realtimeDetect} onClick={toggleRealtimeDetect} />
           </div>

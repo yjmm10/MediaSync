@@ -17,6 +17,7 @@ import {
   upsertHistoryItem,
   mergeHistoryItem,
 } from '../lib/history-doc'
+import { preparePlatformContents } from './prepare-platform-contents'
 
 const logger = createLogger('SyncService')
 
@@ -231,12 +232,24 @@ export async function performSync(
     }
   }
 
+  // 分批：preparePlatformContents(本批) → syncToMultiplePlatforms(本批)，尽快产出进度
   const allResults: SyncResult[] = []
+  const PREPARE_SYNC_BATCH = 3
 
-  // 同步到 DSL 平台
   if (dslPlatformIds.length > 0) {
-    await syncToMultiplePlatforms(dslPlatformIds, processedArticle, {
-      onResult: (result) => {
+    const mergedContents: Record<string, { html: string; markdown: string }> = {
+      ...(processedArticle.platformContents || {}),
+    }
+    processedArticle = {
+      ...processedArticle,
+      html: normalizedArticle.html,
+      markdown: normalizedArticle.markdown,
+      content: normalizedArticle.content,
+      platformContents: mergedContents,
+    }
+
+    const syncCallbacks = {
+      onResult: (result: { platform: string; success: boolean; postUrl?: string; draftOnly?: boolean; error?: string; timestamp?: number }) => {
         const resultWithName: SyncResult = {
           ...result,
           platformName: platformNameById.get(result.platform) || result.platform,
@@ -244,16 +257,28 @@ export async function performSync(
         syncState.results.push(resultWithName)
         allResults.push(resultWithName)
         saveSyncState(syncState).catch(() => {})
-
         onResult?.(resultWithName)
       },
-      onImageProgress: (platform, current, total) => {
+      onImageProgress: (platform: string, current: number, total: number) => {
         onImageProgress?.(platform, current, total)
       },
       onDetailProgress: (progress: SyncDetailProgress) => {
         onDetailProgress?.(progress)
       },
-    }, source)
+    }
+
+    for (let i = 0; i < dslPlatformIds.length; i += PREPARE_SYNC_BATCH) {
+      const batchIds = dslPlatformIds.slice(i, i + PREPARE_SYNC_BATCH)
+      try {
+        const batchContents = await preparePlatformContents(processedArticle, batchIds)
+        Object.assign(mergedContents, batchContents)
+        processedArticle = { ...processedArticle, platformContents: mergedContents }
+        logger.debug('Prepared platformContents batch:', Object.keys(batchContents))
+      } catch (error) {
+        logger.warn('preparePlatformContents batch failed:', error)
+      }
+      await syncToMultiplePlatforms(batchIds, processedArticle, syncCallbacks, source)
+    }
   }
 
   // 同步到 CMS 账户

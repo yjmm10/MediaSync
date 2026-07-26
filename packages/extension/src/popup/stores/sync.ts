@@ -11,7 +11,6 @@ import {
 import { checkSyncFrequency } from '../../lib/rate-limit'
 import { createLogger } from '../../lib/logger'
 import type { SyncHistoryItem } from '../../lib/history-doc'
-import { uploadEmbeddedImages } from '../../lib/local-markdown'
 
 const logger = createLogger('SyncStore')
 
@@ -130,14 +129,13 @@ interface SyncState {
   // 文章提取失败提示（如需刷新页面）
   extractError: string | null
 
-  // 同步前图床上传进度（本地图片 base64 → 图床短 URL）
-  imageUploadStage: { host: string; done: number; total: number } | null
-
   // Actions
   loadPlatforms: () => Promise<void>
   loadArticle: (opts?: { force?: boolean }) => Promise<void>
   loadHistory: () => Promise<void>
   recoverSyncState: () => Promise<void>
+  /** 从 storage 尽早恢复勾选，避免鉴权完成前显示 0 个平台 */
+  hydrateSelectedPlatforms: () => Promise<void>
   togglePlatform: (platformId: string) => void
   selectAll: () => void
   deselectAll: () => void
@@ -152,6 +150,8 @@ interface SyncState {
   updateArticle: (updates: Partial<Article>) => void
   /** 直接设置文章（用于本地导入，source='import' 时实时检测会跳过） */
   setArticle: (article: Article, source?: 'import' | 'edited' | 'extract') => void
+  /** 清空文章并回到空主页选择态（Logo 回主页） */
+  clearArticle: () => void
   continueSync: () => void
   clearRateLimitWarning: () => void
   clearExtractError: () => void
@@ -197,7 +197,6 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   recovered: false,
   rateLimitWarning: null,
   extractError: null,
-  imageUploadStage: null,
 
   recoverSyncState: async () => {
     // 避免重复恢复
@@ -210,18 +209,31 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       if (syncState) {
         logger.debug('Recovering sync state:', syncState.status, syncState.syncId)
 
-        set({
-          status: syncState.status,
-          article: syncState.article,
-          selectedPlatforms: syncState.selectedPlatforms,
-          results: syncState.results || [],
-          currentSyncId: syncState.syncId || null,
-          recovered: true,
-        })
+        const current = get().article
+        const locked = current?.source === 'import' || current?.source === 'edited'
 
-        // 如果是同步中状态，继续监听进度
-        if (syncState.status === 'syncing') {
+        // 仅在「同步进行中」且当前没有导入/编辑锁定文章时，恢复完整文章。
+        // 已完成同步不写回正文：源文（含 base64）供预览，平台改写只在 platformContents。
+        if (syncState.status === 'syncing' && !locked) {
+          set({
+            status: 'syncing',
+            article: syncState.article,
+            selectedPlatforms: syncState.selectedPlatforms,
+            results: syncState.results || [],
+            currentSyncId: syncState.syncId || null,
+            recovered: true,
+          })
           logger.debug('Sync in progress, listening for updates...')
+        } else {
+          set({
+            status: syncState.status === 'completed' ? 'completed' : get().status,
+            selectedPlatforms: syncState.selectedPlatforms?.length
+              ? syncState.selectedPlatforms
+              : get().selectedPlatforms,
+            results: syncState.results?.length ? syncState.results : get().results,
+            currentSyncId: syncState.syncId || null,
+            recovered: true,
+          })
         }
       } else {
         set({ recovered: true })
@@ -240,6 +252,15 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     }
   },
 
+  hydrateSelectedPlatforms: async () => {
+    // recover 已写入勾选则不覆盖
+    if (get().selectedPlatforms.length > 0) return
+    const saved = await loadSelectedPlatforms()
+    if (saved?.length) {
+      set({ selectedPlatforms: saved })
+    }
+  },
+
   updateArticle: (updates) => {
     const currentArticle = get().article
     if (currentArticle) {
@@ -253,8 +274,9 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   setArticle: (article, source) => {
+    const nextSource = source ?? article.source
     set({
-      article: { ...article, source: source ?? article.source },
+      article: { ...article, source: nextSource },
       // 切换文章时清空上一次的同步结果/错误
       status: 'idle',
       results: [],
@@ -262,8 +284,25 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       extractError: null,
       platformProgress: new Map(),
       currentSyncId: null,
-      imageUploadStage: null,
     })
+    // 导入/编辑锁定时清掉后台残留 syncState，避免再次打开侧栏时 recover 覆盖本地预览
+    if (nextSource === 'import' || nextSource === 'edited') {
+      chrome.runtime.sendMessage({ type: 'CLEAR_SYNC_STATE' }).catch(() => {})
+    }
+  },
+
+  clearArticle: () => {
+    set({
+      article: null,
+      status: 'idle',
+      results: [],
+      error: null,
+      extractError: null,
+      imageProgress: null,
+      platformProgress: new Map(),
+      currentSyncId: null,
+    })
+    chrome.runtime.sendMessage({ type: 'CLEAR_SYNC_STATE' }).catch(() => {})
   },
 
   // 完成态回到选择态以追加更多平台：移除已成功平台（避免重复），保留 results 供「已同步」标记
@@ -276,7 +315,6 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       error: null,
       platformProgress: new Map(),
       currentSyncId: null,
-      imageUploadStage: null,
     })
   },
 
@@ -305,6 +343,11 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       let selectedPlatforms: string[] = []
       if (savedSelections && savedSelections.length > 0) {
         selectedPlatforms = savedSelections.filter(id => authenticatedIds.includes(id))
+        // 鉴权列表暂空时保留已 hydrate / storage 勾选，避免 UI 闪成「0 个平台」
+        if (selectedPlatforms.length === 0 && authenticatedIds.length === 0) {
+          const current = get().selectedPlatforms
+          selectedPlatforms = current.length > 0 ? current : savedSelections
+        }
       }
 
       // 如果正在同步或已完成，只更新平台列表，不改变状态和选择
@@ -323,10 +366,15 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   loadArticle: async (opts) => {
     const force = opts?.force === true
-    // 如果已有恢复的文章（同步中/完成状态），不覆盖
     const { article: existingArticle, status } = get()
-    if (existingArticle && (status === 'syncing' || status === 'completed')) {
-      logger.debug('loadArticle - skipped, using recovered article')
+    // 同步进行中：绝不换文（含手动 force）
+    if (status === 'syncing') {
+      logger.debug('loadArticle - skipped, syncing')
+      return
+    }
+    // 自动检测：完成态不换文；手动 force 可在 idle/completed 下重检
+    if (!force && status === 'completed') {
+      logger.debug('loadArticle - skipped, completed (auto)')
       return
     }
     // 导入 / 已编辑文章锁定：非 force 时不覆盖
@@ -360,9 +408,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         return
       }
 
-      // content script 未就绪/未注入时 sendMessage 会抛异常——属于预期情况（页面加载中、
-      // 扩展刚更新、CSP 拦截等），降为 debug 不打 error；extractor 在 document_end 注入，
-      // 页面 loading 时可能尚未就绪，故 loading 时延迟重试一次。
+      // content script 未就绪/未注入时 sendMessage 会抛异常——刷新后 status=complete
+      // 也常早于脚本注入，故即使 complete 也做多次退避重试（避免必须重开侧栏）。
       const tryExtract = async (): Promise<{ article?: unknown } | undefined> => {
         try {
           return await chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_ARTICLE' })
@@ -371,13 +418,26 @@ export const useSyncStore = create<SyncState>((set, get) => ({
           return undefined
         }
       }
-      let response = await tryExtract()
-      if (response === undefined && tab.status !== 'complete') {
-        await new Promise(r => setTimeout(r, 800))
+
+      const retryDelaysMs = [0, 400, 800, 1200, 2000]
+      let response: { article?: unknown } | undefined
+      for (const delay of retryDelaysMs) {
+        if (delay > 0) {
+          await new Promise((r) => setTimeout(r, delay))
+        }
+        // 用户已切走该标签则停止
+        const still = await chrome.tabs.get(tabId).catch(() => null)
+        if (!still) {
+          return
+        }
         response = await tryExtract()
+        if (response !== undefined) break
       }
+
       if (response === undefined) {
-        set({ extractError: '无法检测当前页，请刷新页面后重试' })
+        set({
+          extractError: '页面检测脚本尚未就绪，请稍候再点「检测当前页」，或刷新后重试',
+        })
         return
       }
 
@@ -486,52 +546,23 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     set({ status: 'syncing', results: [], error: null, imageProgress: null, platformProgress: new Map(), currentSyncId: syncId })
 
     try {
-      // 同步前：把内嵌的 base64 图片上传到图床（用第一个目标平台），替换为短 URL，
-      // 避免正文因 base64 过长触发平台字数/体积限制（主要服务于本地导入文章）
-      let markdown = article.markdown || ''
-      let html = article.html || article.content || ''
-      const hasEmbedded = /data:image\/[a-zA-Z0-9.+-]+;base64,/.test(markdown) ||
-        /data:image\/[a-zA-Z0-9.+-]+;base64,/.test(html)
-      if (hasEmbedded) {
-        const host = selectedPlatforms[0]
-        set({ imageUploadStage: { host, done: 0, total: 0 } })
-        try {
-          const uploaded = await uploadEmbeddedImages(
-            markdown,
-            html,
-            async (dataUri) => {
-              const res = await chrome.runtime.sendMessage({
-                type: 'UPLOAD_IMAGE',
-                payload: { src: dataUri, platform: host },
-              })
-              if (res?.error) throw new Error(res.error)
-              return res.result.url as string
-            },
-            (done, total) => set({ imageUploadStage: { host, done, total } })
-          )
-          markdown = uploaded.markdown
-          html = uploaded.html
-        } catch (e) {
-          logger.warn('图床上传失败，降级使用 base64:', e)
-        } finally {
-          set({ imageUploadStage: null })
-        }
+      // 只传原文；内嵌图/格式转换由 background 中间层按平台写入 platformContents，不改 UI 源文
+      const html = article.html || article.content || ''
+      const markdown = article.markdown || ''
+      const original = {
+        title: article.title,
+        content: html,
+        html,
+        markdown,
+        cover: article.cover,
+        summary: article.summary,
+        source: article.source,
       }
-
-      // SYNC_ARTICLE 现在同时处理 DSL 和 CMS 平台
-      // 传递 syncId 给 background，background 会用这个 ID
       const response = await chrome.runtime.sendMessage({
         type: 'SYNC_ARTICLE',
         payload: {
-          article: {
-            title: article.title,
-            content: html,
-            html,
-            markdown,
-            cover: article.cover,
-            summary: article.summary,
-            source: article.source,
-          },
+          article: original,
+          uiArticle: original,
           platforms: selectedPlatforms,
           syncId,
         },
@@ -567,10 +598,26 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         }).catch(() => {})
       }
     } catch (error) {
+      // 通道断开时后台可能仍在同步：保持 syncing，避免 UI 被误打回主页
+      try {
+        const stateResp = await chrome.runtime.sendMessage({ type: 'GET_SYNC_STATE' })
+        if (stateResp?.syncState?.status === 'syncing') {
+          logger.warn('startSync message failed but sync still running, keep syncing UI:', error)
+          set({
+            status: 'syncing',
+            error: null,
+            imageProgress: null,
+          })
+          return
+        }
+      } catch {
+        // ignore
+      }
       set({
         error: (error as Error).message,
         status: 'idle',
         imageProgress: null,
+        currentSyncId: null,
       })
       // 追踪隐式反馈：同步出错后放弃
       trackImplicitFeedback('abandon_after_error', {
@@ -648,6 +695,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       error: null,
       imageProgress: null,
       platformProgress: new Map(),
+      currentSyncId: null,
     })
     // 清除持久化的同步状态
     chrome.runtime.sendMessage({ type: 'CLEAR_SYNC_STATE' }).catch(() => {})

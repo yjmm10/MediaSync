@@ -394,12 +394,11 @@ export async function loadMarkdownFromFiles(
 }
 
 /**
- * 把内容中的 data URI 图片上传到图床，替换为图床返回的短 URL。
+ * 将正文中的 data URI 图片上传并替换为短 URL（markdown + html 共用映射）。
+ * 仅供同步中间层对「单平台副本」调用；不得用于改写预览源文。
  *
- * 与 resolveLocalImages 配合：本地文件 → data URI（resolveLocalImages）
- * → 图床 URL（本函数）。避免 base64 嵌入正文导致字数/体积超限。
- *
- * markdown 与 html 共享同一份上传映射（同一张图片只上传一次）。
+ * 与 resolveLocalImages 配合：本地文件 → data URI（预览源文）
+ * → 各平台副本内再视情况换成图床 URL。
  */
 export async function uploadEmbeddedImages(
   markdown: string,

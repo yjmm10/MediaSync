@@ -202,6 +202,12 @@ const AUTH_CHECK_TIMEOUT = 10 * 1000 // 单个平台认证检查超时：10 秒
 const PUBLISH_TIMEOUT = 10 * 60 * 1000 // 单个平台发布超时：10 分钟（包含图片上传）
 
 /**
+ * 依赖页面上下文（ensurePageTab）的平台：后台 / TTL / 含 forceRefresh 的全量检查均不自动真检，避免开标签。
+ * 仅单平台手动 CHECK_AUTH（checkPlatformAuth）时真检。
+ */
+const PAGE_CONTEXT_AUTH_IDS = new Set(['meipian', 'xiaohongshu'])
+
+/**
  * 带超时的 Promise 包装
  */
 function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> {
@@ -313,6 +319,28 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
   // 第一步：分离缓存命中和需要检查的平台
   for (const meta of metas) {
     const cached = cache[meta.id]
+
+    // 美篇 / 小红书：全量检查（含 forceRefresh）绝不自动 checkAuth（不建标签）
+    if (PAGE_CONTEXT_AUTH_IDS.has(meta.id)) {
+      if (cached) {
+        logger.debug(` Using cached auth for page-context platform ${meta.id} (no auto recheck)`)
+        results.push({
+          ...meta,
+          isAuthenticated: cached.isAuthenticated,
+          username: cached.username,
+          error: cached.error,
+        })
+      } else {
+        logger.debug(` Skip auto auth for ${meta.id} (no cache; wait for manual recheck)`)
+        results.push({
+          ...meta,
+          isAuthenticated: false,
+          error: '请手动重新检测登录状态',
+        })
+      }
+      continue
+    }
+
     const cacheTTL = cached?.isAuthenticated ? AUTH_CACHE_TTL_AUTHENTICATED : AUTH_CACHE_TTL_UNAUTHENTICATED
     const cacheValid = cached && (now - cached.timestamp < cacheTTL) && !forceRefresh
 

@@ -34,6 +34,7 @@ import {
 import { checkSyncFrequency, recordSync } from '../lib/rate-limit'
 import { checkForUpdates, isUpdateDismissed } from '../lib/version-check'
 import { fetchRemoteConfig, fetchConfigIfNeeded } from '../lib/remote-config'
+import { preparePlatformContents } from './prepare-platform-contents'
 
 const logger = createLogger('Background')
 
@@ -131,7 +132,7 @@ type MessageAction =
   | { type: 'GET_PLATFORMS' }
   | { type: 'CHECK_ALL_AUTH'; payload?: { forceRefresh?: boolean } }
   | { type: 'CHECK_AUTH'; payload: { platformId: string } }
-  | { type: 'SYNC_ARTICLE'; payload: { article: any; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string } }
+  | { type: 'SYNC_ARTICLE'; payload: { article: any; uiArticle?: any; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string } }
   | { type: 'OPEN_SYNC_PAGE'; path?: string }
   | { type: 'TEST_CMS_CONNECTION'; payload: { type: CMSType; url: string; username: string; password: string } }
   | { type: 'SYNC_TO_CMS'; payload: { accountId: string; article: any } }
@@ -229,8 +230,10 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     }
 
     case 'SYNC_ARTICLE': {
-      const { article, platforms, allSelectedPlatforms, skipHistory, source = 'popup', syncId: passedSyncId } = message.payload
+      const { article, uiArticle, platforms, allSelectedPlatforms, skipHistory, source = 'popup', syncId: passedSyncId } = message.payload
       const allPlatformMetas = getAllPlatformMetas()
+      // 状态恢复 / 历史快照用未污染原文（避免 Reddit mediaId 等写入预览）
+      const stateArticle = uiArticle || article
 
       // 使用传入的 syncId 或生成新的
       const syncId = passedSyncId || generateSyncId()
@@ -261,6 +264,13 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       const dslPlatformIds = platforms.filter((id: string) => !cmsAccountIds.has(id))
       const cmsPlatformIds = platforms.filter((id: string) => cmsAccountIds.has(id))
 
+      // 预处理 tab 只在同步开始时固定一次，避免用户切标签后预处理到错误页面
+      let preprocessTabId = senderTabId
+      if (!preprocessTabId) {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        preprocessTabId = activeTab?.id
+      }
+
       // 如果没有 platformContents，请求 content script 预处理
       // 同源平台跳过预处理（如微信到微信，源内容已是目标格式）
       const sourcePlatform = article.source?.platform
@@ -270,23 +280,14 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
         try {
           const configs = getPlatformPreprocessConfigs(platformsToPreprocess)
           const rawHtml = article.html || article.content || ''
-          if (rawHtml) {
-            // 获取目标 tabId：优先使用 sender tab，否则获取当前活动标签页
-            let targetTabId = senderTabId
-            if (!targetTabId) {
-              const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true })
-              targetTabId = activeTab?.id
-            }
-
-            if (targetTabId) {
-              const response = await chrome.tabs.sendMessage(targetTabId, {
-                type: 'PREPROCESS_FOR_PLATFORMS',
-                payload: { rawHtml, platforms: platformsToPreprocess, configs },
-              })
-              if (response?.platformContents) {
-                processedArticle = { ...article, platformContents: response.platformContents }
-                logger.debug('Preprocessed for platforms:', Object.keys(response.platformContents))
-              }
+          if (rawHtml && preprocessTabId) {
+            const response = await chrome.tabs.sendMessage(preprocessTabId, {
+              type: 'PREPROCESS_FOR_PLATFORMS',
+              payload: { rawHtml, platforms: platformsToPreprocess, configs },
+            })
+            if (response?.platformContents) {
+              processedArticle = { ...article, platformContents: response.platformContents }
+              logger.debug('Preprocessed for platforms:', Object.keys(response.platformContents))
             }
           }
         } catch (error) {
@@ -295,16 +296,16 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
         }
       }
 
-      // 初始化同步状态（保存完整文章信息）
+      // 初始化同步状态（保存完整文章信息）— 在分批传图之前写入，便于恢复
       const syncState: ActiveSyncState = {
         syncId,
         status: 'syncing',
         article: {
-          title: article.title,
-          cover: article.cover,
-          content: article.content,
-          html: article.html,
-          markdown: article.markdown,
+          title: stateArticle.title,
+          cover: stateArticle.cover,
+          content: stateArticle.content,
+          html: stateArticle.html,
+          markdown: stateArticle.markdown,
         },
         selectedPlatforms: allSelectedPlatforms || platforms,
         results: [],
@@ -314,45 +315,67 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
 
       // 创建历史记录（开始同步时就创建）
       if (!skipHistory) {
-        await upsertHistoryItem(article, platforms)
+        await upsertHistoryItem(stateArticle, platforms)
       }
 
       const allResults: any[] = []
+      /** 与 syncToMultiplePlatforms 批大小一致：先准备本批再同步，尽快出首个结果 */
+      const PREPARE_SYNC_BATCH = 3
 
-      // 同步到 DSL 平台
+      const syncCallbacks = {
+        onResult: (result: { platform: string; success: boolean; postUrl?: string; draftOnly?: boolean; error?: string; timestamp?: number }) => {
+          const resultWithName = {
+            ...result,
+            platformName: allPlatformMetas.find(p => p.id === result.platform)?.name || result.platform,
+          }
+          syncState.results.push(resultWithName)
+          allResults.push(resultWithName)
+          saveSyncState(syncState).catch(() => {})
+          sendProgress({
+            type: 'SYNC_PROGRESS',
+            payload: { result: resultWithName },
+          })
+        },
+        onImageProgress: (platform: string, current: number, total: number) => {
+          sendProgress({
+            type: 'IMAGE_PROGRESS',
+            payload: { platform, current, total },
+          })
+        },
+        onDetailProgress: (progress: SyncDetailProgress) => {
+          sendProgress({
+            type: 'SYNC_DETAIL_PROGRESS',
+            payload: progress,
+          })
+        },
+      }
+
+      // 分批：preparePlatformContents(本批) → syncToMultiplePlatforms(本批)
       if (dslPlatformIds.length > 0) {
-        await syncToMultiplePlatforms(dslPlatformIds, processedArticle, {
-          onResult: (result) => {
-            // 更新持久化状态
-            const resultWithName = {
-              ...result,
-              platformName: allPlatformMetas.find(p => p.id === result.platform)?.name || result.platform,
-            }
-            syncState.results.push(resultWithName)
-            allResults.push(resultWithName)
-            saveSyncState(syncState).catch(() => {})
+        const mergedContents: Record<string, { html: string; markdown: string }> = {
+          ...(processedArticle.platformContents || {}),
+        }
+        processedArticle = {
+          ...processedArticle,
+          html: article.html,
+          markdown: article.markdown,
+          content: article.content,
+          platformContents: mergedContents,
+        }
 
-            // 发送同步进度通知
-            sendProgress({
-              type: 'SYNC_PROGRESS',
-              payload: { result: resultWithName },
-            })
-          },
-          onImageProgress: (platform, current, total) => {
-            // 发送图片上传进度通知
-            sendProgress({
-              type: 'IMAGE_PROGRESS',
-              payload: { platform, current, total },
-            })
-          },
-          // 新增：发送详细进度
-          onDetailProgress: (progress: SyncDetailProgress) => {
-            sendProgress({
-              type: 'SYNC_DETAIL_PROGRESS',
-              payload: progress,
-            })
-          },
-        }, source)
+        for (let i = 0; i < dslPlatformIds.length; i += PREPARE_SYNC_BATCH) {
+          const batchIds = dslPlatformIds.slice(i, i + PREPARE_SYNC_BATCH)
+          try {
+            const batchContents = await preparePlatformContents(processedArticle, batchIds)
+            Object.assign(mergedContents, batchContents)
+            processedArticle = { ...processedArticle, platformContents: mergedContents }
+            logger.debug('Prepared platformContents batch:', Object.keys(batchContents))
+          } catch (error) {
+            logger.warn('preparePlatformContents batch failed:', error)
+          }
+
+          await syncToMultiplePlatforms(batchIds, processedArticle, syncCallbacks, source)
+        }
       }
 
       // 同步到 CMS 账户

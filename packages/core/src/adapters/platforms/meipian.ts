@@ -219,14 +219,43 @@ export class MeipianAdapter extends CodeAdapter {
   private appToken: string | null = null
   /** 页面 localStorage.userInfo 缓存，避免 SW getInfo 失败误判未登录 */
   private cachedUser: MeipianUserInfo | null = null
+  /** appToken 缓存时间戳；TTL 内 checkAuth 只走 SW API，不建标签 */
+  private appTokenCachedAt = 0
+  private static readonly APP_TOKEN_TTL_MS = 5 * 60 * 1000
+  /** checkAuth 单飞：激活时并发检测共用一次结果 */
+  private checkAuthInflight: Promise<AuthResult> | null = null
 
   async checkAuth(): Promise<AuthResult> {
+    if (this.checkAuthInflight) {
+      return this.checkAuthInflight
+    }
+    this.checkAuthInflight = this.doCheckAuth().finally(() => {
+      this.checkAuthInflight = null
+    })
+    return this.checkAuthInflight
+  }
+
+  private async doCheckAuth(): Promise<AuthResult> {
     try {
       return await this.withHeaderRules(this.HEADER_RULES, async () => {
+        // 短时缓存：已有 app_token 则纯 SW 探测，避免激活插件反复 ensurePageTab
+        const cacheFresh =
+          !!this.appToken &&
+          Date.now() - this.appTokenCachedAt < MeipianAdapter.APP_TOKEN_TTL_MS
+
+        if (cacheFresh && this.appToken) {
+          const cached = await this.checkAuthWithCachedToken(this.appToken)
+          if (cached) return cached
+          this.appToken = null
+          this.cachedUser = null
+          this.appTokenCachedAt = 0
+        }
+
         const session = await this.readPageSession()
         if (!session.token) {
           this.appToken = null
           this.cachedUser = null
+          this.appTokenCachedAt = 0
           return {
             isAuthenticated: false,
             error: '未检测到美篇登录，请先在浏览器打开 https://www.meipian.cn/editor 完成登录',
@@ -234,6 +263,7 @@ export class MeipianAdapter extends CodeAdapter {
         }
 
         this.appToken = session.token
+        this.appTokenCachedAt = Date.now()
 
         // 本地 userInfo 足够判登录；getInfo 仅作刷新，失败不抹掉本地态
         let user = session.user
@@ -251,6 +281,7 @@ export class MeipianAdapter extends CodeAdapter {
           if (!tokenOk) {
             this.appToken = null
             this.cachedUser = null
+            this.appTokenCachedAt = 0
             return {
               isAuthenticated: false,
               error: '美篇登录态失效，请重新打开 https://www.meipian.cn/editor 登录',
@@ -271,10 +302,52 @@ export class MeipianAdapter extends CodeAdapter {
       logger.error('checkAuth error:', error)
       this.appToken = null
       this.cachedUser = null
+      this.appTokenCachedAt = 0
       return { isAuthenticated: false, error: (error as Error).message }
     } finally {
       await this.releaseEphemeralTabs()
     }
+  }
+
+  /**
+   * 仅用已缓存 token 走 SW（不建标签）。失败返回 null，由调用方回退读页。
+   */
+  private async checkAuthWithCachedToken(token: string): Promise<AuthResult | null> {
+    try {
+      let user = this.cachedUser
+      try {
+        const remote = await this.fetchUserInfoSwOnly(token)
+        if (remote) user = remote
+      } catch (error) {
+        logger.debug('cached token getInfo failed, try probe:', error)
+      }
+
+      if (!user?.id && !user?.nickname && !user?.name) {
+        const tokenOk = await this.probeToken(token)
+        if (!tokenOk) return null
+        user = { nickname: '美篇用户' }
+      }
+
+      this.cachedUser = user
+      return {
+        isAuthenticated: true,
+        username: user.nickname || user.name || '美篇用户',
+        avatar: user.avatar || user.head_img || user.head_img_url,
+        userId: user.id != null ? String(user.id) : undefined,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** SW getInfo，失败不回退页面（供缓存鉴权） */
+  private async fetchUserInfoSwOnly(token: string): Promise<MeipianUserInfo | null> {
+    const res = await this.postJson<MeipianApiResponse<MeipianUserInfo>>(
+      `${API_BASE}/api/user/getInfo`,
+      {},
+      { Accept: 'application/json, text/plain, */*', token }
+    )
+    return this.parseUserInfo(res)
   }
 
   async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
@@ -433,15 +506,22 @@ export class MeipianAdapter extends CodeAdapter {
    * 在美篇页面上下文执行脚本读取一次并缓存。
    */
   private async resolveToken(): Promise<string> {
-    if (this.appToken) return this.appToken
+    if (
+      this.appToken &&
+      Date.now() - this.appTokenCachedAt < MeipianAdapter.APP_TOKEN_TTL_MS
+    ) {
+      return this.appToken
+    }
 
     const session = await this.readPageSession()
     if (!session.token) {
       this.appToken = null
       this.cachedUser = null
+      this.appTokenCachedAt = 0
       throw new Error('未读取到美篇登录凭证，请先在浏览器打开 https://www.meipian.cn/editor 完成登录')
     }
     this.appToken = session.token
+    this.appTokenCachedAt = Date.now()
     if (session.user) this.cachedUser = session.user
     return session.token
   }

@@ -31,12 +31,12 @@ export function HomeNew() {
     error,
 
     platformProgress,
-    imageUploadStage,
     extractError,
     recovered,
     loadPlatforms,
     loadArticle,
     recoverSyncState,
+    hydrateSelectedPlatforms,
     togglePlatform,
     selectAll,
     deselectAll,
@@ -45,6 +45,7 @@ export function HomeNew() {
     reset,
     checkRateLimit,
     clearExtractError,
+    clearArticle,
   } = useSyncStore()
 
   const [rateLimitWarning, setRateLimitWarning] = useState<string | null>(null)
@@ -56,14 +57,20 @@ export function HomeNew() {
   const [showShareTip, setShowShareTip] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [previewTab, setPreviewTab] = useState<'render' | 'markdown'>('render')
-  /** 顶栏当前态：可与设置里的全局 realtimeDetect 不一致 */
+  /** 设置总开关：关闭时有效实时检测必关 */
+  const [realtimeDetectSetting, setRealtimeDetectSetting] = useState(true)
+  /** 顶栏会话态：仅在设置开启时才可能为开 */
   const [realtimeActive, setRealtimeActive] = useState(true)
   const [detecting, setDetecting] = useState(false)
+  /** 有效实时检测 = 设置开 ∧ 顶栏开 */
+  const realtimeEffective = realtimeDetectSetting && realtimeActive
 
   // Load data
   useEffect(() => {
     const init = async () => {
       await recoverSyncState()
+      // 先恢复勾选，避免等鉴权（美篇/小红书）期间显示 0 个平台
+      await hydrateSelectedPlatforms()
       // Render from cache first, then refresh
       try {
         const cached = await chrome.storage.local.get('platformListCache')
@@ -76,7 +83,11 @@ export function HomeNew() {
         }
       } catch {}
       loadAllPlatforms()
-      loadArticle()
+      // 实时关时不自动抽文；有文章或实时开时再 load（手动检测另入口）
+      const rt = (await chrome.storage.local.get('realtimeDetect')).realtimeDetect ?? true
+      if (rt) {
+        loadArticle().catch(() => {})
+      }
       chrome.storage.local.get(['floatingButtonEnabled', 'syncHistory', 'dismissedShareTip'], (r) => {
         setFloatingEnabled(r.floatingButtonEnabled ?? false)
         setIsFirstSync(!r.syncHistory || r.syncHistory.length === 0)
@@ -98,12 +109,36 @@ export function HomeNew() {
       }
     }).catch(() => {})
 
-    // 顶栏当前态：仅启动时从全局偏好拷贝一次，之后互不影响
+    // 设置总开关 + 顶栏会话态：设置关则顶栏必关
     chrome.storage.local.get('realtimeDetect').then((r) => {
-      setRealtimeActive(r.realtimeDetect ?? true)
+      const setting = r.realtimeDetect ?? true
+      setRealtimeDetectSetting(setting)
+      setRealtimeActive(setting)
     }).catch(() => {})
 
     trackPageView('home').catch(() => {})
+  }, [])
+
+  // 设置页改动时立即同步门闩（首页仍打开时也能关掉切页检测）
+  useEffect(() => {
+    const onChanged = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string
+    ) => {
+      if (area !== 'local' || !changes.realtimeDetect) return
+      const enabled = !!(changes.realtimeDetect.newValue ?? true)
+      setRealtimeDetectSetting(enabled)
+      if (!enabled) {
+        setRealtimeActive(false)
+      } else {
+        const src = useSyncStore.getState().article?.source
+        if (src !== 'import' && src !== 'edited') {
+          setRealtimeActive(true)
+        }
+      }
+    }
+    chrome.storage.onChanged.addListener(onChanged)
+    return () => chrome.storage.onChanged.removeListener(onChanged)
   }, [])
 
   // 导入 / 编辑锁定时：顶栏当前态自动关闭（不改全局设置）
@@ -114,23 +149,29 @@ export function HomeNew() {
     }
   }, [article?.source])
 
-  // 实时文章检测：只看顶栏当前态 realtimeActive；锁定文章不覆盖
+  // 实时文章检测：设置总开关 ∧ 顶栏会话态；锁定文章不覆盖
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const trigger = () => {
-      const src = useSyncStore.getState().article?.source
+      const state = useSyncStore.getState()
+      // 自动切页检测：同步中/完成态不换文；实时关不检测
+      if (state.status === 'syncing' || state.status === 'completed') return
+      const src = state.article?.source
       if (src === 'import' || src === 'edited') return
-      if (!realtimeActive) return
+      if (!realtimeDetectSetting || !realtimeActive) return
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        const src2 = useSyncStore.getState().article?.source
+        const state2 = useSyncStore.getState()
+        if (state2.status === 'syncing' || state2.status === 'completed') return
+        const src2 = state2.article?.source
         if (src2 === 'import' || src2 === 'edited') return
-        if (!realtimeActive) return
+        if (!realtimeDetectSetting || !realtimeActive) return
         loadArticle().catch(() => {})
       }, 500)
     }
     const onActivated = () => trigger()
     const onUpdated = async (tabId: number, info: chrome.tabs.TabChangeInfo) => {
+      // 刷新过程中 url/status 会变；complete 时再检（loadArticle 内部会等 CS 就绪）
       if (info.status !== 'complete') return
       const [active] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (active?.id === tabId) trigger()
@@ -142,11 +183,12 @@ export function HomeNew() {
       chrome.tabs.onActivated.removeListener(onActivated)
       chrome.tabs.onUpdated.removeListener(onUpdated)
     }
-  }, [loadArticle, realtimeActive])
+  }, [loadArticle, realtimeDetectSetting, realtimeActive])
 
   const loadAllPlatforms = async () => {
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'CHECK_ALL_AUTH', payload: { forceRefresh: false } })
+      // 打开 UI 可刷新 cookie 平台；美篇/小红书等 PAGE_CONTEXT 平台不会因 forceRefresh 开标签真检
+      const response = await chrome.runtime.sendMessage({ type: 'CHECK_ALL_AUTH', payload: { forceRefresh: true } })
       const mapped: DialogPlatform[] = (response.platforms || []).map((p: any) => ({
         id: p.id, name: p.name, icon: p.icon,
         isAuthenticated: p.isAuthenticated, username: p.username,
@@ -300,18 +342,25 @@ export function HomeNew() {
 
   const handleOpenFullPreview = () => openOverlay('preview')
 
-  /** Logo：回主页；若当前为导入/编辑锁定，则开启当前态并强制重检 */
+  /**
+   * Logo：清空文章回到空主页；关闭实时会话态，避免立刻再抽文。
+   * 不自动检测；同步中不打断。
+   */
   const handleLogoHome = () => {
     navigate('/')
-    const src = useSyncStore.getState().article?.source
-    if (src === 'import' || src === 'edited') {
-      setRealtimeActive(true)
-      loadArticle({ force: true }).catch(() => {})
-    }
+    if (status === 'syncing') return
+    setRealtimeActive(false)
+    clearArticle()
   }
 
   const handleForceDetect = async () => {
-    setRealtimeActive(true)
+    if (status === 'syncing') return
+    // 手动重检不依赖实时开关；实时开时顺带打开会话态
+    if (realtimeDetectSetting) setRealtimeActive(true)
+    // 完成态手动重检：清掉 sticky syncId，避免进度消息干扰
+    if (status === 'completed' || useSyncStore.getState().currentSyncId) {
+      useSyncStore.setState({ status: 'idle', currentSyncId: null, results: [] })
+    }
     setDetecting(true)
     try {
       await loadArticle({ force: true })
@@ -320,6 +369,11 @@ export function HomeNew() {
     } finally {
       setDetecting(false)
     }
+  }
+
+  const handleToggleRealtime = () => {
+    if (!realtimeDetectSetting) return
+    setRealtimeActive((v) => !v)
   }
 
   // Start sync with rate-limit check
@@ -334,7 +388,7 @@ export function HomeNew() {
 
   const successCount = results.filter(r => r.success).length
 
-  const realtimeLabel = realtimeActive ? '实时检测开启' : '实时检测关闭'
+  const realtimeLabel = realtimeEffective ? '实时检测开启' : '实时检测关闭'
   let statusLine: string
   let statusTone: 'normal' | 'warn' | 'busy' = 'normal'
   if (detecting) {
@@ -344,7 +398,9 @@ export function HomeNew() {
     statusLine = extractError
     statusTone = 'warn'
   } else if (!article) {
-    statusLine = `未检测到文章 · ${realtimeLabel}`
+    statusLine = !realtimeDetectSetting
+      ? '未检测到文章 · 实时已关，请点「检测当前页」'
+      : `未检测到文章 · ${realtimeLabel}`
   } else if (article.source === 'import') {
     statusLine = '本地导入 · 实时检测已暂停'
   } else if (article.source === 'edited') {
@@ -362,18 +418,27 @@ export function HomeNew() {
             type="button"
             onClick={handleLogoHome}
             className="flex items-center gap-2 rounded-lg hover:opacity-80 transition-opacity"
-            title="返回主页（导入/编辑锁定时点击可切回网页检测）"
+            title="返回空主页（清空当前文章）"
           >
             <img src="/assets/icon-48.png" alt="Logo" className="w-6 h-6" />
             <h1 className="font-semibold">同步派</h1>
           </button>
-          {/* 顶栏：当前是否自动检测（可与设置全局偏好不一致） */}
+          {/* 顶栏：会话态；设置总开关关闭时不可打开 */}
           <button
-            onClick={() => setRealtimeActive(v => !v)}
-            title={realtimeActive ? '当前实时检测：开（点击关闭；与设置全局偏好独立）' : '当前实时检测：关（点击开启；与设置全局偏好独立）'}
+            type="button"
+            onClick={handleToggleRealtime}
+            disabled={!realtimeDetectSetting}
+            title={
+              !realtimeDetectSetting
+                ? '实时检测已在设置中关闭，请先到设置里开启'
+                : realtimeEffective
+                  ? '当前实时检测：开（点击关闭本会话；总开关在设置）'
+                  : '当前实时检测：关（点击开启本会话；总开关在设置）'
+            }
             className={cn(
               'ml-1 p-1 rounded-full transition-colors',
-              realtimeActive ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+              realtimeEffective ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+              !realtimeDetectSetting && 'opacity-50 cursor-not-allowed'
             )}
           >
             <Radar className="w-3.5 h-3.5" />
@@ -533,38 +598,35 @@ export function HomeNew() {
         </div>
       )}
 
-      {/* 图床上传进度（同步前把本地图片 base64 上传到图床） */}
-      {imageUploadStage && (
-        <div className="mx-4 mt-2 p-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700 flex items-center gap-2">
-          <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
-          <span>
-            正在上传图片到「{platforms.find(p => p.id === imageUploadStage.host)?.name || imageUploadStage.host}」图床
-            {imageUploadStage.total > 0 ? ` ${imageUploadStage.done}/${imageUploadStage.total}` : ''}
-          </span>
-        </div>
-      )}
-
-      {/* 文章操作入口：切换来源（导入/编辑 → 重新检测当前页）与预览 */}
-      {article && (
-        <div className="px-4 py-1 flex items-center justify-between">
+      {/* 文章操作入口：手动检测始终可见（不依赖实时开关 / 是否已有文章） */}
+      <div className="px-4 py-1 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={handleForceDetect}
+          disabled={detecting || status === 'syncing'}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
+          title={
+            status === 'syncing'
+              ? '同步进行中，无法检测'
+              : '检测当前浏览器标签页的文章（不依赖实时检测开关）'
+          }
+        >
+          <RefreshCw className={cn('w-3.5 h-3.5', detecting && 'animate-spin')} />
+          {detecting ? '检测中…' : '检测当前页'}
+        </button>
+        {article ? (
           <button
-            onClick={handleForceDetect}
-            disabled={detecting}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
-            title="放弃当前文章，重新检测当前页"
-          >
-            <RefreshCw className={cn('w-3.5 h-3.5', detecting && 'animate-spin')} />
-            {detecting ? '检测中…' : '检测当前页'}
-          </button>
-          <button
+            type="button"
             onClick={() => setShowPreview(true)}
             className="flex items-center gap-1 text-xs text-primary hover:underline"
           >
             <Eye className="w-3.5 h-3.5" />
             预览内容
           </button>
-        </div>
-      )}
+        ) : (
+          <span />
+        )}
+      </div>
 
       {/* SyncDialog — the unified sync flow */}
       <SyncDialog

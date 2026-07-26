@@ -63,6 +63,12 @@ export abstract class CodeAdapter implements PlatformAdapter {
   /** 本次操作为页面请求临时创建的 tab（不含用户原有标签） */
   protected ephemeralTabIds = new Set<number>()
 
+  /**
+   * ensurePageTab 单飞：同一 host 并发共用一次 query/create，避免激活时狂开标签
+   * key = hostname（或 pageUrl 回退）
+   */
+  private pageTabInflight = new Map<string, Promise<number>>()
+
   async init(runtime: RuntimeInterface): Promise<void> {
     this.runtime = runtime
   }
@@ -402,6 +408,11 @@ export abstract class CodeAdapter implements PlatformAdapter {
    * 关闭本次操作为页面请求临时创建的标签（不影响用户原有标签）
    */
   protected async releaseEphemeralTabs(): Promise<void> {
+    // 等 ensurePageTab 单飞结束，避免并发调用仍在用时被关掉
+    if (this.pageTabInflight.size > 0) {
+      await Promise.allSettled([...this.pageTabInflight.values()])
+    }
+
     const remove = this.runtime.tabs?.remove
     if (!remove || this.ephemeralTabIds.size === 0) {
       this.ephemeralTabIds.clear()
@@ -419,9 +430,38 @@ export abstract class CodeAdapter implements PlatformAdapter {
   }
 
   /**
-   * 选取可用站点标签：优先 pageUrl 路径，否则任意同站可用标签；都没有则后台新建并登记为临时标签
+   * 选取可用站点标签：优先 pageUrl 路径，否则任意同站可用标签；都没有则后台新建并登记为临时标签。
+   * 同一 host 并发调用单飞，只 create 一次。
    */
   protected async ensurePageTab(urlPattern: string, pageUrl: string): Promise<number> {
+    if (!this.runtime.tabs) {
+      throw new Error('当前运行时不支持 Tab 操作')
+    }
+
+    let host = ''
+    try {
+      host = new URL(pageUrl).hostname
+    } catch {
+      host = ''
+    }
+    const inflightKey = host || pageUrl
+
+    const existing = this.pageTabInflight.get(inflightKey)
+    if (existing) {
+      return existing
+    }
+
+    const task = this.ensurePageTabOnce(urlPattern, pageUrl).finally(() => {
+      if (this.pageTabInflight.get(inflightKey) === task) {
+        this.pageTabInflight.delete(inflightKey)
+      }
+    })
+    this.pageTabInflight.set(inflightKey, task)
+    return task
+  }
+
+  /** ensurePageTab 实际查询/创建（由单飞包装） */
+  private async ensurePageTabOnce(urlPattern: string, pageUrl: string): Promise<number> {
     if (!this.runtime.tabs) {
       throw new Error('当前运行时不支持 Tab 操作')
     }
@@ -438,14 +478,20 @@ export abstract class CodeAdapter implements PlatformAdapter {
       preferredPath = ''
     }
 
-    const isUsable = (t: { id?: number; url?: string }) =>
-      !!(t.id && t.url && !loginRe.test(t.url) && !t.url.includes('chrome-error'))
+    // 已有 URL：排除登录页 / chrome-error；加载中尚无 url 的同站 tab 也可复用
+    const isReusable = (t: { id?: number; url?: string }) => {
+      if (!t.id) return false
+      if (!t.url) return true
+      if (t.url.includes('chrome-error')) return false
+      if (loginRe.test(t.url)) return false
+      return true
+    }
 
     // 1) 按传入 pattern 查
     let tabs = await this.runtime.tabs.query(urlPattern)
 
     // 2) SPA / 无尾斜杠时 match pattern 常漏匹配，按 hostname 再查一次
-    if (!tabs.some(isUsable) && host) {
+    if (!tabs.some(isReusable) && host) {
       const byHost = await this.runtime.tabs.query([`*://${host}/*`, `*://${host}/`])
       if (byHost.length > 0) {
         tabs = byHost
@@ -463,7 +509,7 @@ export abstract class CodeAdapter implements PlatformAdapter {
       }
     }
 
-    const usable = tabs.filter(isUsable)
+    const usable = tabs.filter(isReusable)
 
     const preferred = preferredPath
       ? usable.find((t) => t.url?.includes(preferredPath))
@@ -476,7 +522,20 @@ export abstract class CodeAdapter implements PlatformAdapter {
       // 再确认一次仍存在（并发关闭 / 刚被其它适配器当 ephemeral 关掉）
       const still = await this.runtime.tabs.query()
       if (still.some((t) => t.id === pick.id)) {
-        return pick.id
+        // 加载中的标签等到 complete，避免 executeScript 过早失败再误开新页
+        try {
+          await this.runtime.tabs.waitForLoad(pick.id)
+        } catch {
+          // 已有标签加载失败则继续尝试新建
+          logger.warn('reuse tab waitForLoad failed, will create:', pick.id)
+        }
+        const stillAfter = await this.runtime.tabs.query()
+        if (stillAfter.some((t) => t.id === pick.id)) {
+          const url = stillAfter.find((t) => t.id === pick.id)?.url
+          if (!url || isReusable({ id: pick.id, url })) {
+            return pick.id
+          }
+        }
       }
     }
 
