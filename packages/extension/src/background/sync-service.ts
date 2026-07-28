@@ -18,6 +18,7 @@ import {
   mergeHistoryItem,
 } from '../lib/history-doc'
 import { preparePlatformContents } from './prepare-platform-contents'
+import { applyOriginalMarkdownToPlatformContents } from '../lib/source-content'
 
 const logger = createLogger('SyncService')
 
@@ -229,6 +230,22 @@ export async function performSync(
       } else {
         logger.warn('DOM preprocessing unavailable — please ensure at least one web page is open in Chrome')
       }
+    }
+  }
+
+  // Markdown 源：markdown 平台直接用原文，避免 HTML→Turndown 把公式 \ 转成 \\
+  if (processedArticle.platformContents) {
+    const overlayConfigs = getPlatformPreprocessConfigs(
+      Object.keys(processedArticle.platformContents)
+    )
+    processedArticle = {
+      ...processedArticle,
+      platformContents: applyOriginalMarkdownToPlatformContents(
+        processedArticle.platformContents,
+        { ...normalizedArticle, source: (article as { source?: unknown }).source },
+        overlayConfigs,
+        source,
+      ),
     }
   }
 

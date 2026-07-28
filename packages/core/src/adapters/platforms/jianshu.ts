@@ -89,7 +89,7 @@ export class JianshuAdapter extends CodeAdapter {
           }
         }
 
-        const content = this.resolveContent(article)
+        const content = this.normalizeMarkdownForJianshu(this.resolveContent(article))
         if (!content.trim()) {
           throw new Error('文章内容为空（未得到 Markdown），请重试同步')
         }
@@ -239,6 +239,35 @@ export class JianshuAdapter extends CodeAdapter {
     const md = (article.markdown || '').trim()
     if (md) return md
     return (article.html || '').trim()
+  }
+
+  /**
+   * 简书写作台兼容处理：
+   * - turndown 会把公式里的 \ 转成 \\，需还原为一层 \
+   * - 表格分隔只认 ---，不认 :-: / :-- / --: 等对齐标记
+   */
+  private normalizeMarkdownForJianshu(markdown: string): string {
+    const codeBlocks: string[] = []
+    let md = markdown.replace(/```[\s\S]*?```/g, (block) => {
+      const idx = codeBlocks.length
+      codeBlocks.push(block)
+      return `\0CODE${idx}\0`
+    })
+
+    const unescapeFormula = (body: string) => body.replace(/\\\\/g, '\\')
+
+    // 块级公式 $$...$$
+    md = md.replace(/\$\$([\s\S]+?)\$\$/g, (_m, body: string) => `$$${unescapeFormula(body)}$$`)
+    // 行内公式 $...$（排除 $$）
+    md = md.replace(/(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)/g, (_m, body: string) => `$${unescapeFormula(body)}$`)
+
+    // 表格对齐分隔行统一为 ---
+    md = md.replace(
+      /^[ \t]*\|?(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*:?-+:?[ \t]*\|?[ \t]*$/gm,
+      (line) => line.replace(/:?-+:?/g, '---')
+    )
+
+    return md.replace(/\0CODE(\d+)\0/g, (_m, i: string) => codeBlocks[Number(i)] ?? '')
   }
 
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {

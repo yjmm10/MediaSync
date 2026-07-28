@@ -35,6 +35,7 @@ import { checkSyncFrequency, recordSync } from '../lib/rate-limit'
 import { checkForUpdates, isUpdateDismissed } from '../lib/version-check'
 import { fetchRemoteConfig, fetchConfigIfNeeded } from '../lib/remote-config'
 import { preparePlatformContents } from './prepare-platform-contents'
+import { applyOriginalMarkdownToPlatformContents } from '../lib/source-content'
 
 const logger = createLogger('Background')
 
@@ -293,6 +294,21 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
         } catch (error) {
           // 预处理失败，继续使用原始内容
           logger.debug('Preprocess failed, using original content:', error)
+        }
+      }
+
+      // Markdown 源：markdown 平台直接用原文，避免 HTML→Turndown 把公式 \ 转成 \\
+      if (processedArticle.platformContents) {
+        const overlayConfigs = getPlatformPreprocessConfigs(
+          Object.keys(processedArticle.platformContents)
+        )
+        processedArticle = {
+          ...processedArticle,
+          platformContents: applyOriginalMarkdownToPlatformContents(
+            processedArticle.platformContents,
+            article,
+            overlayConfigs,
+          ),
         }
       }
 
