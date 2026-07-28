@@ -54,7 +54,6 @@ export function HomeNew() {
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
   const [floatingEnabled, setFloatingEnabled] = useState(false)
   const [isFirstSync, setIsFirstSync] = useState(false)
-  const [showShareTip, setShowShareTip] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [previewTab, setPreviewTab] = useState<'render' | 'markdown'>('render')
   /** 设置总开关：关闭时有效实时检测必关 */
@@ -88,13 +87,19 @@ export function HomeNew() {
       if (rt) {
         loadArticle().catch(() => {})
       }
-      chrome.storage.local.get(['floatingButtonEnabled', 'syncHistory', 'dismissedShareTip'], (r) => {
+      chrome.storage.local.get(['floatingButtonEnabled', 'syncHistory'], (r) => {
         setFloatingEnabled(r.floatingButtonEnabled ?? false)
         setIsFirstSync(!r.syncHistory || r.syncHistory.length === 0)
-        if (!r.dismissedShareTip) {
-          setShowShareTip(true)
-        }
       })
+      // 第一次打开插件：自动打开宣传页（仅一次）
+      chrome.storage.local.get('promoOpenedOnFirstUse').then(async (r) => {
+        if (r.promoOpenedOnFirstUse) return
+        await chrome.storage.local.set({ promoOpenedOnFirstUse: true })
+        chrome.tabs.create({
+          url: 'https://yjmm10.github.io/MediaSync/promo.html?utm_source=extension&utm_medium=first_open',
+          active: true,
+        }).catch(() => {})
+      }).catch(() => {})
       const cached = await getCachedUpdateInfo()
       if (cached?.hasUpdate && cached.info) {
         setUpdateInfo(cached)
@@ -551,49 +556,6 @@ export function HomeNew() {
             {updateInfo.info.releaseNotes && (
               <p className="text-xs text-muted-foreground mt-1">{updateInfo.info.releaseNotes}</p>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Share / welcome banner (first time only) */}
-      {showShareTip && (
-        <div className="px-4 pt-3">
-          <div className="bg-muted/50 rounded-lg p-3 text-sm relative">
-            <button
-              onClick={() => {
-                setShowShareTip(false)
-                chrome.storage.local.set({ dismissedShareTip: true })
-              }}
-              className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <p className="font-medium mb-1.5">谢谢支持！</p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              如果觉得本工具不错，还请分享给你的朋友！
-              <br />
-              如果你是开发者，欢迎参与进来{' '}
-              <a
-                href="https://github.com/yjmm10/MediaSync"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                GitHub
-              </a>
-            </p>
-            <hr className="my-2 border-border" />
-            <p className="text-xs text-muted-foreground text-right">
-              by{' '}
-              <a
-                href="https://github.com/yjmm10"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                fun
-              </a>
-            </p>
           </div>
         </div>
       )}

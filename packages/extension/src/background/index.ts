@@ -1215,10 +1215,10 @@ chrome.runtime.onInstalled.addListener(async details => {
     }
   }
 
-  // 首次安装时打开欢迎页
+  // 首次安装时打开官网
   if (details.reason === 'install') {
     chrome.tabs.create({
-      url: 'https://yjmm10.github.io/MediaSync/promo.html?utm_source=extension&utm_medium=install',
+      url: 'https://yjmm10.github.io/MediaSync/?utm_source=extension&utm_medium=install',
       active: true,
     })
   }

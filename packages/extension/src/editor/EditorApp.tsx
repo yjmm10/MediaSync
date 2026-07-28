@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Save, Download, Loader2 } from 'lucide-react'
+import { Save, Download, X, Loader2 } from 'lucide-react'
 import { markdownToHtml, htmlToMarkdownNative } from '@mediasync/core'
 import { createLogger } from '../lib/logger'
 
@@ -95,6 +95,14 @@ export function EditorApp() {
     return () => window.clearTimeout(timer)
   }, [article, title, mdText])
 
+  const handleSave = useCallback(() => {
+    lastPushedRef.current = `${title}\0${mdText}`
+    window.parent.postMessage(JSON.stringify({
+      type: 'EDITOR_CONTENT_LIVE',
+      article: buildPayload(title, mdText, article?.cover),
+    }), '*')
+  }, [article, title, mdText])
+
   const handleClose = useCallback(() => {
     window.parent.postMessage(JSON.stringify({
       type: 'CLOSE_EDITOR',
@@ -168,16 +176,23 @@ export function EditorApp() {
             <button
               onClick={() => { handleSaveLocal().catch(() => {}) }}
               className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-              title="保存到本地"
+              title="下载到本地"
             >
               <Download className="w-5 h-5 text-gray-500" />
             </button>
             <button
-              onClick={handleClose}
+              onClick={handleSave}
               className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-              title="保存并关闭"
+              title="保存到侧栏"
             >
               <Save className="w-5 h-5 text-gray-500" />
+            </button>
+            <button
+              onClick={handleClose}
+              className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+              title="关闭"
+            >
+              <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
         </div>
