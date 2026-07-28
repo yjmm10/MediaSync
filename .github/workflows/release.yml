@@ -45,7 +45,8 @@ jobs:
         run: echo "version=$(node -p "require('./packages/extension/package.json').version")" >> $GITHUB_OUTPUT
 
       - name: Package Edge + Firefox zips
-        run: pnpm --filter @mediasync/extension pack
+        # 必须用 run pack：裸 pack 会走 pnpm 内置 pack（npm tarball），不会执行 scripts/pack-zip.mjs
+        run: pnpm --filter @mediasync/extension run pack
 
       - name: Upload extension artifacts
         uses: actions/upload-artifact@v4
