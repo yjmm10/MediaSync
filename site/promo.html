@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>同步派 MediaSync：一键把文章同步到 29+ 平台</title>
+  <meta name="description" content="同步派（MediaSync）开源 Chrome 扩展介绍：用浏览器已有登录态，一键同步到知乎、掘金、CSDN 等 29+ 平台。本文同时演示常用 Markdown 语法，方便你检测本页并同步出去。" />
+  <meta property="og:title" content="同步派 MediaSync：一键把文章同步到 29+ 平台" />
+  <meta property="og:description" content="开源免费 · 草稿优先 · 数据不离开你的浏览器。安装扩展后打开本页，点「检测当前页」即可体验同步。" />
+  <meta property="og:type" content="article" />
+  <meta name="color-scheme" content="light dark" />
+  <style>
+    :root, [data-theme="light"] {
+      --bg: #fff; --fg: #16191d; --muted: #6b7280; --border: #e8ebed;
+      --primary: #16a34a; --code-bg: #f3f4f6; --soft: #f8faf9;
+    }
+    [data-theme="dark"] {
+      --bg: #0f1419; --fg: #e6edf3; --muted: #8b949e; --border: #30363d;
+      --primary: #22c55e; --code-bg: #21262d; --soft: #161b22;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--fg); background: var(--bg); line-height: 1.75;
+    }
+    a { color: var(--primary); }
+    .top {
+      border-bottom: 1px solid var(--border); padding: 12px 20px;
+      display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+      font-size: 14px;
+    }
+    .top a { color: var(--muted); text-decoration: none; }
+    .top a:hover { color: var(--fg); }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; }
+    article h1 { font-size: 32px; line-height: 1.3; margin: 0 0 12px; }
+    .lead { color: var(--muted); font-size: 16px; margin: 0 0 28px; }
+    .tip {
+      background: var(--soft); border: 1px solid var(--border); border-radius: 12px;
+      padding: 14px 16px; margin: 0 0 28px; font-size: 14px;
+    }
+    h2 { font-size: 22px; margin: 36px 0 12px; }
+    h3 { font-size: 18px; margin: 28px 0 10px; }
+    p { margin: 0 0 14px; }
+    code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.92em; }
+    pre {
+      background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; overflow-x: auto; font-size: 13px;
+    }
+    pre code { background: none; padding: 0; }
+    blockquote {
+      margin: 0 0 16px; padding: 8px 14px; border-left: 4px solid var(--primary);
+      color: var(--muted); background: var(--soft);
+    }
+    table { width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 14px; }
+    th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
+    th { background: var(--soft); }
+    hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+    img.demo { max-width: 120px; height: auto; border-radius: 8px; }
+    ul, ol { margin: 0 0 16px; padding-left: 1.4em; }
+    li { margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <a href="./">← 同步派官网</a>
+    <a href="./#install">安装扩展</a>
+    <a href="./#platforms">平台列表</a>
+    <a href="https://github.com/yjmm10/MediaSync" target="_blank" rel="noopener">GitHub</a>
+  </div>
+
+  <div class="wrap">
+    <article>
+      <h1>同步派 MediaSync：一键把文章同步到 29+ 平台</h1>
+      <p class="lead">开源免费的浏览器扩展。用你已有的登录态，把一篇文章同步到知乎、掘金、CSDN、头条、简书等平台——默认保存为草稿，由你确认后再发布。</p>
+
+      <div class="tip">
+        <strong>第一次用扩展？</strong>安装后打开本页，在侧栏点「检测当前页」，即可把这篇宣传文同步出去，顺带验证各平台对 Markdown 的支持情况。
+      </div>
+
+      <h2>为什么是同步派</h2>
+      <p>自媒体分发最烦的是<strong>同一篇内容复制粘贴 N 遍</strong>。同步派不模拟登录、不经过第三方服务器：直接使用浏览器里已有的 Cookie，调用各平台官方 Web API，与你在网页编辑器里手动发布等价。</p>
+      <p>核心原则只有四条：使用你自己的登录态、调用平台官方接口、数据不离开你的设备、以及<strong>草稿优先</strong>。</p>
+
+      <h2>你可以怎么用</h2>
+      <ul>
+        <li>从微信公众号、网页文章或本地 Markdown 导入正文</li>
+        <li>一次勾选多个平台批量同步</li>
+        <li>图片自动上传到目标平台图床</li>
+        <li>配合 CLI / MCP，在终端或 Claude 里发起同步</li>
+      </ul>
+
+      <h3>多级列表示例</h3>
+      <ul>
+        <li>安装扩展并登录目标平台
+          <ul>
+            <li>Chrome / Edge / Firefox 均可</li>
+            <li>商店安装或手动加载 Release 包</li>
+          </ul>
+        </li>
+        <li>打开要同步的文章页（比如本页）</li>
+        <li>侧栏检测 → 选择平台 → 开始同步</li>
+      </ul>
+
+      <hr />
+
+      <h2>产品能力一览</h2>
+      <p>下表用 Markdown <em>表格</em> 概括同步派的定位（同步后可对照各平台表格渲染效果）：</p>
+      <table>
+        <thead>
+          <tr><th>能力</th><th>说明</th><th>状态</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>多平台同步</td><td>知乎、掘金、CSDN、简书等 29+</td><td>可用</td></tr>
+          <tr><td>本地 Markdown</td><td>文件夹导入 md + 本地图片</td><td>可用</td></tr>
+          <tr><td>草稿优先</td><td>默认草稿，少数平台为直接发布</td><td>可用</td></tr>
+          <tr><td>开源审计</td><td>代码在 GitHub 完全公开</td><td>可用</td></tr>
+        </tbody>
+      </table>
+
+      <blockquote>
+        <p>「不是爬虫，不模拟登录，不经过任何中间服务器。」——这是同步派与常见「云同步」工具最大的区别。</p>
+      </blockquote>
+
+      <h2>Markdown 语法自检（同步后对照）</h2>
+      <p>以下片段覆盖常用语法：<strong>加粗</strong>、<em>斜体</em>、行内代码如 <code>mediasync sync</code>，以及代码块、Mermaid、列表与分隔线。把本页同步到不同平台，就能直观看到「完整 / 部分 / 弱」的差异。</p>
+
+      <h3>普通代码块</h3>
+      <pre><code class="language-bash"># 安装 CLI 后同步一篇本地文章
+npm install -g @mediasync/cli
+export MEDIASYNC_TOKEN="你的token"
+mediasync sync article.md -p zhihu,juejin,csdn
+</code></pre>
+
+      <h3>Mermaid 流程图</h3>
+      <pre><code class="language-mermaid">flowchart LR
+  A[写好文章] --&gt; B[同步派扩展]
+  B --&gt; C[知乎草稿]
+  B --&gt; D[掘金草稿]
+  B --&gt; E[其他 29+ 平台]
+</code></pre>
+
+      <h3>有序列表</h3>
+      <ol>
+        <li>安装同步派扩展</li>
+        <li>在浏览器登录要发布的平台</li>
+        <li>打开本宣传页并检测同步</li>
+      </ol>
+
+      <p>项目主页与安装说明见 <a href="https://yjmm10.github.io/MediaSync/">同步派官网</a>；源码与 Issue 见 <a href="https://github.com/yjmm10/MediaSync">GitHub 仓库</a>。</p>
+
+      <p>图标示意（相对路径图片，导入/同步时可测图床转存）：</p>
+      <p><img class="demo" src="assets/wechat-friend-qr.png" alt="同步派交流示意" /></p>
+
+      <hr />
+      <p><em>同步派 MediaSync · 开源免费 · 欢迎 Star 与分享</em></p>
+    </article>
+  </div>
+
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('mediasync-theme');
+        var theme = saved === 'light' || saved === 'dark'
+          ? saved
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) {}
+    })();
+  </script>
+</body>
+</html>

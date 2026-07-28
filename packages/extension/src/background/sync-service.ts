@@ -167,13 +167,25 @@ export async function performSync(
   const platformNameById = new Map(allPlatformMetas.map(meta => [meta.id, meta.name]))
   const syncId = generateSyncId()
 
-  // 规范化文章对象，确保必需字段有默认值
+  // 规范化文章对象，确保必需字段有默认值；保留内容源标记供适配器选择 md/html
+  const contentSource: unknown =
+    (article as { source?: unknown }).source ??
+    (source || undefined)
   const normalizedArticle = {
     title: article.title,
     content: article.content || article.html || '',
     html: article.html || article.content || '',
     markdown: article.markdown || '',
     cover: article.cover,
+    source: contentSource,
+  }
+  const historyArticle = {
+    title: normalizedArticle.title,
+    content: normalizedArticle.content,
+    html: normalizedArticle.html,
+    markdown: normalizedArticle.markdown,
+    cover: normalizedArticle.cover,
+    source: typeof contentSource === 'string' ? contentSource : undefined,
   }
 
   // 获取 CMS 账户信息以区分 DSL 和 CMS
@@ -204,7 +216,7 @@ export async function performSync(
 
   // 创建历史记录
   if (!skipHistory) {
-    await upsertHistoryItem(normalizedArticle, platforms)
+    await upsertHistoryItem(historyArticle, platforms)
   }
 
   // 预处理内容（与 SYNC_ARTICLE 路径一致）
@@ -242,7 +254,7 @@ export async function performSync(
       ...processedArticle,
       platformContents: applyOriginalMarkdownToPlatformContents(
         processedArticle.platformContents,
-        { ...normalizedArticle, source: (article as { source?: unknown }).source },
+        normalizedArticle,
         overlayConfigs,
         source,
       ),
@@ -262,6 +274,7 @@ export async function performSync(
       html: normalizedArticle.html,
       markdown: normalizedArticle.markdown,
       content: normalizedArticle.content,
+      source: normalizedArticle.source,
       platformContents: mergedContents,
     }
 
@@ -294,7 +307,7 @@ export async function performSync(
       } catch (error) {
         logger.warn('preparePlatformContents batch failed:', error)
       }
-      await syncToMultiplePlatforms(batchIds, processedArticle, syncCallbacks, source)
+      await syncToMultiplePlatforms(batchIds, processedArticle as Parameters<typeof syncToMultiplePlatforms>[1], syncCallbacks, source)
     }
   }
 
@@ -406,7 +419,7 @@ export async function performSync(
 
   // 更新历史记录
   if (!skipHistory) {
-    await mergeHistoryItem(processedArticle, finalStatus, allResults, allPlatformMetas)
+    await mergeHistoryItem(historyArticle, finalStatus, allResults, allPlatformMetas)
   }
 
   return { results: allResults, syncId }

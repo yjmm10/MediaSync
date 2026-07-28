@@ -3,6 +3,7 @@
  * https://www.imooc.com
  */
 import { CodeAdapter, ImageUploadResult } from '../code-adapter'
+import { pickMarkdownOrHtmlContent } from '../content-origin'
 import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
 export class ImoocAdapter extends CodeAdapter {
   meta: PlatformMeta = {
@@ -107,8 +108,8 @@ export class ImoocAdapter extends CodeAdapter {
   async publish(article: Article): Promise<SyncResult> {
     const now = Date.now()
     return this.withHeaderRules(this.HEADER_RULES, async () => {
-      // 优先使用 markdown，处理图片
-      let content = article.markdown || article.html || ''
+      // 真 md 源用 md，否则用 html（避免提取路径 Turndown 公式多转义）
+      let content = pickMarkdownOrHtmlContent(article)
       content = await this.processImages(content, (src) => this.uploadImageByUrl(src))
 
       const response = await this.runtime.fetch('https://www.imooc.com/article/savedraft', {

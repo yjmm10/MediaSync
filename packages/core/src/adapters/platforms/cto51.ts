@@ -8,6 +8,7 @@
  * 3. 上传到腾讯云 COS
  */
 import { CodeAdapter, ImageUploadResult } from '../code-adapter'
+import { pickMarkdownOnlyContent } from '../content-origin'
 import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
 
 interface UploadSignResponse {
@@ -229,10 +230,9 @@ export class Cto51Adapter extends CodeAdapter {
         }
       }
 
-      // 优先使用 markdown，处理图片
-      const hasMarkdown = !!article.markdown
-      let content = article.markdown || article.html || ''
-      content = await this.processImages(content, (src) => this.uploadImageByUrl(src))
+      // 仅 md：真 md 源用原文；否则仍走 markdown（派生）。无可用 md 时才退 html
+      const { content: rawContent, asMarkdown } = pickMarkdownOnlyContent(article)
+      let content = await this.processImages(rawContent, (src) => this.uploadImageByUrl(src))
 
       // 构建请求数据
       const postData: Record<string, string> = {
@@ -249,7 +249,7 @@ export class Cto51Adapter extends CodeAdapter {
         is_hide: '0',
         top_time: '0',
         is_comment: '0',
-        is_old: hasMarkdown ? '0' : '2',
+        is_old: asMarkdown ? '0' : '2',
         blog_id: '',
         did: '',
         work_id: '',

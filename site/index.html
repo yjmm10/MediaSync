@@ -213,6 +213,7 @@
         <span>同步派</span>
       </div>
       <div class="links">
+        <a href="promo.html">宣传</a>
         <a href="#intro">介绍</a>
         <a href="#platforms">平台</a>
         <a href="#sponsors">赞赏</a>
@@ -305,92 +306,93 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>平台</th><th>ID</th><th>类型</th><th>Markdown</th><th>限制</th><th>状态</th></tr></thead>
+          <thead><tr><th>平台</th><th>ID</th><th>类型</th><th>Markdown</th><th>限制</th><th>发布</th><th>状态</th></tr></thead>
           <tbody>
-            <tr><td>微信公众号</td><td><code>weixin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-partial">🟡 部分</span></td><td>标题≤64 / 摘要≤120；正文视频≤3（平台校验）</td><td>✅</td></tr>
-            <tr><td>知乎</td><td><code>zhihu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>微博</td><td><code>weibo</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>小红书</td><td><code>xiaohongshu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>标题≤64 / 正文≤约1万字（超限截断）；仅长文草稿</td><td>✅</td></tr>
-            <tr><td>抖音图文</td><td><code>douyin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td><span class="new">✅ 🆕</span></td></tr>
-            <tr><td>掘金</td><td><code>juejin</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>CSDN</td><td><code>csdn</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>简书</td><td><code>jianshu</code></td><td><span class="tag">通用</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>头条号</td><td><code>toutiao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>B 站专栏</td><td><code>bilibili</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>百家号</td><td><code>baijiahao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>语雀</td><td><code>yuque</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>豆瓣</td><td><code>douban</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>搜狐号</td><td><code>sohu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>雪球</td><td><code>xueqiu</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>东方财富</td><td><code>eastmoney</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>人人都是产品经理</td><td><code>woshipm</code></td><td><span class="tag">产品</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>大鱼号</td><td><code>dayu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>一点号</td><td><code>yidian</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>虎扑</td><td><code>hupu</code></td><td><span class="tag">体育社区</span></td><td><span class="md-partial">🟡 部分</span></td><td>无草稿（直接发帖）；标题 4–40 字</td><td>✅</td></tr>
-            <tr><td>美篇</td><td><code>meipian</code></td><td><span class="tag">图文创作</span></td><td><span class="md-partial">🟡 部分</span></td><td>无草稿箱，同步后公开</td><td>✅</td></tr>
-            <tr><td>企鹅号</td><td><code>qiehao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>标题 5–64 字（过短报错 / 超长截断）；仅草稿</td><td><span class="new">✅ 🆕</span></td></tr>
-            <tr><td>51CTO</td><td><code>51cto</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>强制仅草稿</td><td>✅</td></tr>
-            <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>强制仅草稿</td><td>✅</td></tr>
-            <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>强制仅草稿</td><td>✅</td></tr>
-            <tr><td>SegmentFault</td><td><code>segmentfault</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>强制仅草稿</td><td>✅</td></tr>
-            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>搜狐焦点</td><td><code>sohufocus</code></td><td><span class="tag">房产</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>什么值得买</td><td><code>smzdm</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>网易号</td><td><code>netease</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>X (Twitter)</td><td><code>x</code></td><td><span class="tag">海外</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>WordPress</td><td><code>wordpress</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>Typecho</td><td><code>typecho</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅</td></tr>
-            <tr><td>Hexo / Hugo</td><td><code>zip-download</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>✅ Markdown 下载</td></tr>
+            <tr><td>微信公众号</td><td><code>weixin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-partial">🟡 部分</span></td><td>标题≤64 / 摘要≤120；正文视频≤3</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>知乎</td><td><code>zhihu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>微博</td><td><code>weibo</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>小红书</td><td><code>xiaohongshu</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>标题≤64 / 正文≤约1万字；⚠️ 图片待下版本修复</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>抖音图文</td><td><code>douyin</code></td><td><span class="tag">主流自媒体</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td>草稿</td><td><span class="new">✅ 🆕</span></td></tr>
+            <tr><td>掘金</td><td><code>juejin</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>CSDN</td><td><code>csdn</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>简书</td><td><code>jianshu</code></td><td><span class="tag">通用</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>头条号</td><td><code>toutiao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>B 站专栏</td><td><code>bilibili</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>百家号</td><td><code>baijiahao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>语雀</td><td><code>yuque</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>豆瓣</td><td><code>douban</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>搜狐号</td><td><code>sohu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>雪球</td><td><code>xueqiu</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>东方财富</td><td><code>eastmoney</code></td><td><span class="tag">财经</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>人人都是产品经理</td><td><code>woshipm</code></td><td><span class="tag">产品</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>大鱼号</td><td><code>dayu</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>一点号</td><td><code>yidian</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>虎扑</td><td><code>hupu</code></td><td><span class="tag">体育社区</span></td><td><span class="md-partial">🟡 部分</span></td><td>标题 4–40 字</td><td>直接发布</td><td>✅</td></tr>
+            <tr><td>美篇</td><td><code>meipian</code></td><td><span class="tag">图文创作</span></td><td><span class="md-partial">🟡 部分</span></td><td>⚠️ 图片待下版本修复</td><td>直接发布</td><td>✅</td></tr>
+            <tr><td>企鹅号</td><td><code>qiehao</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>标题 5–64 字</td><td>草稿</td><td><span class="new">✅ 🆕</span></td></tr>
+            <tr><td>51CTO</td><td><code>51cto</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>SegmentFault</td><td><code>segmentfault</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>搜狐焦点</td><td><code>sohufocus</code></td><td><span class="tag">房产</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>什么值得买</td><td><code>smzdm</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>网易号</td><td><code>netease</code></td><td><span class="tag">通用</span></td><td><span class="md-partial">🟡 部分</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>X (Twitter)</td><td><code>x</code></td><td><span class="tag">海外</span></td><td><span class="md-weak">⚪ 弱</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>WordPress</td><td><code>wordpress</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>Typecho</td><td><code>typecho</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>Hexo / Hugo</td><td><code>zip-download</code></td><td><span class="tag">建站/CMS</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅ Markdown 下载</td></tr>
           </tbody>
         </table>
       </div>
       <div class="legend">
-        <span><b>常用语法</b>：标题 / 加粗 / 斜体 / 行内代码 / 代码块 / 引用 / 有序·无序列表 / 表格 / 图片 / 链接 / 分隔线</span>
-        <span><b style="color:var(--green)">✅ 完整</b>：原生 Markdown，常用语法全部保留</span>
-        <span><b style="color:var(--amber)">🟡 部分</b>：富文本，标题 / 加粗 / 斜体 / 列表 / 图片 / 链接保留；代码块降级为等宽段落、表格降级为「列名: 值」文本行、引用降级为左边线段落</span>
-        <span><b style="color:var(--muted)">⚪ 弱</b>：短内容 / 图文平台，仅基础排版，不适合代码块 / 表格 / 引用</span>
-        <span><b>限制</b>：适配器内已实现或明确映射的平台约束（字数截断/校验、强制草稿、无草稿直接发布等）。「—」表示未做额外字数截断或特殊发布策略（仍受平台自身审核与接口约束；多数平台默认同步为草稿）</span>
+        <span><b>Markdown</b>：总览完整 / 部分 / 弱；细则见下方语法矩阵</span>
+        <span><b style="color:var(--green)">✅ 完整</b>：原生 Markdown；Mermaid 以矩阵单独列为准</span>
+        <span><b style="color:var(--amber)">🟡 部分</b>：富文本，常用语法部分降级；Mermaid 通常不支持</span>
+        <span><b style="color:var(--muted)">⚪ 弱</b>：短内容 / 图文平台，仅基础排版</span>
+        <span><b>限制</b>：仅字数 / 长度类约束（及已标注的图片已知问题）。「—」表示未做额外字数截断</span>
+        <span><b>发布</b>：草稿 = 默认同步为草稿；直接发布 = 同步后即时公开（虎扑、美篇）</span>
       </div>
-      <p style="margin-top:24px;margin-bottom:8px"><b>常用 Markdown 语法支持矩阵</b>　<span style="color:var(--green)">✅ 原生</span> · <span style="color:var(--amber)">⚠️ 降级</span>（代码块→等宽段落、表格→文本行）· <span style="color:var(--muted)">❌ 不支持</span></p>
+      <p style="margin-top:24px;margin-bottom:8px"><b>常用 Markdown 语法支持矩阵</b>　<span style="color:var(--green)">✅ 原生</span> · <span style="color:var(--amber)">⚠️ 降级</span>（其他代码块→等宽段落、表格→文本行）；Mermaid / 单级·多级列表单独列· <span style="color:var(--muted)">❌ 不支持</span></p>
       <table>
-        <thead><tr><th>平台</th><th>加粗</th><th>斜体</th><th>代码块</th><th>引用</th><th>表格</th><th>列表</th></tr></thead>
+        <thead><tr><th>平台</th><th>加粗</th><th>斜体</th><th>Mermaid</th><th>其他代码块</th><th>引用</th><th>表格</th><th>单级列表</th><th>多级列表</th></tr></thead>
         <tbody>
-          <tr><td>微信公众号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>知乎</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>微博</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td></tr>
-          <tr><td>小红书</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td></tr>
-          <tr><td>抖音图文</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td></tr>
-          <tr><td>掘金</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>CSDN</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>简书</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>头条号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>B 站专栏</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>百家号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>语雀</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>豆瓣</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>搜狐号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>雪球</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>东方财富</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>人人都是产品经理</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>大鱼号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>一点号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>51CTO</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>慕课网</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>开源中国</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>SegmentFault</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>博客园</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>搜狐焦点</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>什么值得买</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>网易号</td><td>✅</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td></tr>
-          <tr><td>X (Twitter)</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td></tr>
-          <tr><td>WordPress</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>Typecho</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-          <tr><td>Hexo / Hugo</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>微信公众号</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>知乎</td><td>✅</td><td>✅</td><td>❌</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>⚠️</td></tr>
+          <tr><td>微博</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td><td>❌</td></tr>
+          <tr><td>小红书</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td><td>❌</td></tr>
+          <tr><td>抖音图文</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td><td>❌</td></tr>
+          <tr><td>掘金</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>CSDN</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>简书</td><td>✅</td><td>✅</td><td>❌</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>头条号</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>B 站专栏</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>百家号</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>语雀</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>豆瓣</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>搜狐号</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>雪球</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td></tr>
+          <tr><td>东方财富</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>人人都是产品经理</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>大鱼号</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>一点号</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>⚠️</td></tr>
+          <tr><td>51CTO</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>慕课网</td><td>✅</td><td>✅</td><td>❌</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>开源中国</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>SegmentFault</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>博客园</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>搜狐焦点</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>什么值得买</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>网易号</td><td>✅</td><td>✅</td><td>❌</td><td>⚠️</td><td>✅</td><td>⚠️</td><td>✅</td><td>✅</td></tr>
+          <tr><td>X (Twitter)</td><td>✅</td><td>⚠️</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>⚠️</td><td>❌</td></tr>
+          <tr><td>WordPress</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Typecho</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Hexo / Hugo</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
         </tbody>
       </table>
       <div id="platform-limits" class="limits-box">
         <h3 style="margin:0 0 10px;font-size:18px">平台限制</h3>
-        <p style="margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.6">默认策略是同步为<strong>草稿</strong>，由你确认后再发布。下列为适配器内已实现或明确映射的约束（字数、草稿策略等）：</p>
+        <p style="margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.6">下列为适配器内已实现的<strong>字数 / 发布策略</strong>说明（Markdown 细则见上方语法矩阵）：</p>
         <table>
           <thead><tr><th>平台</th><th>限制说明</th></tr></thead>
           <tbody>
@@ -404,23 +406,19 @@
             </tr>
             <tr>
               <td><b>虎扑</b></td>
-              <td>无草稿接口。同步后直接发帖到步行街（即时可见）；标题需 4–40 字（过短报错 / 超长截断）。</td>
+              <td><strong>直接发布</strong>（无草稿接口）。同步后发帖到步行街（即时可见）；标题需 4–40 字。</td>
             </tr>
             <tr>
               <td><b>美篇</b></td>
-              <td>无独立草稿箱。同步后直接以<strong>公开</strong>状态发布（不会保存为「仅作者可见 / 私密」）。内容为段落式图文，Markdown 仅部分保留。登录态在页面 localStorage，需先在浏览器打开 <a href="https://www.meipian.cn/editor" target="_blank" rel="noopener">美篇编辑器</a> 并完成登录。<strong>已知问题</strong>：图片上传/转存尚不稳定，将在下版本修复；本版本建议纯文本或同步后手工补图。</td>
+              <td><strong>直接发布</strong>（无独立草稿箱，同步后公开）。需先打开 <a href="https://www.meipian.cn/editor" target="_blank" rel="noopener">美篇编辑器</a> 并登录。<strong>已知问题</strong>：图片上传/转存尚不稳定。</td>
             </tr>
             <tr>
               <td><b>企鹅号</b></td>
-              <td>标题需 5–64 字（过短报错 / 超长截断）；仅保存草稿，不调用发布接口。</td>
-            </tr>
-            <tr>
-              <td><b>51CTO / 慕课网 / 开源中国 / SegmentFault</b></td>
-              <td>适配器强制仅草稿（忽略「直接发布」选项）。</td>
+              <td>标题需 5–64 字；仅保存草稿，不调用发布接口。</td>
             </tr>
           </tbody>
         </table>
-        <p style="margin:12px 0 0;color:var(--muted);font-size:13px">其余平台仍遵循「草稿优先」，适配器未做额外字数截断（仍受各平台自身审核与接口约束）；同步完成后请在各平台后台确认再正式公开。</p>
+        <p style="margin:12px 0 0;color:var(--muted);font-size:13px">其余平台为<strong>草稿</strong>同步，适配器未做额外字数截断；同步完成后请在各平台后台确认再正式公开。</p>
       </div>
       <p style="margin-top:16px;text-align:center"><a href="https://github.com/yjmm10/MediaSync/issues" target="_blank" rel="noopener">需要支持新平台？提个 Issue →</a></p>
     </section>
@@ -497,7 +495,17 @@
       </div>
       <div class="releases">
         <div class="release">
-          <h3>v2.1.9 <span class="ver-tag">最新</span></h3>
+          <h3>v2.1.10 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-07-28</div>
+          <ul>
+            <li>🔧 本地 Markdown / 编辑 / MCP 源同步到 Markdown 平台时，保留原文公式反斜杠，避免二次转义</li>
+            <li>🔧 慕课网按内容源选 md/html；51CTO 按内容源选择 Markdown</li>
+            <li>🆕 新增产品宣传页；首次安装打开宣传页便于「检测当前页」体验同步</li>
+            <li>📝 平台主表拆分「限制 / 发布」列；Markdown 细则只在语法矩阵</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.9</h3>
           <div class="date">2026-07-26</div>
           <ul>
             <li>🔧 Logo 点击清空文章回到空主页（关闭实时会话态，避免立刻再抽文）；空主页始终可「检测当前页」</li>
