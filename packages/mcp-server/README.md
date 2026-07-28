@@ -111,7 +111,6 @@ yarn build
 |-----|-----|---------|
 | 知乎 | zhihu | ✅ |
 | 掘金 | juejin | ✅ |
-| 头条号 | toutiao | ✅ |
 | CSDN | csdn | ✅ |
 | 简书 | jianshu | ✅ |
 | 微博 | weibo | ✅ |
@@ -119,6 +118,8 @@ yarn build
 | 百家号 | baijiahao | ✅ |
 | 人人都是产品经理 | woshipm | ✅ |
 | 大鱼号 | dayu | ✅ |
+
+> 头条号（`toutiao`）等文档中标为「暂未支持」的平台尚未提供可用适配器，请勿在 MCP 中指定。
 
 ## 环境变量
 
