@@ -157,6 +157,43 @@ export class SegmentfaultAdapter extends CodeAdapter {
   }
 
   /**
+   * 思否 Markdown 兼容处理：
+   * - turndown 会把公式里的 \ 转成 \\，需还原为一层 \
+   * - 行内公式使用 \\(...\\)，块级仍用 $$...$$
+   * - 表格分隔行统一为紧凑 |---|---|（无空格、无对齐冒号）
+   */
+  private normalizeMarkdownForSegmentfault(markdown: string): string {
+    const codeBlocks: string[] = []
+    let md = markdown.replace(/```[\s\S]*?```/g, (block) => {
+      const idx = codeBlocks.length
+      codeBlocks.push(block)
+      return `\0CODE${idx}\0`
+    })
+
+    const unescapeFormula = (body: string) => body.replace(/\\\\/g, '\\')
+
+    // 块级公式 $$...$$
+    md = md.replace(/\$\$([\s\S]+?)\$\$/g, (_m, body: string) => `$$${unescapeFormula(body)}$$`)
+    // 行内公式 $...$ → \\(...\\)（排除 $$）
+    md = md.replace(
+      /(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)/g,
+      (_m, body: string) => `\\\\(${unescapeFormula(body)}\\\\)`
+    )
+
+    // 表格分隔行 → |---|---|
+    md = md.replace(
+      /^[ \t]*\|?(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*:?-+:?[ \t]*\|?[ \t]*$/gm,
+      (line) => {
+        const colCount = (line.match(/:?-+:?/g) || []).length
+        if (colCount === 0) return line
+        return '|' + Array(colCount).fill('---').join('|') + '|'
+      }
+    )
+
+    return md.replace(/\0CODE(\d+)\0/g, (_m, i: string) => codeBlocks[Number(i)] ?? '')
+  }
+
+  /**
    * 发布文章
    */
   async publish(article: Article): Promise<SyncResult> {
@@ -165,8 +202,9 @@ export class SegmentfaultAdapter extends CodeAdapter {
       // 获取 session token
       this.sessionToken = await this.getSessionToken()
 
-      // 优先使用 markdown，处理图片
+      // 优先使用 markdown，规范化公式/表格后再处理图片
       let content = article.markdown || article.html || ''
+      content = this.normalizeMarkdownForSegmentfault(content)
       content = await this.processImages(content, (src) => this.uploadImageByUrl(src))
 
       const postData = {

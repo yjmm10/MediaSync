@@ -3,6 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plug, PlugZap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { trackFeatureDiscovery } from '../../lib/analytics'
+import {
+  DEFAULT_LOCAL_MD_CACHE_LIMIT,
+  MAX_LOCAL_MD_CACHE_LIMIT,
+  MIN_LOCAL_MD_CACHE_LIMIT,
+  clearLocalMdCache,
+  formatCacheBytes,
+  getLocalMdCacheBytes,
+  getLocalMdCacheLimit,
+  setLocalMdCacheLimit,
+} from '../../lib/local-md-cache'
 
 interface McpStatus {
   enabled: boolean
@@ -54,8 +64,16 @@ export function SettingsPage() {
   const [floatingButtonEnabled, setFloatingButtonEnabled] = useState(false)
   const [sidePanelOnActionClick, setSidePanelOnActionClick] = useState(true)
   const [realtimeDetect, setRealtimeDetect] = useState(true)
+  const [localMdCacheLimit, setLocalMdCacheLimitState] = useState(DEFAULT_LOCAL_MD_CACHE_LIMIT)
+  const [localMdCacheBytes, setLocalMdCacheBytes] = useState(0)
+  const [cacheClearHint, setCacheClearHint] = useState<string | null>(null)
   const [serverUrlInput, setServerUrlInput] = useState('')
   const serverUrlTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cacheLimitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const refreshLocalMdCacheBytes = () => {
+    getLocalMdCacheBytes().then(setLocalMdCacheBytes)
+  }
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'MCP_STATUS' }, (response) => {
@@ -81,6 +99,9 @@ export function SettingsPage() {
     chrome.storage.local.get('realtimeDetect', (result) => {
       setRealtimeDetect(result.realtimeDetect ?? true)
     })
+
+    getLocalMdCacheLimit().then(setLocalMdCacheLimitState)
+    refreshLocalMdCacheBytes()
   }, [])
 
   useEffect(() => {
@@ -153,6 +174,30 @@ export function SettingsPage() {
     const next = !realtimeDetect
     setRealtimeDetect(next)
     chrome.storage.local.set({ realtimeDetect: next })
+  }
+
+  const handleCacheLimitChange = (value: string) => {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return
+    const next = Math.min(
+      MAX_LOCAL_MD_CACHE_LIMIT,
+      Math.max(MIN_LOCAL_MD_CACHE_LIMIT, Math.round(parsed))
+    )
+    setLocalMdCacheLimitState(next)
+    if (cacheLimitTimer.current) clearTimeout(cacheLimitTimer.current)
+    cacheLimitTimer.current = setTimeout(() => {
+      setLocalMdCacheLimit(next).then((limit) => {
+        setLocalMdCacheLimitState(limit)
+        refreshLocalMdCacheBytes()
+      })
+    }, 400)
+  }
+
+  const handleClearLocalMdCache = async () => {
+    await clearLocalMdCache()
+    setLocalMdCacheBytes(0)
+    setCacheClearHint('已清空本地 Markdown 缓存')
+    setTimeout(() => setCacheClearHint(null), 2000)
   }
 
   return (
@@ -248,6 +293,43 @@ export function SettingsPage() {
               </p>
             </div>
             <Toggle on={realtimeDetect} onClick={toggleRealtimeDetect} />
+          </div>
+        </div>
+
+        {/* 本地导入缓存 */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-muted-foreground">本地导入</h3>
+
+          <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Markdown 缓存条数</p>
+                <p className="text-xs text-muted-foreground">
+                  缓存最近导入的本地 MD（含图片），历史追加同步时无需重选文件夹。默认 {DEFAULT_LOCAL_MD_CACHE_LIMIT}，过大可能占存储。
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  当前占用：{formatCacheBytes(localMdCacheBytes)}
+                </p>
+              </div>
+              <input
+                type="number"
+                min={MIN_LOCAL_MD_CACHE_LIMIT}
+                max={MAX_LOCAL_MD_CACHE_LIMIT}
+                value={localMdCacheLimit}
+                onChange={(e) => handleCacheLimitChange(e.target.value)}
+                className="w-16 bg-background p-1.5 rounded border border-border text-sm text-center font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleClearLocalMdCache}
+              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+            >
+              清空本地 Markdown 缓存
+            </button>
+            {cacheClearHint && (
+              <p className="text-[11px] text-green-600">{cacheClearHint}</p>
+            )}
           </div>
         </div>
       </div>

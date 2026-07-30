@@ -142,7 +142,14 @@ export class ZhihuAdapter extends CodeAdapter {
         content,
         (src) => this.uploadImageByUrl(src),
         {
-          skipPatterns: ['zhimg.com', 'pic1.zhimg.com', 'pic2.zhimg.com', 'pic3.zhimg.com', 'pic4.zhimg.com'],
+          skipPatterns: [
+            'zhimg.com',
+            'pic1.zhimg.com',
+            'pic2.zhimg.com',
+            'pic3.zhimg.com',
+            'pic4.zhimg.com',
+            'zhihu.com/equation',
+          ],
           onProgress: options?.onImageProgress,
         }
       )
@@ -197,23 +204,153 @@ export class ZhihuAdapter extends CodeAdapter {
     // 1. 转换表格格式 - 知乎 Draft.js 编辑器需要特定格式
     result = this.transformTables(result)
 
-    // 2. 图片格式 - 知乎需要 figure 包裹
+    // 2. 嵌套列表 → 兄弟嵌套（避免同级列表被拆断）
+    result = this.transformNestedLists(result)
+
+    // 3. LaTeX 公式 - 知乎编辑器使用 equation 图片
+    result = this.transformLatex(result)
+
+    // 4. 图片格式 - 知乎需要 figure 包裹（跳过公式图）
     result = result.replace(
-      /<img([^>]+)src="([^"]+)"([^>]*)>/gi,
-      '<figure><img$1src="$2"$3></figure>'
+      /<img([^>]*?)src="([^"]+)"([^>]*)>/gi,
+      (match, before, src, after) => {
+        if (
+          src.includes('zhihu.com/equation') ||
+          /\beeimg\s*=/i.test(match)
+        ) {
+          return match
+        }
+        return `<figure><img${before}src="${src}"${after}></figure>`
+      }
     )
 
-    // 3. 代码块格式
-    result = result.replace(
-      /<pre><code class="language-(\w+)">/gi,
-      '<pre lang="$1"><code>'
-    )
+    // 5. 代码块格式 - 知乎只认 <pre lang="xxx">，且不要内层 <code>
+    //    若保留 <pre><code class="language-js">，服务端会落到 lang="text"
+    result = this.transformCodeBlocks(result)
 
-    // 4. 移除微信样式属性 (但保留知乎的 data-draft-* 属性)
+    // 6. 移除微信样式属性 (但保留知乎的 data-draft-* 属性)
     result = result.replace(/\s*data-(?!draft)[a-z-]+="[^"]*"/gi, '')
     result = result.replace(/\s*style="[^"]*"/gi, '')
 
+    // 7. 清理空段落（公式转换等可能留下）
+    result = result.replace(/<p>(?:\s|<br\s*\/?>)*<\/p>/gi, '')
+
+    // 8. 压缩标签间空白（Draft.js 会把 >\n< 当成空块，拆断列表并在表格前插空行）
+    result = this.compactInterTagWhitespace(result)
+
     return result
+  }
+
+  /**
+   * 去掉标签之间的空白/换行，保留 <pre> 内部缩进。
+   */
+  private compactInterTagWhitespace(html: string): string {
+    const preBlocks: string[] = []
+    // 用注释占位（仍以 < 开头），保证周围的 >\s+< 也能被压掉
+    const withPlaceholders = html.replace(
+      /<pre\b[^>]*>[\s\S]*?<\/pre>/gi,
+      (block) => {
+        const idx = preBlocks.length
+        preBlocks.push(block)
+        return `<!--ZHIHU_PRE_${idx}-->`
+      }
+    )
+
+    const compacted = withPlaceholders.replace(/>\s+</g, '><')
+
+    return compacted.replace(/<!--ZHIHU_PRE_(\d+)-->/g, (_m, idx: string) => {
+      return preBlocks[Number(idx)] ?? ''
+    })
+  }
+
+  /**
+   * 归一化为知乎代码块：<pre lang="js">code</pre>
+   */
+  private transformCodeBlocks(html: string): string {
+    return html.replace(
+      /<pre(\b[^>]*)>([\s\S]*?)<\/pre>/gi,
+      (_match, preAttrs: string, inner: string) => {
+        const langFromPre = /(?:\slang|language)=["']([\w+-]+)["']/i.exec(preAttrs)?.[1]
+
+        const codeMatch = /^(\s*)<code(\b[^>]*)>([\s\S]*?)<\/code>(\s*)$/i.exec(inner)
+        if (codeMatch) {
+          const codeAttrs = codeMatch[2]
+          const body = codeMatch[3]
+          const langFromCode =
+            /(?:language|lang)-([\w+-]+)/i.exec(codeAttrs)?.[1] ||
+            /(?:\slanguage|\slang)=["']([\w+-]+)["']/i.exec(codeAttrs)?.[1]
+          const lang = langFromPre || langFromCode || 'text'
+          return `<pre lang="${lang}">${body}</pre>`
+        }
+
+        // 已是纯 pre 文本；补上 lang（若属性里已有则保留）
+        if (langFromPre) {
+          return `<pre lang="${langFromPre}">${inner}</pre>`
+        }
+        const langFromClass = /(?:language|lang)-([\w+-]+)/i.exec(preAttrs)?.[1]
+        return `<pre lang="${langFromClass || 'text'}">${inner}</pre>`
+      }
+    )
+  }
+
+  /**
+   * 将 li 内嵌套的 ul/ol 提升为 li 的兄弟节点。
+   * 标准嵌套 HTML 在知乎 Draft.js 中会把同级项拆成多个列表；兄弟嵌套可保持连续 depth。
+   */
+  private transformNestedLists(html: string): string {
+    let result = html
+    const re =
+      /<li(\b[^>]*)>([\s\S]*?)<(ul|ol)(\b[^>]*)>([\s\S]*?)<\/\3>\s*<\/li>/gi
+    let prev = ''
+    while (prev !== result) {
+      prev = result
+      result = result.replace(
+        re,
+        (_match, liAttr: string, before: string, tag: string, listAttr: string, inner: string) =>
+          `<li${liAttr}>${before.trim()}</li><${tag}${listAttr}>${inner}</${tag}>`
+      )
+    }
+    return result
+  }
+
+  /**
+   * Markdown/HTML 中的 $ / $$ 公式转为知乎 equation 图片
+   */
+  private transformLatex(content: string): string {
+    const converted = content
+      .split(/(<pre[\s\S]*?<\/pre>)/gi)
+      .map((chunk) => {
+        if (/^<pre/i.test(chunk)) return chunk
+
+        return chunk
+          .replace(/\$\$([\s\S]+?)\$\$/g, (_match, latex: string) =>
+            this.zhihuEquationImage(latex, '2')
+          )
+          .replace(/\$([^$\n]+?)\$/g, (_match, latex: string) =>
+            this.zhihuEquationImage(latex, '1')
+          )
+      })
+      .join('')
+
+    // 知乎用 alt 恢复 TeX：alt 中的换行会变成编辑器空行；顺带清掉空段
+    return converted
+      .replace(/<p>(?:\s|<br\s*\/?>)*<\/p>/gi, '')
+  }
+
+  private zhihuEquationImage(latex: string, eeimg: '1' | '2'): string {
+    // alt 中的 \n 会在知乎编辑器变成 <br>/空行，必须压成单行
+    const formula = latex
+      .replace(/\r\n|\r|\n/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const encoded = encodeURIComponent(formula)
+    const alt = formula
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+
+    return `<img src="https://www.zhihu.com/equation?tex=${encoded}" alt="${alt}" class="ee_img tr_noresize" eeimg="${eeimg}">`
   }
 
   /**

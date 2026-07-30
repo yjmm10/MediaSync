@@ -6,12 +6,13 @@ import { Button } from '../components/ui/Button'
 import { trackPageView } from '../../lib/analytics'
 import { openUrlsInTabGroup } from '@/lib/tabs'
 import { createLogger } from '../../lib/logger'
+import { getLocalMdCacheByDocId } from '../../lib/local-md-cache'
 
 const logger = createLogger('HistoryPage')
 
 export function HistoryPage() {
   const navigate = useNavigate()
-  const { history, loadHistory } = useSyncStore()
+  const { history, loadHistory, setArticle } = useSyncStore()
 
   useEffect(() => {
     loadHistory()
@@ -33,27 +34,59 @@ export function HistoryPage() {
 
   /**
    * 对已同步过的文档追加同步到更多平台：
-   * 把历史里的正文快照写入 storage，在侧边栏内进入导入页（预加载该文档），
-   * 复用导入同步流程选择追加平台。不再打开整页。
+   * 优先本地 MD 缓存（含 data URI），否则用历史正文快照；直接回到首页选平台，无需重选文件夹。
    */
   const continueSync = async (item: typeof history[number]) => {
-    const markdown = item.markdown || item.html
-    if (!markdown) {
-      logger.warn('该历史记录没有正文快照，无法追加同步', item.id)
+    const cached = await getLocalMdCacheByDocId(item.id)
+    const markdown = cached?.markdown || item.markdown
+    const html = cached?.html || item.html || markdown
+    if (!markdown && !html) {
+      logger.warn('该历史记录没有正文快照或本地缓存，无法追加同步', item.id)
       return
     }
-    await chrome.storage.local.set({
-      importPreloadArticle: {
-        title: item.title,
-        markdown: item.markdown,
-        html: item.html,
-        cover: item.cover,
-        source: 'history-continue',
-        excludePlatforms: (item.results || []).filter(r => r.success).map(r => r.platform),
+
+    const title = cached?.title || item.title
+    const cover = cached?.cover || item.cover
+    const body = html || markdown || ''
+
+    setArticle(
+      {
+        title,
+        content: body,
+        html: html || undefined,
+        markdown: markdown || undefined,
+        cover,
       },
+      'import'
+    )
+
+    const successIds = new Set(
+      (item.results || []).filter(r => r.success).map(r => r.platform)
+    )
+    const { platforms, selectedPlatforms } = useSyncStore.getState()
+    const baseSelected =
+      selectedPlatforms.length > 0
+        ? selectedPlatforms
+        : platforms.map(p => p.id)
+
+    useSyncStore.setState({
+      status: 'idle',
+      results: (item.results || []).map(r => ({
+        platform: r.platform,
+        platformName: r.platformName,
+        success: r.success,
+        postUrl: r.postUrl,
+        draftOnly: r.draftOnly,
+        error: r.error,
+      })),
+      selectedPlatforms: baseSelected.filter(id => !successIds.has(id)),
+      error: null,
+      platformProgress: new Map(),
+      currentSyncId: null,
     })
-    // 在当前窗口（侧边栏/popup）内导航到导入页
-    navigate('/import')
+
+    await chrome.storage.local.remove('importPreloadArticle')
+    navigate('/')
   }
 
   const formatTime = (timestamp: number) => {

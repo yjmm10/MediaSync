@@ -99,8 +99,8 @@ export class BaijiahaoAdapter extends CodeAdapter {
 
       this.authToken = await this.fetchAuthToken()
 
-      // Use pre-processed HTML content directly
-      let content = article.html || ''
+      // Use pre-processed HTML content; normalize code blocks for BJH editor
+      let content = this.transformContent(article.html || '')
 
       content = await this.processImages(
         content,
@@ -163,6 +163,73 @@ export class BaijiahaoAdapter extends CodeAdapter {
     }).catch((error) => this.createResult(false, {
       error: (error as Error).message,
     }))
+  }
+
+  /**
+   * 百家号内容转换：代码块 data-lang 归一化（公式暂不支持，保持原文）
+   */
+  private transformContent(content: string): string {
+    return this.transformCodeBlocks(content)
+  }
+
+  /**
+   * 归一化为百家号代码块：<pre data-lang="javascript">code</pre>
+   * 无 data-lang 或仅 language-xxx class 时编辑器会落到 Plain Text(string)；
+   * 短名 js 有高亮但 UI 语言标签空白，需映射为全名。
+   */
+  private transformCodeBlocks(html: string): string {
+    return html.replace(
+      /<pre(\b[^>]*)>([\s\S]*?)<\/pre>/gi,
+      (_match, preAttrs: string, inner: string) => {
+        const langFromPre =
+          /(?:\sdata-lang|\slang|\slanguage)=["']([\w#+.-]+)["']/i.exec(preAttrs)?.[1] ||
+          /(?:language|lang)-([\w#+.-]+)/i.exec(preAttrs)?.[1]
+
+        const codeMatch = /^(\s*)<code(\b[^>]*)>([\s\S]*?)<\/code>(\s*)$/i.exec(inner)
+        if (codeMatch) {
+          const codeAttrs = codeMatch[2]
+          const body = codeMatch[3]
+          const langFromCode =
+            /(?:language|lang)-([\w#+.-]+)/i.exec(codeAttrs)?.[1] ||
+            /(?:\sdata-lang|\slang|\slanguage)=["']([\w#+.-]+)["']/i.exec(codeAttrs)?.[1]
+          const lang = this.normalizeBaijiahaoLang(langFromPre || langFromCode)
+          return `<pre data-lang="${lang}">${body}</pre>`
+        }
+
+        const lang = this.normalizeBaijiahaoLang(
+          langFromPre || /(?:language|lang)-([\w#+.-]+)/i.exec(preAttrs)?.[1]
+        )
+        return `<pre data-lang="${lang}">${inner}</pre>`
+      }
+    )
+  }
+
+  /**
+   * 映射到百家号代码块可显示标签的语言 id；未知 → string (Plain Text)
+   */
+  private normalizeBaijiahaoLang(lang: string | undefined): string {
+    if (!lang) return 'string'
+    const key = lang.trim().toLowerCase()
+    const map: Record<string, string> = {
+      js: 'javascript',
+      javascript: 'javascript',
+      py: 'python',
+      python: 'python',
+      go: 'go',
+      golang: 'go',
+      c: 'c',
+      cpp: 'cpp',
+      'c++': 'cpp',
+      java: 'java',
+      csharp: 'dotnet',
+      cs: 'dotnet',
+      'c#': 'dotnet',
+      dotnet: 'dotnet',
+      string: 'string',
+      plain: 'string',
+      text: 'string',
+    }
+    return map[key] ?? 'string'
   }
 
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {

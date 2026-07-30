@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FolderOpen, Loader2, AlertTriangle, ArrowLeft, FileText } from 'lucide-react'
 import { loadMarkdownFromFiles, type ImportStats } from '../../lib/local-markdown'
+import { pushLocalMdCache } from '../../lib/local-md-cache'
 import { useSyncStore } from '../stores/sync'
 import { createLogger } from '../../lib/logger'
 
@@ -47,6 +48,13 @@ export function ImportPage() {
       logger.info(
         `导入完成: ${outcome.article.title}, 图片 ${outcome.stats.convertedImages}/${outcome.stats.totalImages}`
       )
+      await pushLocalMdCache({
+        title: outcome.article.title,
+        markdown: outcome.article.markdown,
+        html: outcome.article.html,
+        cover: outcome.article.cover,
+        fileName: outcome.stats.markdownFileName,
+      })
       // 交给 store（标记 import 来源，首页不会对它做实时检测覆盖），并回到首页统一同步
       setArticle(
         {
