@@ -1,6 +1,6 @@
 {
   "name": "@mediasync/extension",
-  "version": "2.1.13",
+  "version": "2.1.14",
   "private": true,
   "description": "同步派（MediaSync）— 多平台文章一键同步 Chrome 扩展",
   "type": "module",
@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "pack": "node scripts/pack-zip.mjs all",
+    "pack:chrome": "node scripts/pack-zip.mjs chrome",
     "pack:edge": "node scripts/pack-zip.mjs edge",
     "pack:firefox": "node scripts/pack-zip.mjs firefox",
     "prod": "npm run build && npm run pack",
@@ -38,6 +39,7 @@
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.23",
+    "crx": "^5.0.1",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
     "vite": "^5.0.10",

@@ -1,8 +1,14 @@
 name: Release
 
 # 推送 v* 标签时：
-# 1. 构建扩展并分别打包 Edge / Firefox zip → GitHub Release
-# 2. 构建 @mediasync/mcp-server、@mediasync/cli 并发布到 npm（需 NPM_TOKEN）
+# 1. 构建扩展并分别打包 Chrome/Edge / Firefox → zip / xpi / crx → GitHub Release
+# 2. 若配置了 AMO JWT Secrets，自动向 Firefox AMO 提交 listed 新版本
+# 3. 构建 @mediasync/mcp-server、@mediasync/cli 并发布到 npm（需 NPM_TOKEN）
+#
+# GitHub → Settings → Secrets and variables → Actions 需配置（均不入库）：
+#   AMO_JWT_ISSUER / AMO_JWT_SECRET — https://addons.mozilla.org/developers/addon/api/key/
+#   EXTENSION_CRX_PRIVATE_KEY — 可选，PEM；缺失则跳过 .crx
+#   NPM_TOKEN — 可选，npm 发布
 on:
   push:
     tags: ['v*']
@@ -16,7 +22,7 @@ permissions:
   contents: write
 
 jobs:
-  # ── 构建扩展（Edge + Firefox 两套包）──
+  # ── 构建扩展（多格式：zip / xpi / crx）──
   build-extension:
     runs-on: ubuntu-latest
     steps:
@@ -44,17 +50,52 @@ jobs:
         id: ver
         run: echo "version=$(node -p "require('./packages/extension/package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Package Edge + Firefox zips
+      - name: Package Chrome/Edge + Firefox (zip / xpi / crx)
         # 必须用 run pack：裸 pack 会走 pnpm 内置 pack（npm tarball），不会执行 scripts/pack-zip.mjs
         run: pnpm --filter @mediasync/extension run pack
+        env:
+          EXTENSION_CRX_PRIVATE_KEY: ${{ secrets.EXTENSION_CRX_PRIVATE_KEY }}
+
+      - name: Submit Firefox package to AMO (listed)
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AMO_JWT_ISSUER:-}" ] || [ -z "${AMO_JWT_SECRET:-}" ]; then
+            echo "::warning::AMO_JWT_ISSUER / AMO_JWT_SECRET not set — skip AMO upload"
+            exit 0
+          fi
+          ZIP="mediasync-${VERSION}-firefox.zip"
+          if [ ! -f "$ZIP" ]; then
+            echo "::error::missing $ZIP"
+            exit 1
+          fi
+          rm -rf amo-sign
+          mkdir -p amo-sign
+          unzip -q "$ZIP" -d amo-sign
+          # approval-timeout 0：提交后不等待人工审核，避免 CI 挂起
+          npx --yes web-ext@8 sign \
+            --source-dir amo-sign \
+            --artifacts-dir amo-artifacts \
+            --channel listed \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET" \
+            --approval-timeout 0
+          echo "AMO submission finished (review may still be pending on AMO)"
 
       - name: Upload extension artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: extension-zips
+          name: extension-packages
           path: |
+            mediasync-*-chrome.zip
             mediasync-*-edge.zip
             mediasync-*-firefox.zip
+            mediasync-*-firefox.xpi
+            mediasync-*-chrome.crx
+          if-no-files-found: warn
 
   # ── 发布 npm 包（mcp-server、cli）──
   publish-npm:
@@ -111,7 +152,7 @@ jobs:
       - name: Download extension artifacts
         uses: actions/download-artifact@v4
         with:
-          name: extension-zips
+          name: extension-packages
 
       - name: Extract release notes from CHANGELOG
         id: notes
@@ -134,8 +175,12 @@ jobs:
             echo
             echo "## 扩展包"
             echo
-            echo "- \`mediasync-${VERSION}-edge.zip\` — Chrome / Edge（仅 \`background.service_worker\`）"
-            echo "- \`mediasync-${VERSION}-firefox.zip\` — Firefox AMO（含 \`scripts\` 回退与 \`gecko\` 声明）"
+            echo "- \`mediasync-${VERSION}-chrome.zip\` — Chrome Web Store / 手动加载（仅 \`background.service_worker\`）"
+            echo "- \`mediasync-${VERSION}-edge.zip\` — Edge Add-ons（与 chrome.zip 同内容，兼容旧文件名）"
+            echo "- \`mediasync-${VERSION}-chrome.crx\` — Chromium CRX（需 Release 签名密钥；缺失则本附件可能不存在）"
+            echo "- \`mediasync-${VERSION}-firefox.zip\` / \`mediasync-${VERSION}-firefox.xpi\` — Firefox AMO（含 \`scripts\` 回退与 \`gecko\` 声明；xpi 与 zip 同内容）"
+            echo
+            echo "若已配置 \`AMO_JWT_*\` Secrets，本 Release 构建时会自动向 AMO 提交 listed 新版本（仍须等待 Mozilla 审核）。"
           } > release-notes-full.md
           mv release-notes-full.md release-notes.md
           echo "----- release notes -----"
@@ -149,6 +194,10 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: false
           files: |
+            mediasync-*-chrome.zip
             mediasync-*-edge.zip
             mediasync-*-firefox.zip
+            mediasync-*-firefox.xpi
+            mediasync-*-chrome.crx
+          fail_on_unmatched_files: false
           make_latest: true

@@ -9,6 +9,10 @@ dist
 !.env.example
 coverage
 *.zip
+*.xpi
+*.crx
+packages/extension/crx-key.pem
+packages/extension/.pack-stage-*
 
 # IDE
 .vscode/*

@@ -46,13 +46,19 @@
 
 ## 安装方式
 
-### Chrome 浏览器扩展安装
+### Firefox
 
-**推荐**: [Chrome 网上应用店](https://chrome.google.com/webstore/detail/%E5%BE%AE%E4%BF%A1%E5%90%8C%E6%AD%A5%E5%8A%A9%E6%89%8B/hchobocdmclopcbnibdnoafilagadion) (自动更新)
+[Firefox 附加组件：同步派](https://addons.mozilla.org/zh-CN/firefox/addon/%E5%90%8C%E6%AD%A5%E6%B4%BE/)
 
-**手动安装**: 下载 [最新 Release](https://github.com/yjmm10/MediaSync/releases) 中的 `mediasync-*-edge.zip`（Chrome / Edge）或 `mediasync-*-firefox.zip`（Firefox）解压后加载
+### Chrome / Edge 等
 
-支持 Chrome / Edge / Firefox / 360 / QQ 等浏览器（商店包按目标分别构建，无通用包）
+Chrome 网上应用店链接后续补充。可从 [最新 Release](https://github.com/yjmm10/MediaSync/releases) 下载插件包解压后加载。
+
+### 插件下载
+
+[GitHub Releases](https://github.com/yjmm10/MediaSync/releases) 提供各浏览器安装包（`chrome` / `edge` / `firefox` 的 zip、xpi、crx 等）。
+
+支持 Chrome / Edge / Firefox / 360 / QQ 等浏览器。
 
 
 ## 支持 29+ 主流平台

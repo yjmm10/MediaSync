@@ -1,13 +1,19 @@
 /**
- * 按商店目标打包（Edge / Firefox 对 background 要求冲突，无法共用同一 manifest）
+ * 按商店目标打包（Chrome/Edge 与 Firefox 对 background 要求冲突，无法共用同一 manifest）
  *
  * Usage:
  *   node scripts/pack-zip.mjs edge
+ *   node scripts/pack-zip.mjs chrome
  *   node scripts/pack-zip.mjs firefox
  *   node scripts/pack-zip.mjs all
  *
- * - edge/chrome: 仅 background.service_worker（去掉 scripts；去掉 gecko）
+ * - chrome/edge: 仅 background.service_worker（去掉 scripts；去掉 gecko）
  * - firefox: service_worker + scripts；保留 gecko.id / data_collection_permissions
+ *
+ * 产物：
+ *   mediasync-{ver}-chrome.zip / -edge.zip（同内容）
+ *   mediasync-{ver}-chrome.crx（需密钥，否则跳过）
+ *   mediasync-{ver}-firefox.zip / -firefox.xpi（同内容）
  *
  * Zip 条目强制正斜杠路径（Windows 默认 Compress-Archive 会写成反斜杠，AMO 会拒收）。
  */
@@ -33,18 +39,38 @@ const require = createRequire(import.meta.url)
 const version = require(join(extRoot, 'package.json')).version
 const repoRoot = join(extRoot, '..', '..')
 
+const REQUIRED_ICONS = ['icon-16.png', 'icon-48.png', 'icon-128.png']
+
 const targetArg = (process.argv[2] || 'all').toLowerCase()
+/** @type {Array<'chrome' | 'firefox'>} */
 const targets =
   targetArg === 'all'
-    ? ['edge', 'firefox']
-    : targetArg === 'chrome'
-      ? ['edge']
-      : [targetArg]
+    ? ['chrome', 'firefox']
+    : targetArg === 'edge'
+      ? ['chrome']
+      : targetArg === 'chrome' || targetArg === 'firefox'
+        ? [targetArg]
+        : []
+
+if (targets.length === 0) {
+  console.error(`Unknown target: ${targetArg} (use chrome | edge | firefox | all)`)
+  process.exit(1)
+}
 
 if (!existsSync(join(dist, 'manifest.json'))) {
   console.error('dist/manifest.json missing — run build first')
   process.exit(1)
 }
+
+function assertIcons() {
+  const missing = REQUIRED_ICONS.filter((name) => !existsSync(join(dist, 'assets', name)))
+  if (missing.length) {
+    console.error(`dist/assets missing required icons: ${missing.join(', ')}`)
+    process.exit(1)
+  }
+}
+
+assertIcons()
 
 const viteDir = join(dist, '.vite')
 if (existsSync(viteDir)) rmSync(viteDir, { recursive: true, force: true })
@@ -70,7 +96,7 @@ function patchManifest(base, target) {
       },
     }
   } else {
-    // Edge / Chrome Web Store：MV3 不允许 background.scripts
+    // Chrome / Edge：MV3 不允许 background.scripts
     m.background = {
       service_worker: sw,
       type: 'module',
@@ -113,7 +139,6 @@ try {
     return
   }
 
-  // Linux / macOS（CI）：zip 默认使用正斜杠
   const r = spawnSync('zip', ['-r', '-q', zipPath, '.'], {
     cwd: sourceDir,
     encoding: 'utf8',
@@ -124,7 +149,60 @@ try {
   }
 }
 
-function packTarget(target) {
+function writeOutputs(srcPath, names) {
+  for (const name of names) {
+    const outPath = join(extRoot, name)
+    const repoOut = join(repoRoot, name)
+    if (srcPath !== outPath) copyFileSync(srcPath, outPath)
+    copyFileSync(outPath, repoOut)
+    console.log(`  → ${outPath}`)
+    console.log(`    ${repoOut}  (${(statSync(outPath).size / 1024).toFixed(1)} KB)`)
+  }
+}
+
+/** @returns {string | null} PEM contents or null */
+function resolveCrxPrivateKey() {
+  if (process.env.EXTENSION_CRX_PRIVATE_KEY?.trim()) {
+    return process.env.EXTENSION_CRX_PRIVATE_KEY.replace(/\\n/g, '\n')
+  }
+  const localKey = join(extRoot, 'crx-key.pem')
+  if (existsSync(localKey)) {
+    return readFileSync(localKey, 'utf8')
+  }
+  return null
+}
+
+async function packCrx(stageDir, crxName) {
+  const privateKey = resolveCrxPrivateKey()
+  if (!privateKey) {
+    console.warn(
+      '[crx] skipped — set EXTENSION_CRX_PRIVATE_KEY or place packages/extension/crx-key.pem'
+    )
+    return
+  }
+
+  let ChromeExtension
+  try {
+    ChromeExtension = (await import('crx')).default
+  } catch (err) {
+    console.warn(`[crx] skipped — failed to load crx package: ${err?.message || err}`)
+    return
+  }
+
+  try {
+    const crx = new ChromeExtension({ privateKey })
+    await crx.load(stageDir)
+    const buf = await crx.pack()
+    const outPath = join(extRoot, crxName)
+    writeFileSync(outPath, buf)
+    writeOutputs(outPath, [crxName])
+    console.log(`[crx] packed ${crxName}`)
+  } catch (err) {
+    console.warn(`[crx] skipped — pack failed: ${err?.message || err}`)
+  }
+}
+
+async function packTarget(target) {
   const base = JSON.parse(readFileSync(join(dist, 'manifest.json'), 'utf8'))
   const manifest = patchManifest(base, target)
   const stage = join(extRoot, `.pack-stage-${target}`)
@@ -133,28 +211,39 @@ function packTarget(target) {
   cpSync(dist, stage, { recursive: true })
   writeFileSync(join(stage, 'manifest.json'), JSON.stringify(manifest, null, 2))
 
-  const outName = `mediasync-${version}-${target}.zip`
-  const outPath = join(extRoot, outName)
-  const repoOut = join(repoRoot, outName)
-  zipDirectory(stage, outPath)
-  copyFileSync(outPath, repoOut)
-  rmSync(stage, { recursive: true, force: true })
+  const zipPrimary =
+    target === 'firefox'
+      ? `mediasync-${version}-firefox.zip`
+      : `mediasync-${version}-chrome.zip`
+  const zipPath = join(extRoot, zipPrimary)
+  zipDirectory(stage, zipPath)
 
-  console.log(`\n[${target}] ${outPath}`)
-  console.log(`         ${repoOut}`)
-  console.log(`         size ${(statSync(outPath).size / 1024).toFixed(1)} KB`)
+  console.log(`\n[${target}]`)
+  if (target === 'firefox') {
+    writeOutputs(zipPath, [
+      `mediasync-${version}-firefox.zip`,
+      `mediasync-${version}-firefox.xpi`,
+    ])
+  } else {
+    writeOutputs(zipPath, [
+      `mediasync-${version}-chrome.zip`,
+      `mediasync-${version}-edge.zip`,
+    ])
+    await packCrx(stage, `mediasync-${version}-chrome.crx`)
+  }
+
   console.log(`         background ${JSON.stringify(manifest.background)}`)
   if (manifest.browser_specific_settings) {
     console.log(`         gecko ${JSON.stringify(manifest.browser_specific_settings.gecko)}`)
   }
+
+  rmSync(stage, { recursive: true, force: true })
 }
 
 for (const t of targets) {
-  if (t !== 'edge' && t !== 'firefox') {
-    console.error(`Unknown target: ${t} (use edge | firefox | all)`)
-    process.exit(1)
-  }
-  packTarget(t)
+  await packTarget(t)
 }
 
-console.log('\nNote: Edge 与 Firefox 请分别上传对应 zip，不再提供 universal 包。')
+console.log(
+  '\nNote: Chrome/Edge 与 Firefox 请分别上传对应包；Release 含 zip / xpi / crx（crx 需密钥）。'
+)
