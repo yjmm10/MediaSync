@@ -712,7 +712,12 @@ function RowInfo({
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-primary hover:underline flex items-center gap-0.5 whitespace-nowrap"
-            onClick={e => e.stopPropagation()}
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              // 用 tabs.create，避免 <a> 在 popup 里导航导致面板内容被冲掉
+              chrome.tabs.create({ url: result.postUrl! })
+            }}
           >
             {result.draftOnly ? '草稿' : '查看'}
             <ExternalLink className="w-3 h-3" />

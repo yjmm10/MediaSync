@@ -1,23 +1,27 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, Plus, Clock, X, Download, Info, PanelRight, FolderOpen, Eye, Loader2, Radar, RefreshCw } from 'lucide-react'
+import { X, Download, Eye, Loader2, RefreshCw, FolderOpen } from 'lucide-react'
 import { useSyncStore } from '../stores/sync'
 import { SyncDialog } from '@/components/sync-dialog'
 import type { Platform as DialogPlatform } from '@/components/sync-dialog'
+import { MainHeader } from '../components/MainHeader'
 import { cn } from '@/lib/utils'
 import { trackPageView } from '../../lib/analytics'
 import { createLogger } from '../../lib/logger'
 import { getCachedUpdateInfo, dismissUpdate, type UpdateCheckResult } from '../../lib/version-check'
-import { markdownToHtml } from '@mediasync/core'
+import { loadMarkdownFromFiles } from '../../lib/local-markdown'
+import { pushLocalMdCache } from '../../lib/local-md-cache'
+import { enhancePreviewDom, renderMarkdownPreviewHtml } from '@/lib/markdown-preview'
+import 'katex/dist/katex.min.css'
 
 const logger = createLogger('HomeNew')
 
-/** 把文章渲染为 HTML：优先 html 字段；content 含标签视作 html；否则当 markdown 转换 */
+/** 把文章渲染为 HTML：优先 html；content 含标签视作 html；否则 Markdown（公式/图片链接） */
 function articleToHtml(article: { html?: string; content?: string; markdown?: string }): string {
   if (article.html) return article.html
   const content = article.content || ''
   if (/<[a-z][\s\S]*>/i.test(content)) return content
-  return markdownToHtml(article.markdown || content)
+  return renderMarkdownPreviewHtml(article.markdown || content)
 }
 
 export function HomeNew() {
@@ -47,6 +51,7 @@ export function HomeNew() {
     clearExtractError,
     clearArticle,
     dismissError,
+    setArticle,
   } = useSyncStore()
 
   const [rateLimitWarning, setRateLimitWarning] = useState<string | null>(null)
@@ -57,13 +62,26 @@ export function HomeNew() {
   const [isFirstSync, setIsFirstSync] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [previewTab, setPreviewTab] = useState<'render' | 'markdown'>('render')
+  const previewArticleRef = useRef<HTMLDivElement>(null)
   /** 设置总开关：关闭时有效实时检测必关 */
   const [realtimeDetectSetting, setRealtimeDetectSetting] = useState(true)
   /** 顶栏会话态：仅在设置开启时才可能为开 */
   const [realtimeActive, setRealtimeActive] = useState(true)
   const [detecting, setDetecting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const importFolderRef = useRef<HTMLInputElement>(null)
   /** 有效实时检测 = 设置开 ∧ 顶栏开 */
   const realtimeEffective = realtimeDetectSetting && realtimeActive
+
+  // 预览浮层：mermaid / 图片补强
+  useEffect(() => {
+    if (!showPreview || previewTab !== 'render') return
+    const el = previewArticleRef.current
+    if (!el) return
+    enhancePreviewDom(el).catch(() => {})
+  }, [showPreview, previewTab, article])
 
   // Load data
   useEffect(() => {
@@ -83,9 +101,9 @@ export function HomeNew() {
         }
       } catch {}
       loadAllPlatforms()
-      // 实时关时不自动抽文；有文章或实时开时再 load（手动检测另入口）
+      // 实时关时不自动抽文；已有正文（含继续同步带回的稿）不覆盖
       const rt = (await chrome.storage.local.get('realtimeDetect')).realtimeDetect ?? true
-      if (rt) {
+      if (rt && !useSyncStore.getState().article) {
         loadArticle().catch(() => {})
       }
       chrome.storage.local.get(['floatingButtonEnabled', 'syncHistory'], (r) => {
@@ -313,40 +331,59 @@ export function HomeNew() {
 
   const handleEditArticle = () => openOverlay('edit')
 
-  // 在浏览器侧边栏打开（常驻显示，不因点击外部而关闭）
-  const handleOpenSidePanel = async () => {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (tab?.windowId !== undefined) {
-        await chrome.sidePanel.open({ windowId: tab.windowId })
-      }
-    } catch (e) {
-      logger.error('Failed to open side panel:', e)
-    }
-    window.close()
+  /** 主页直接弹出本地目录选择，不再先跳转 /import */
+  const handleImportMarkdown = () => {
+    if (status === 'syncing' || importing) return
+    setImportError(null)
+    importFolderRef.current?.click()
   }
 
-  // 导入本地 Markdown：
-  // - 侧边栏中：直接进入 /import（侧边栏不会因文件选择器失焦关闭）
-  // - popup 中：打开侧边栏并带 pendingRoute 标记，让侧边栏落地后导航到 /import
-  const handleImportMarkdown = async () => {
-    if (document.body.classList.contains('side-panel')) {
-      navigate('/import')
-      return
-    }
+  const handleImportFolderChange = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) return
+    const files = Array.from(fileList)
+    e.target.value = ''
+
+    setImporting(true)
+    setImportError(null)
+    setImportProgress({ done: 0, total: 0 })
+
     try {
-      await chrome.storage.local.set({ pendingRoute: '/import' })
-      // 避免 RouteMemory 用旧路由盖掉导入落地页
-      await chrome.storage.session.remove('popupLastRoute')
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (tab?.windowId !== undefined) {
-        await chrome.sidePanel.open({ windowId: tab.windowId })
+      const outcome = await loadMarkdownFromFiles(files, {
+        onProgress: (done, total) => setImportProgress({ done, total }),
+      })
+      if (!outcome) {
+        setImportError('所选文件夹中未找到 Markdown 文件（.md / .markdown）')
+        return
       }
-    } catch (e) {
-      logger.error('Failed to open import in side panel:', e)
+      logger.info(
+        `导入完成: ${outcome.article.title}, 图片 ${outcome.stats.convertedImages}/${outcome.stats.totalImages}`,
+      )
+      await pushLocalMdCache({
+        title: outcome.article.title,
+        markdown: outcome.article.markdown,
+        html: outcome.article.html,
+        cover: outcome.article.cover,
+        fileName: outcome.stats.markdownFileName,
+      })
+      setArticle(
+        {
+          title: outcome.article.title,
+          content: outcome.article.html,
+          html: outcome.article.html,
+          markdown: outcome.article.markdown,
+          cover: outcome.article.cover,
+        },
+        'import',
+      )
+    } catch (err) {
+      logger.error('导入失败:', err)
+      setImportError('导入失败：' + (err as Error).message)
+    } finally {
+      setImporting(false)
+      setImportProgress(null)
     }
-    window.close()
-  }
+  }, [setArticle])
 
   // 同步完成后追加平台：原地回到选择态（已成功平台自动排除但可重选）
   const handleContinueSync = () => {
@@ -389,14 +426,14 @@ export function HomeNew() {
     setRealtimeActive((v) => !v)
   }
 
-  // Start sync with rate-limit check
+  // Start sync with rate-limit check；进度留在主页 SyncDialog 原地切换
   const handleStartSync = async () => {
     const warning = await checkRateLimit()
     if (warning) {
       setRateLimitWarning(warning)
       setTimeout(() => setRateLimitWarning(null), 8000)
     }
-    startSync()
+    void startSync()
   }
 
   const successCount = results.filter(r => r.success).length
@@ -424,86 +461,13 @@ export function HomeNew() {
 
   return (
     <div className="page-root flex flex-col h-[500px]">
-      {/* Header */}
-      <header className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleLogoHome}
-            className="flex items-center gap-2 rounded-lg hover:opacity-80 transition-opacity"
-            title="返回空主页（清空当前文章）"
-          >
-            <img src="/assets/icon-48.png" alt="Logo" className="w-6 h-6" />
-            <h1 className="font-semibold">同步派</h1>
-          </button>
-          {/* 顶栏：会话态；设置总开关关闭时不可打开 */}
-          <button
-            type="button"
-            onClick={handleToggleRealtime}
-            disabled={!realtimeDetectSetting}
-            title={
-              !realtimeDetectSetting
-                ? '实时检测已在设置中关闭，请先到设置里开启'
-                : realtimeEffective
-                  ? '当前实时检测：开（点击关闭本会话；总开关在设置）'
-                  : '当前实时检测：关（点击开启本会话；总开关在设置）'
-            }
-            className={cn(
-              'ml-1 p-1 rounded-full transition-colors',
-              realtimeEffective ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
-              !realtimeDetectSetting && 'opacity-50 cursor-not-allowed'
-            )}
-          >
-            <Radar className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        <nav className="flex items-center gap-0.5">
-          <button
-            onClick={handleOpenSidePanel}
-            title="固定到侧边栏（常驻不消失）"
-            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
-          >
-            <PanelRight className="w-3.5 h-3.5" />
-            <span className="text-[10px] text-muted-foreground leading-none">侧栏</span>
-          </button>
-          <button
-            onClick={handleImportMarkdown}
-            title="导入本地 Markdown 文件"
-            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
-          >
-            <FolderOpen className="w-3.5 h-3.5" />
-            <span className="text-[10px] text-muted-foreground leading-none">导入</span>
-          </button>
-          <button
-            onClick={() => navigate('/add-cms')}
-            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="text-[10px] text-muted-foreground leading-none">添加</span>
-          </button>
-          <button
-            onClick={() => navigate('/history')}
-            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span className="text-[10px] text-muted-foreground leading-none">历史</span>
-          </button>
-          <button
-            onClick={() => navigate('/about')}
-            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
-          >
-            <Info className="w-3.5 h-3.5" />
-            <span className="text-[10px] text-muted-foreground leading-none">关于</span>
-          </button>
-          <button
-            onClick={() => navigate('/settings')}
-            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg hover:bg-muted transition-colors"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span className="text-[10px] text-muted-foreground leading-none">设置</span>
-          </button>
-        </nav>
-      </header>
+      <MainHeader
+        showRealtime
+        realtimeEffective={realtimeEffective}
+        realtimeDetectSetting={realtimeDetectSetting}
+        onToggleRealtime={handleToggleRealtime}
+        onLogoClick={handleLogoHome}
+      />
 
       {/* 状态栏：指示来源 / 实时检测 / 错误 */}
       <div
@@ -568,37 +532,66 @@ export function HomeNew() {
         </div>
       )}
 
-      {/* 文章操作入口：手动检测始终可见（不依赖实时开关 / 是否已有文章） */}
-      <div className="px-4 py-1 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={handleForceDetect}
-          disabled={detecting || status === 'syncing'}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
-          title={
-            status === 'syncing'
-              ? '同步进行中，无法检测'
-              : '检测当前浏览器标签页的文章（不依赖实时检测开关）'
-          }
-        >
-          <RefreshCw className={cn('w-3.5 h-3.5', detecting && 'animate-spin')} />
-          {detecting ? '检测中…' : '检测当前页'}
-        </button>
-        {article ? (
+      {/* 获取文章：检测当前页 / 导入本地 Markdown */}
+      <div className="px-4 py-2 flex-shrink-0 border-b">
+        <input
+          ref={importFolderRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleImportFolderChange}
+          {...({ webkitdirectory: '', directory: '' } as any)}
+        />
+        <div className="flex items-stretch gap-2">
+          <button
+            type="button"
+            onClick={handleForceDetect}
+            disabled={detecting || status === 'syncing' || importing}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2 py-2 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-60"
+            title={
+              status === 'syncing'
+                ? '同步进行中，无法检测'
+                : '检测当前浏览器标签页的文章'
+            }
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', detecting && 'animate-spin')} />
+            {detecting ? '检测中…' : '检测当前页'}
+          </button>
+          <button
+            type="button"
+            onClick={handleImportMarkdown}
+            disabled={status === 'syncing' || importing}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2 py-2 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-60"
+            title="选择本地 Markdown 所在文件夹"
+          >
+            {importing ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FolderOpen className="w-3.5 h-3.5" />
+            )}
+            {importing
+              ? importProgress && importProgress.total > 0
+                ? `导入中 ${importProgress.done}/${importProgress.total}`
+                : '导入中…'
+              : '导入 Markdown'}
+          </button>
+        </div>
+        {importError && (
+          <p className="mt-1.5 text-[11px] text-destructive text-center">{importError}</p>
+        )}
+        {article && (
           <button
             type="button"
             onClick={() => setShowPreview(true)}
-            className="flex items-center gap-1 text-xs text-primary hover:underline"
+            className="mt-1.5 w-full flex items-center justify-center gap-1 text-[11px] text-primary hover:underline"
           >
-            <Eye className="w-3.5 h-3.5" />
-            预览内容
+            <Eye className="w-3 h-3" />
+            预览当前文章
           </button>
-        ) : (
-          <span />
         )}
       </div>
 
-      {/* SyncDialog — the unified sync flow */}
+      {/* SyncDialog — 选平台 / 进度 / 结果 原地切换 */}
       <SyncDialog
         article={article}
         platforms={allPlatforms}
@@ -661,7 +654,11 @@ export function HomeNew() {
             </div>
             <div className="flex-1 overflow-auto">
               {previewTab === 'render' ? (
-                <div className="preview-article p-4" dangerouslySetInnerHTML={{ __html: articleToHtml(article) }} />
+                <div
+                  ref={previewArticleRef}
+                  className="preview-article p-4"
+                  dangerouslySetInnerHTML={{ __html: articleToHtml(article) }}
+                />
               ) : (
                 <pre className="p-3 text-[11px] whitespace-pre-wrap break-all font-mono text-muted-foreground">
                   {article.markdown || article.content || ''}
@@ -673,7 +670,7 @@ export function HomeNew() {
             .preview-article { font-size: 13px; line-height: 1.7; color: #333; word-break: break-word; }
             .preview-article p { margin: 0.8em 0; }
             .preview-article h1, .preview-article h2, .preview-article h3 { margin: 1em 0 0.5em; font-weight: 600; }
-            .preview-article img { max-width: 100%; height: auto; margin: 1em 0; }
+            .preview-article img { max-width: 100%; height: auto; margin: 1em 0; display: block; }
             .preview-article pre { background: #f5f5f5; padding: 0.8em; border-radius: 6px; overflow-x: auto; font-size: 11px; }
             .preview-article code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
             .preview-article pre code { background: none; padding: 0; }
@@ -682,6 +679,8 @@ export function HomeNew() {
             .preview-article a { color: #2563eb; }
             .preview-article table { border-collapse: collapse; width: 100%; margin: 1em 0; }
             .preview-article th, .preview-article td { border: 1px solid #ddd; padding: 6px 10px; }
+            .preview-article .mermaid-preview, .preview-article .mermaid { margin: 1em 0; overflow-x: auto; text-align: center; }
+            .preview-article .katex-display { margin: 0.8em 0; overflow-x: auto; }
           `}</style>
         </div>
       )}

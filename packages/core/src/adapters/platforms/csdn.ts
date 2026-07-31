@@ -194,19 +194,25 @@ export class CSDNAdapter extends CodeAdapter {
 
       // Use pre-processed markdown content directly
       let markdown = article.markdown || ''
+      let htmlContent = article.html || ''
 
-      // Process images in markdown
-      markdown = await this.processImages(
-        markdown,
-        (src) => this.uploadImageByUrl(src),
-        {
-          skipPatterns: ['csdnimg.cn', 'csdn.net'],
-          onProgress: options?.onImageProgress,
+      // 同源图只上传一次：markdown / html 都替换为图床链接（勿把 base64 直接提交）
+      const imageCache = new Map<string, Promise<ImageUploadResult>>()
+      const uploadCached = (src: string): Promise<ImageUploadResult> => {
+        let pending = imageCache.get(src)
+        if (!pending) {
+          pending = this.uploadImageByUrl(src)
+          imageCache.set(src, pending)
         }
-      )
+        return pending
+      }
+      const imageOpts = {
+        skipPatterns: ['csdnimg.cn', 'csdn.net'],
+        onProgress: options?.onImageProgress,
+      }
 
-      // Get HTML content (CSDN API needs both markdown and HTML)
-      const htmlContent = article.html || ''
+      markdown = await this.processImages(markdown, uploadCached, imageOpts)
+      htmlContent = await this.processImages(htmlContent, uploadCached, imageOpts)
 
       // Generate signature and save article
       const apiPath = '/blog-console-api/v3/mdeditor/saveArticle'

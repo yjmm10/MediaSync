@@ -75,7 +75,6 @@ export function SettingsPage() {
   const [mcpStatus, setMcpStatus] = useState<McpStatus>({ enabled: false, connected: false })
   const [loading, setLoading] = useState(false)
   const [floatingButtonEnabled, setFloatingButtonEnabled] = useState(false)
-  const [sidePanelOnActionClick, setSidePanelOnActionClick] = useState(true)
   const [realtimeDetect, setRealtimeDetect] = useState(true)
   const [localMdCacheLimit, setLocalMdCacheLimitState] = useState(DEFAULT_LOCAL_MD_CACHE_LIMIT)
   const [localMdCacheBytes, setLocalMdCacheBytes] = useState(0)
@@ -109,10 +108,6 @@ export function SettingsPage() {
 
     chrome.storage.local.get('floatingButtonEnabled', (result) => {
       setFloatingButtonEnabled(result.floatingButtonEnabled ?? false)
-    })
-
-    chrome.storage.local.get('sidePanelOnActionClick', (result) => {
-      setSidePanelOnActionClick(result.sidePanelOnActionClick ?? true)
     })
 
     chrome.storage.local.get('realtimeDetect', (result) => {
@@ -183,12 +178,6 @@ export function SettingsPage() {
     const next = !floatingButtonEnabled
     setFloatingButtonEnabled(next)
     chrome.storage.local.set({ floatingButtonEnabled: next })
-  }
-
-  const toggleSidePanelOnActionClick = () => {
-    const next = !sidePanelOnActionClick
-    setSidePanelOnActionClick(next)
-    chrome.storage.local.set({ sidePanelOnActionClick: next })
   }
 
   const toggleRealtimeDetect = () => {
@@ -316,14 +305,6 @@ export function SettingsPage() {
               <p className="text-xs text-muted-foreground">网页右下角快捷同步</p>
             </div>
             <Toggle on={floatingButtonEnabled} onClick={toggleFloatingButton} />
-          </div>
-
-          <div className="flex items-center justify-between gap-3 p-3 bg-muted/50 rounded-lg">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">点击图标打开侧边栏</p>
-              <p className="text-xs text-muted-foreground">关闭则弹出小窗口</p>
-            </div>
-            <Toggle on={sidePanelOnActionClick} onClick={toggleSidePanelOnActionClick} />
           </div>
 
           <div className="flex items-center justify-between gap-3 p-3 bg-muted/50 rounded-lg">

@@ -7,6 +7,8 @@ import { AboutPage } from './pages/About'
 import { SettingsPage } from './pages/Settings'
 import { ImportPage } from './pages/ImportPage'
 import { EditPage } from './pages/EditPage'
+import { SyncProgressPage } from './pages/SyncProgressPage'
+import { useSyncStore } from './stores/sync'
 
 const POPUP_ROUTE_KEY = 'popupLastRoute'
 /** 流程页：不可被 RouteMemory 恢复，避免打断导入/编辑 */
@@ -30,10 +32,12 @@ function RouteMemory() {
         // 侧栏/popup 显式 pendingRoute 优先（如打开导入页）
         if (local.pendingRoute) return
         const saved = session[POPUP_ROUTE_KEY]
+        // /sync 已废弃（重定向主页），勿恢复到该路由
         if (
           typeof saved !== 'string' ||
           !saved ||
           saved === '/' ||
+          saved === '/sync' ||
           saved === pathAtStart ||
           NO_RESTORE_ROUTES.has(saved)
         ) {
@@ -55,13 +59,28 @@ function RouteMemory() {
   return null
 }
 
+/** popup/侧栏打开时尽早恢复同步态，不依赖必须停在主页 */
+function SyncStateBootstrap() {
+  const recoverSyncState = useSyncStore(s => s.recoverSyncState)
+  const hydrateSelectedPlatforms = useSyncStore(s => s.hydrateSelectedPlatforms)
+
+  useEffect(() => {
+    hydrateSelectedPlatforms()
+    recoverSyncState()
+  }, [hydrateSelectedPlatforms, recoverSyncState])
+
+  return null
+}
+
 export default function App() {
   return (
     <HashRouter>
       <RouteMemory />
+      <SyncStateBootstrap />
       <div className="flex flex-col h-full min-h-[500px]">
         <Routes>
           <Route path="/" element={<HomeNew />} />
+          <Route path="/sync" element={<SyncProgressPage />} />
           <Route path="/add-cms" element={<AddCMSPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/about" element={<AboutPage />} />

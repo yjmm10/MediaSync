@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Save, Download, X, Loader2 } from 'lucide-react'
 import { markdownToHtml, htmlToMarkdownNative } from '@mediasync/core'
 import { createLogger } from '../lib/logger'
+import { MarkdownSplitEditor } from '@/components/MarkdownSplitEditor'
 
 const logger = createLogger('Editor')
 
@@ -121,12 +122,10 @@ export function EditorApp() {
       try {
         await chrome.downloads.download({ url, filename, saveAs: true })
       } finally {
-        // 延迟释放，避免下载尚未读完 URL
         setTimeout(() => URL.revokeObjectURL(url), 60_000)
       }
     } catch (e) {
       logger.error('Failed to save markdown locally:', e)
-      // blob URL 失败时退回 data URL
       try {
         const buffer = await blob.arrayBuffer()
         const base64 = btoa(
@@ -142,8 +141,6 @@ export function EditorApp() {
       }
     }
   }, [title, mdText])
-
-  const renderedHtml = useMemo(() => markdownToHtml(mdText), [mdText])
 
   if (!article) {
     return (
@@ -198,23 +195,12 @@ export function EditorApp() {
         </div>
       </header>
 
-      <main className="flex-1 min-h-0 grid grid-cols-2 divide-x bg-white">
-        <div className="min-h-0 flex flex-col">
-          <div className="px-3 py-1 text-[11px] text-gray-400 border-b">Markdown 源码</div>
-          <textarea
-            value={mdText}
-            onChange={(e) => setMdText(e.target.value)}
-            spellCheck={false}
-            className="flex-1 w-full p-4 text-sm font-mono resize-none outline-none"
-            style={{ minHeight: 0 }}
-          />
-        </div>
-        <div className="min-h-0 flex flex-col">
-          <div className="px-3 py-1 text-[11px] text-gray-400 border-b">渲染预览</div>
-          <div className="flex-1 overflow-auto">
-            <div className="preview-article p-6" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-          </div>
-        </div>
+      <main className="flex-1 min-h-0">
+        <MarkdownSplitEditor
+          value={mdText}
+          onChange={setMdText}
+          className="h-full"
+        />
       </main>
 
       <style>{`
@@ -224,7 +210,7 @@ export function EditorApp() {
         .preview-article h1 { font-size: 1.6em; }
         .preview-article h2 { font-size: 1.4em; border-bottom: 1px solid #eee; padding-bottom: .3em; }
         .preview-article h3 { font-size: 1.2em; }
-        .preview-article img { max-width: 100%; height: auto; margin: 1.2em 0; border-radius: 4px; }
+        .preview-article img { max-width: 100%; height: auto; margin: 1.2em 0; border-radius: 4px; display: block; }
         .preview-article pre { background: #f5f5f5; padding: 1em; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 1em 0; }
         .preview-article code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: .9em; }
         .preview-article pre code { background: none; padding: 0; }
@@ -236,6 +222,9 @@ export function EditorApp() {
         .preview-article th,.preview-article td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
         .preview-article th { background: #f5f5f5; font-weight: 600; }
         .preview-article hr { border: none; border-top: 1px solid #ddd; margin: 2em 0; }
+        .preview-article .mermaid-preview,.preview-article .mermaid { margin: 1.2em 0; overflow-x: auto; text-align: center; }
+        .preview-article .katex-display { margin: 1em 0; overflow-x: auto; overflow-y: hidden; }
+        .preview-article .katex { font-size: 1.05em; }
       `}</style>
     </div>
   )

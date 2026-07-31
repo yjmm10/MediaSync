@@ -217,12 +217,21 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         const current = get().article
         const locked = current?.source === 'import' || current?.source === 'edited'
 
-        // 仅在「同步进行中」且当前没有导入/编辑锁定文章时，恢复完整文章。
-        // 已完成同步不写回正文：源文（含 base64）供预览，平台改写只在 platformContents。
+        // 本地无正文时从 syncState 补回（popup 点「草稿」关窗后重开常见）；
+        // 已有 import/edited 锁定则不覆盖，避免冲掉用户导入稿。
+        const restoreArticle =
+          !current && syncState.article
+            ? {
+                ...syncState.article,
+                // 恢复后锁定，避免主页实时检测用草稿页把正文冲掉
+                source: 'edited' as const,
+              }
+            : undefined
+
         if (syncState.status === 'syncing' && !locked) {
           set({
             status: 'syncing',
-            article: syncState.article,
+            article: restoreArticle ?? syncState.article ?? current,
             selectedPlatforms: syncState.selectedPlatforms,
             results: syncState.results || [],
             currentSyncId: syncState.syncId || null,
@@ -230,8 +239,13 @@ export const useSyncStore = create<SyncState>((set, get) => ({
           })
           logger.debug('Sync in progress, listening for updates...')
         } else {
+          const nextStatus =
+            syncState.status === 'completed' || syncState.status === 'failed'
+              ? 'completed'
+              : get().status
           set({
-            status: syncState.status === 'completed' ? 'completed' : get().status,
+            status: nextStatus,
+            ...(restoreArticle ? { article: restoreArticle } : {}),
             selectedPlatforms: syncState.selectedPlatforms?.length
               ? syncState.selectedPlatforms
               : get().selectedPlatforms,
@@ -312,15 +326,27 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   // 完成态回到选择态以追加更多平台：移除已成功平台（避免重复），保留 results 供「已同步」标记
   continueSync: () => {
-    const { results, selectedPlatforms } = get()
+    const { results, selectedPlatforms, article } = get()
     const successIds = new Set(results.filter(r => r.success).map(r => r.platform))
+    const nextSelected = selectedPlatforms.filter(id => !successIds.has(id))
+    // 锁定正文：回主页后实时检测/切到草稿页时不得覆盖当前同步稿
+    const lockedArticle =
+      article && article.source !== 'import' && article.source !== 'edited'
+        ? { ...article, source: 'edited' as const }
+        : article
     set({
       status: 'idle',
-      selectedPlatforms: selectedPlatforms.filter(id => !successIds.has(id)),
+      article: lockedArticle,
+      selectedPlatforms: nextSelected,
       error: null,
       platformProgress: new Map(),
       currentSyncId: null,
     })
+    saveSelectedPlatforms(nextSelected)
+    // 后台改为 cancelled，避免重开 UI 时 recover 再把 status 打回 completed
+    chrome.runtime
+      .sendMessage({ type: 'UPDATE_SYNC_STATUS', payload: { status: 'cancelled' } })
+      .catch(() => {})
   },
 
   loadPlatforms: async () => {

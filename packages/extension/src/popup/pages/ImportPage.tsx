@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, type ChangeEvent } from 'react'
+import { useState, useRef, useCallback, useEffect, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FolderOpen, Loader2, AlertTriangle, ArrowLeft, FileText } from 'lucide-react'
 import { loadMarkdownFromFiles, type ImportStats } from '../../lib/local-markdown'
@@ -77,6 +77,12 @@ export function ImportPage() {
   }, [setArticle, navigate])
 
   const handleSelectFolder = () => inputRef.current?.click()
+
+  // 若仍从旧入口进入本页：自动弹出目录选择，无需再点一次
+  useEffect(() => {
+    const t = window.setTimeout(() => inputRef.current?.click(), 0)
+    return () => clearTimeout(t)
+  }, [])
 
   return (
     <div className="p-4 h-full flex flex-col">
