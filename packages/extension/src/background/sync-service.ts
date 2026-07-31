@@ -19,6 +19,7 @@ import {
 } from '../lib/history-doc'
 import { preparePlatformContents } from './prepare-platform-contents'
 import { applyOriginalMarkdownToPlatformContents } from '../lib/source-content'
+import { buildPreprocessMessage } from '../lib/sync-message-threshold'
 
 const logger = createLogger('SyncService')
 
@@ -434,11 +435,6 @@ async function sendPreprocessMessage(
   platforms: string[],
   configs: Record<string, unknown>
 ): Promise<Record<string, { html: string; markdown: string }> | null> {
-  const message = {
-    type: 'PREPROCESS_FOR_PLATFORMS',
-    payload: { rawHtml, platforms, configs },
-  }
-
   // 1. 优先尝试已有的 tab（content script 响应最快）
   try {
     const candidateTabIds: number[] = []
@@ -457,6 +453,8 @@ async function sendPreprocessMessage(
 
     for (const tabId of candidateTabIds) {
       try {
+        // 每次尝试重新组装（fromStorage 时重写 pending，避免上一 tab 读走后下一 tab 空正文）
+        const message = await buildPreprocessMessage(rawHtml, platforms, configs)
         const response = await chrome.tabs.sendMessage(tabId, message)
         if (response?.platformContents) return response.platformContents
       } catch {
@@ -468,6 +466,7 @@ async function sendPreprocessMessage(
   }
 
   // 2. 没有可用 tab，创建临时扩展页面 tab 用于预处理
+  const message = await buildPreprocessMessage(rawHtml, platforms, configs)
   return await preprocessViaTemporaryTab(message)
 }
 

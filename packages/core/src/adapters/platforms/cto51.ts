@@ -43,7 +43,7 @@ export class Cto51Adapter extends CodeAdapter {
   meta: PlatformMeta = {
     id: '51cto',
     name: '51CTO',
-    icon: 'https://blog.51cto.com/favicon.ico',
+    icon: 'https://static1.51cto.com/www/images/favicon.ico',
     homepage: 'https://blog.51cto.com/blogger/publish',
     capabilities: ['article', 'draft', 'image_upload'],
   }

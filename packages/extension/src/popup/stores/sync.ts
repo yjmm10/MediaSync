@@ -11,6 +11,10 @@ import {
 import { checkSyncFrequency } from '../../lib/rate-limit'
 import { createLogger } from '../../lib/logger'
 import type { SyncHistoryItem } from '../../lib/history-doc'
+import {
+  PENDING_SYNC_ARTICLE_KEY,
+  shouldUseStorageForPayload,
+} from '../../lib/sync-message-threshold'
 
 const logger = createLogger('SyncStore')
 
@@ -155,6 +159,7 @@ interface SyncState {
   continueSync: () => void
   clearRateLimitWarning: () => void
   clearExtractError: () => void
+  dismissError: () => void
 }
 
 // 最大历史记录数
@@ -184,7 +189,7 @@ async function loadSelectedPlatforms(): Promise<string[] | null> {
 }
 
 export const useSyncStore = create<SyncState>((set, get) => ({
-  status: 'loading',
+  status: 'idle',
   article: null,
   platforms: [],
   selectedPlatforms: [],
@@ -323,10 +328,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     const currentStatus = get().status
     const preserveStatus = currentStatus === 'syncing' || currentStatus === 'completed'
 
-    if (!preserveStatus) {
-      set({ status: 'loading' })
-    }
-
+    // 不再把 status 打成 loading：会禁用「同步」按钮，鉴权稍慢时表现为点击无反应
     try {
       // CHECK_ALL_AUTH 现在返回 DSL 和 CMS 合并的列表
       const platformResponse = await chrome.runtime.sendMessage({ type: 'CHECK_ALL_AUTH' })
@@ -547,6 +549,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
     try {
       // 只传原文；内嵌图/格式转换由 background 中间层按平台写入 platformContents，不改 UI 源文
+      // 超阈值时正文走 storage，避免 sendMessage 64MiB 硬限
       const html = article.html || article.content || ''
       const markdown = article.markdown || ''
       const original = {
@@ -558,14 +561,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         summary: article.summary,
         source: article.source,
       }
-      const response = await chrome.runtime.sendMessage({
-        type: 'SYNC_ARTICLE',
-        payload: {
-          article: original,
-          uiArticle: original,
-          platforms: selectedPlatforms,
-          syncId,
-        },
+      const response = await dispatchSyncArticleMessage({
+        article: original,
+        platforms: selectedPlatforms,
+        syncId,
       })
 
       const allResults: SyncResult[] = response.results || []
@@ -655,9 +654,20 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     try {
       // SYNC_ARTICLE 现在同时处理 DSL 和 CMS 平台
       // 不再 skipHistory：新历史模型按文档归档，retry 会 upsert+merge 到同一条
-      const response = await chrome.runtime.sendMessage({
-        type: 'SYNC_ARTICLE',
-        payload: { article, platforms: failedPlatformIds, syncId },
+      const html = article.html || article.content || ''
+      const original = {
+        title: article.title,
+        content: html,
+        html,
+        markdown: article.markdown || '',
+        cover: article.cover,
+        summary: article.summary,
+        source: article.source,
+      }
+      const response = await dispatchSyncArticleMessage({
+        article: original,
+        platforms: failedPlatformIds,
+        syncId,
       })
 
       const retryResults: SyncResult[] = response.results || []
@@ -747,7 +757,51 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   clearExtractError: () => {
     set({ extractError: null })
   },
+
+  dismissError: () => {
+    set({ error: null })
+  },
 }))
+
+/**
+ * 超阈值时正文写入 storage，消息只带 fromStorage；否则单份 article 内联（不重复 uiArticle）
+ */
+async function dispatchSyncArticleMessage(opts: {
+  article: Record<string, unknown>
+  platforms: string[]
+  syncId: string
+}): Promise<{ results?: SyncResult[]; rateLimitWarning?: string | null }> {
+  const probe = {
+    article: opts.article,
+    platforms: opts.platforms,
+    syncId: opts.syncId,
+  }
+  if (await shouldUseStorageForPayload(probe)) {
+    await chrome.storage.local.set({
+      [PENDING_SYNC_ARTICLE_KEY]: {
+        syncId: opts.syncId,
+        article: opts.article,
+        ts: Date.now(),
+      },
+    })
+    return chrome.runtime.sendMessage({
+      type: 'SYNC_ARTICLE',
+      payload: {
+        fromStorage: true,
+        platforms: opts.platforms,
+        syncId: opts.syncId,
+      },
+    })
+  }
+  return chrome.runtime.sendMessage({
+    type: 'SYNC_ARTICLE',
+    payload: {
+      article: opts.article,
+      platforms: opts.platforms,
+      syncId: opts.syncId,
+    },
+  })
+}
 
 /** 整页编辑关闭后回写侧栏（runtime / storage 共用） */
 function applyEditedArticle(a: {

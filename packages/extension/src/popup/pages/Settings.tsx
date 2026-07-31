@@ -13,6 +13,19 @@ import {
   getLocalMdCacheLimit,
   setLocalMdCacheLimit,
 } from '../../lib/local-md-cache'
+import {
+  DEFAULT_LOCAL_MD_TITLE_SOURCE,
+  type LocalMdTitleSource,
+  getLocalMdTitleSource,
+  setLocalMdTitleSource,
+} from '../../lib/local-markdown'
+import {
+  DEFAULT_SYNC_MESSAGE_SIZE_THRESHOLD_MB,
+  MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB,
+  MIN_SYNC_MESSAGE_SIZE_THRESHOLD_MB,
+  getSyncMessageSizeThresholdMb,
+  setSyncMessageSizeThresholdMb,
+} from '../../lib/sync-message-threshold'
 
 interface McpStatus {
   enabled: boolean
@@ -67,9 +80,15 @@ export function SettingsPage() {
   const [localMdCacheLimit, setLocalMdCacheLimitState] = useState(DEFAULT_LOCAL_MD_CACHE_LIMIT)
   const [localMdCacheBytes, setLocalMdCacheBytes] = useState(0)
   const [cacheClearHint, setCacheClearHint] = useState<string | null>(null)
+  const [localMdTitleSource, setLocalMdTitleSourceState] =
+    useState<LocalMdTitleSource>(DEFAULT_LOCAL_MD_TITLE_SOURCE)
+  const [syncMsgThresholdMb, setSyncMsgThresholdMbState] = useState(
+    DEFAULT_SYNC_MESSAGE_SIZE_THRESHOLD_MB,
+  )
   const [serverUrlInput, setServerUrlInput] = useState('')
   const serverUrlTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cacheLimitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const syncThresholdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refreshLocalMdCacheBytes = () => {
     getLocalMdCacheBytes().then(setLocalMdCacheBytes)
@@ -101,6 +120,8 @@ export function SettingsPage() {
     })
 
     getLocalMdCacheLimit().then(setLocalMdCacheLimitState)
+    getLocalMdTitleSource().then(setLocalMdTitleSourceState)
+    getSyncMessageSizeThresholdMb().then(setSyncMsgThresholdMbState)
     refreshLocalMdCacheBytes()
   }, [])
 
@@ -200,6 +221,26 @@ export function SettingsPage() {
     setTimeout(() => setCacheClearHint(null), 2000)
   }
 
+  const handleTitleSourceChange = (value: string) => {
+    const next = value as LocalMdTitleSource
+    setLocalMdTitleSourceState(next)
+    setLocalMdTitleSource(next).then(setLocalMdTitleSourceState)
+  }
+
+  const handleSyncThresholdChange = (value: string) => {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return
+    const next = Math.min(
+      MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB,
+      Math.max(MIN_SYNC_MESSAGE_SIZE_THRESHOLD_MB, Math.round(parsed)),
+    )
+    setSyncMsgThresholdMbState(next)
+    if (syncThresholdTimer.current) clearTimeout(syncThresholdTimer.current)
+    syncThresholdTimer.current = setTimeout(() => {
+      setSyncMessageSizeThresholdMb(next).then(setSyncMsgThresholdMbState)
+    }, 400)
+  }
+
   return (
     <div className="p-4 h-full flex flex-col">
       <button
@@ -296,9 +337,54 @@ export function SettingsPage() {
           </div>
         </div>
 
+        {/* 同步传输 */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-muted-foreground">同步</h3>
+
+          <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">同步消息体积阈值（MB）</p>
+                <p className="text-xs text-muted-foreground">
+                  超过该大小时正文经本地存储传递，避免 Chrome 消息约 64MB 上限报错；不限制文章能否同步。
+                  默认 {DEFAULT_SYNC_MESSAGE_SIZE_THRESHOLD_MB}，可调 {MIN_SYNC_MESSAGE_SIZE_THRESHOLD_MB}–
+                  {MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB}。调低更早走存储，调高则更多走消息通道。
+                </p>
+              </div>
+              <input
+                type="number"
+                min={MIN_SYNC_MESSAGE_SIZE_THRESHOLD_MB}
+                max={MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB}
+                value={syncMsgThresholdMb}
+                onChange={(e) => handleSyncThresholdChange(e.target.value)}
+                className="w-16 bg-background p-1.5 rounded border border-border text-sm text-center font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* 本地导入缓存 */}
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-muted-foreground">本地导入</h3>
+
+          <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">标题来源</p>
+              <p className="text-xs text-muted-foreground">
+                默认：一级标题 → front matter → 文件名；也可指定优先来源，缺失时再兜底。
+              </p>
+            </div>
+            <select
+              value={localMdTitleSource}
+              onChange={(e) => handleTitleSourceChange(e.target.value)}
+              className="w-full bg-background p-2 rounded border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="auto">自动（一级标题 → front matter → 文件名）</option>
+              <option value="h1">优先一级标题</option>
+              <option value="frontmatter">优先 front matter</option>
+              <option value="filename">优先文件名</option>
+            </select>
+          </div>
 
           <div className="p-3 bg-muted/50 rounded-lg space-y-2">
             <div className="flex items-center justify-between gap-3">

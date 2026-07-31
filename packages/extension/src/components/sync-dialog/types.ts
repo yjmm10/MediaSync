@@ -62,5 +62,7 @@ export interface SyncDialogProps {
   onClose?: () => void
   /** 完成态时显示「继续同步其他平台」入口 */
   onContinueSync?: () => void
+  /** 关闭全局错误提示条 */
+  onDismissError?: () => void
   className?: string
 }

@@ -229,6 +229,7 @@ export function SyncDialogPage() {
         onReset={handleReset}
         onCancel={handleReset}
         onClose={handleClose}
+        onDismissError={() => setError(null)}
         className="flex-1 min-h-0"
       />
     </div>

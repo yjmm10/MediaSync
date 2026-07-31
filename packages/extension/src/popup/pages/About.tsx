@@ -61,12 +61,18 @@ export function AboutPage() {
   const navigate = useNavigate()
   const version = chrome.runtime.getManifest().version
 
+  const openExternal = (url: string) => {
+    chrome.tabs.create({ url, active: true }).catch(() => {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    })
+  }
+
   return (
     <div className="page-root flex flex-col h-[500px]">
       <header className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate('/')}
           className="p-1.5 rounded-lg hover:bg-muted transition-colors"
           aria-label="返回"
         >
@@ -116,12 +122,11 @@ export function AboutPage() {
           <h3 className="text-xs font-medium text-muted-foreground mb-2.5">链接</h3>
           <div className="grid grid-cols-2 gap-2">
             {LINKS.map(({ href, label, desc, icon: Icon, ...rest }) => (
-              <a
+              <button
                 key={label}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex items-start gap-2 rounded-lg border px-2.5 py-2 hover:bg-muted/70 transition-colors"
+                type="button"
+                onClick={() => openExternal(href)}
+                className="group flex items-start gap-2 rounded-lg border px-2.5 py-2 hover:bg-muted/70 transition-colors text-left w-full"
               >
                 <Icon
                   className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${'iconClass' in rest ? rest.iconClass : 'text-foreground/70'}`}
@@ -133,7 +138,7 @@ export function AboutPage() {
                   </span>
                   <span className="block text-[11px] text-muted-foreground truncate">{desc}</span>
                 </span>
-              </a>
+              </button>
             ))}
           </div>
         </section>

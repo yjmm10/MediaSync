@@ -36,6 +36,10 @@ import { checkForUpdates, isUpdateDismissed } from '../lib/version-check'
 import { fetchRemoteConfig, fetchConfigIfNeeded } from '../lib/remote-config'
 import { preparePlatformContents } from './prepare-platform-contents'
 import { applyOriginalMarkdownToPlatformContents } from '../lib/source-content'
+import {
+  PENDING_SYNC_ARTICLE_KEY,
+  buildPreprocessMessage,
+} from '../lib/sync-message-threshold'
 
 const logger = createLogger('Background')
 
@@ -133,7 +137,7 @@ type MessageAction =
   | { type: 'GET_PLATFORMS' }
   | { type: 'CHECK_ALL_AUTH'; payload?: { forceRefresh?: boolean } }
   | { type: 'CHECK_AUTH'; payload: { platformId: string } }
-  | { type: 'SYNC_ARTICLE'; payload: { article: any; uiArticle?: any; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string } }
+  | { type: 'SYNC_ARTICLE'; payload: { article?: any; uiArticle?: any; fromStorage?: boolean; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string } }
   | { type: 'OPEN_SYNC_PAGE'; path?: string }
   | { type: 'TEST_CMS_CONNECTION'; payload: { type: CMSType; url: string; username: string; password: string } }
   | { type: 'SYNC_TO_CMS'; payload: { accountId: string; article: any } }
@@ -231,7 +235,29 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     }
 
     case 'SYNC_ARTICLE': {
-      const { article, uiArticle, platforms, allSelectedPlatforms, skipHistory, source = 'popup', syncId: passedSyncId } = message.payload
+      let { article, uiArticle, platforms, allSelectedPlatforms, skipHistory, source = 'popup', syncId: passedSyncId } = message.payload
+      const fromStorage = !!(message.payload as { fromStorage?: boolean }).fromStorage
+
+      if (fromStorage) {
+        const stored = await chrome.storage.local.get(PENDING_SYNC_ARTICLE_KEY)
+        const pending = stored[PENDING_SYNC_ARTICLE_KEY] as
+          | { syncId?: string; article?: unknown }
+          | undefined
+        await chrome.storage.local.remove(PENDING_SYNC_ARTICLE_KEY).catch(() => {})
+        if (!pending?.article) {
+          throw new Error('未找到待同步文章内容，请重试')
+        }
+        if (passedSyncId && pending.syncId && pending.syncId !== passedSyncId) {
+          throw new Error('同步任务不匹配，请重试')
+        }
+        article = pending.article
+        uiArticle = undefined
+      }
+
+      if (!article) {
+        throw new Error('缺少文章内容')
+      }
+
       const allPlatformMetas = getAllPlatformMetas()
       // 状态恢复 / 历史快照用未污染原文（避免 Reddit mediaId 等写入预览）
       const stateArticle = uiArticle || article
@@ -282,10 +308,12 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
           const configs = getPlatformPreprocessConfigs(platformsToPreprocess)
           const rawHtml = article.html || article.content || ''
           if (rawHtml && preprocessTabId) {
-            const response = await chrome.tabs.sendMessage(preprocessTabId, {
-              type: 'PREPROCESS_FOR_PLATFORMS',
-              payload: { rawHtml, platforms: platformsToPreprocess, configs },
-            })
+            const preprocessMsg = await buildPreprocessMessage(
+              rawHtml,
+              platformsToPreprocess,
+              configs as Record<string, unknown>,
+            )
+            const response = await chrome.tabs.sendMessage(preprocessTabId, preprocessMsg)
             if (response?.platformContents) {
               processedArticle = { ...article, platformContents: response.platformContents }
               logger.debug('Preprocessed for platforms:', Object.keys(response.platformContents))

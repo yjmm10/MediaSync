@@ -17,6 +17,7 @@ import { htmlToMarkdownNative, type PreprocessConfig } from '@mediasync/core'
 import { createLogger } from '../lib/logger'
 import { preprocessContentDOM, preprocessForPlatform, backupAndSimplifyCodeBlocks, restoreCodeBlocks, type PreprocessResult } from '../lib/content-processor'
 import { createSyncFab } from '../lib/fab'
+import { resolvePreprocessRawHtml } from '../lib/sync-message-threshold'
 
 const logger = createLogger('Extractor')
 
@@ -1211,14 +1212,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }).catch(() => { loading.remove(); sendResponse({ success: false, error: '提取失败' }) })
     return true
   } else if (message.type === 'PREPROCESS_FOR_PLATFORMS') {
-    // 为多个平台预处理内容（由 background 调用）
-    const { rawHtml, platforms, configs } = message.payload as {
-      rawHtml: string
+    // 为多个平台预处理内容（由 background 调用）；大正文可能 fromStorage
+    const payload = message.payload as {
+      rawHtml?: string
+      fromStorage?: boolean
       platforms: string[]
       configs: Record<string, PreprocessConfig>
     }
-    const platformContents = preprocessForMultiplePlatformsLocal(rawHtml, platforms, configs)
-    sendResponse({ platformContents })
+    resolvePreprocessRawHtml(payload).then((rawHtml) => {
+      const platformContents = preprocessForMultiplePlatformsLocal(
+        rawHtml,
+        payload.platforms,
+        payload.configs,
+      )
+      sendResponse({ platformContents })
+    }).catch(() => sendResponse({ platformContents: {} }))
+    return true
   } else if (message.type === 'SYNC_PROGRESS') {
     // 转发同步进度到编辑器（带上 syncId）
     editorIframe?.contentWindow?.postMessage(JSON.stringify({

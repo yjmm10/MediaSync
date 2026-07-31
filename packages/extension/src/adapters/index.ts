@@ -202,10 +202,10 @@ const AUTH_CHECK_TIMEOUT = 10 * 1000 // 单个平台认证检查超时：10 秒
 const PUBLISH_TIMEOUT = 10 * 60 * 1000 // 单个平台发布超时：10 分钟（包含图片上传）
 
 /**
- * 依赖页面上下文（ensurePageTab）的平台：后台 / TTL / 含 forceRefresh 的全量检查均不自动真检，避免开标签。
+ * 依赖页面上下文（ensurePageTab / 临时标签）的平台：后台 / TTL / 含 forceRefresh 的全量检查均不自动真检，避免开标签。
  * 仅单平台手动 CHECK_AUTH（checkPlatformAuth）时真检。
  */
-const PAGE_CONTEXT_AUTH_IDS = new Set(['meipian', 'xiaohongshu'])
+const PAGE_CONTEXT_AUTH_IDS = new Set(['meipian', 'xiaohongshu', 'qiehao'])
 
 /**
  * 带超时的 Promise 包装
@@ -320,7 +320,7 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
   for (const meta of metas) {
     const cached = cache[meta.id]
 
-    // 美篇 / 小红书：全量检查（含 forceRefresh）绝不自动 checkAuth（不建标签）
+    // 美篇 / 小红书 / 企鹅号：全量检查（含 forceRefresh）绝不自动 checkAuth（不建标签）
     if (PAGE_CONTEXT_AUTH_IDS.has(meta.id)) {
       if (cached) {
         logger.debug(` Using cached auth for page-context platform ${meta.id} (no auto recheck)`)

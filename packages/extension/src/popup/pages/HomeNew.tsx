@@ -46,6 +46,7 @@ export function HomeNew() {
     checkRateLimit,
     clearExtractError,
     clearArticle,
+    dismissError,
   } = useSyncStore()
 
   const [rateLimitWarning, setRateLimitWarning] = useState<string | null>(null)
@@ -192,7 +193,7 @@ export function HomeNew() {
 
   const loadAllPlatforms = async () => {
     try {
-      // 打开 UI 可刷新 cookie 平台；美篇/小红书等 PAGE_CONTEXT 平台不会因 forceRefresh 开标签真检
+      // 打开 UI：cookie 平台可刷新；美篇/小红书/企鹅号等 PAGE_CONTEXT 平台不会因 forceRefresh 开标签真检
       const response = await chrome.runtime.sendMessage({ type: 'CHECK_ALL_AUTH', payload: { forceRefresh: true } })
       const mapped: DialogPlatform[] = (response.platforms || []).map((p: any) => ({
         id: p.id, name: p.name, icon: p.icon,
@@ -203,6 +204,11 @@ export function HomeNew() {
       await loadPlatforms()
     } catch (error) {
       logger.error('Failed to load platforms:', error)
+      // 避免 status 卡在初始 loading，导致同步按钮一直 disabled
+      const st = useSyncStore.getState().status
+      if (st === 'loading') {
+        useSyncStore.setState({ status: 'idle' })
+      }
     }
   }
 
@@ -330,6 +336,8 @@ export function HomeNew() {
     }
     try {
       await chrome.storage.local.set({ pendingRoute: '/import' })
+      // 避免 RouteMemory 用旧路由盖掉导入落地页
+      await chrome.storage.session.remove('popupLastRoute')
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (tab?.windowId !== undefined) {
         await chrome.sidePanel.open({ windowId: tab.windowId })
@@ -609,6 +617,7 @@ export function HomeNew() {
         onCancel={reset}
         onEditArticle={handleEditArticle}
         onContinueSync={handleContinueSync}
+        onDismissError={dismissError}
         className="flex-1 min-h-0"
       />
 

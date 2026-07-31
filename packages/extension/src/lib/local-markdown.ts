@@ -145,7 +145,58 @@ export function findMarkdownFiles(files: File[]): File[] {
   return files.filter(f => MARKDOWN_EXTS.has(extOf(f.name)))
 }
 
-/** 从 Markdown 文本提取标题与正文（剥离 front matter / 首个一级标题） */
+/** 本地 MD 标题来源偏好（未设置 / auto = 默认链） */
+export type LocalMdTitleSource = 'auto' | 'h1' | 'frontmatter' | 'filename'
+
+export const LOCAL_MD_TITLE_SOURCE_KEY = 'localMdTitleSource'
+export const DEFAULT_LOCAL_MD_TITLE_SOURCE: LocalMdTitleSource = 'auto'
+
+const TITLE_SOURCE_VALUES: readonly LocalMdTitleSource[] = [
+  'auto',
+  'h1',
+  'frontmatter',
+  'filename',
+] as const
+
+export function normalizeLocalMdTitleSource(raw: unknown): LocalMdTitleSource {
+  if (typeof raw === 'string' && (TITLE_SOURCE_VALUES as readonly string[]).includes(raw)) {
+    return raw as LocalMdTitleSource
+  }
+  return DEFAULT_LOCAL_MD_TITLE_SOURCE
+}
+
+export async function getLocalMdTitleSource(): Promise<LocalMdTitleSource> {
+  try {
+    const result = await chrome.storage.local.get(LOCAL_MD_TITLE_SOURCE_KEY)
+    return normalizeLocalMdTitleSource(result[LOCAL_MD_TITLE_SOURCE_KEY])
+  } catch {
+    return DEFAULT_LOCAL_MD_TITLE_SOURCE
+  }
+}
+
+export async function setLocalMdTitleSource(source: LocalMdTitleSource): Promise<LocalMdTitleSource> {
+  const next = normalizeLocalMdTitleSource(source)
+  await chrome.storage.local.set({ [LOCAL_MD_TITLE_SOURCE_KEY]: next })
+  return next
+}
+
+/** 各偏好下的候选顺序：优先所选，缺失再走剩余兜底 */
+function titleCandidateOrder(source: LocalMdTitleSource): Array<'h1' | 'frontmatter' | 'filename'> {
+  switch (source) {
+    case 'h1':
+      return ['h1', 'frontmatter', 'filename']
+    case 'frontmatter':
+      return ['frontmatter', 'h1', 'filename']
+    case 'filename':
+      return ['filename', 'h1', 'frontmatter']
+    case 'auto':
+    default:
+      // 默认：一级标题 → frontmatter → 文件名
+      return ['h1', 'frontmatter', 'filename']
+  }
+}
+
+/** 从 Markdown 文本提取标题与正文（剥离 front matter；若标题取自一级标题则去掉该行） */
 export interface ParsedMarkdown {
   title: string
   body: string
@@ -153,29 +204,55 @@ export interface ParsedMarkdown {
   cover?: string
 }
 
-export function parseMarkdown(content: string, fallbackTitle: string): ParsedMarkdown {
-  let title: string | null = null
+export interface ParseMarkdownOptions {
+  /** 标题来源偏好；默认 auto */
+  titleSource?: LocalMdTitleSource
+}
+
+export function parseMarkdown(
+  content: string,
+  fallbackTitle: string,
+  options?: ParseMarkdownOptions
+): ParsedMarkdown {
+  const titleSource = normalizeLocalMdTitleSource(options?.titleSource)
   let cover: string | undefined
   let body = content
+  let frontmatterTitle: string | null = null
 
-  // 1. YAML front matter
+  // 始终剥离 YAML front matter（封面仍从中读取）
   const yamlMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/)
   if (yamlMatch) {
     const fm = yamlMatch[1]
     const titleMatch = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m)
-    if (titleMatch) title = titleMatch[1].trim()
+    if (titleMatch) frontmatterTitle = titleMatch[1].trim() || null
     const coverMatch = fm.match(/^(?:cover|image|thumbnail|banner):\s*["']?(.+?)["']?\s*$/m)
     if (coverMatch) cover = coverMatch[1].trim()
     body = content.slice(yamlMatch[0].length)
   }
 
-  // 2. 首个一级标题
-  if (!title) {
-    const h1 = body.match(/^#\s+(.+)$/m)
-    if (h1) {
-      title = h1[1].trim()
-      body = body.replace(/^#\s+.+\n?/, '')
+  const h1Match = body.match(/^#\s+(.+)$/m)
+  const h1Title = h1Match?.[1]?.trim() || null
+
+  const candidates: Record<'h1' | 'frontmatter' | 'filename', string | null> = {
+    h1: h1Title,
+    frontmatter: frontmatterTitle,
+    filename: fallbackTitle.trim() || null,
+  }
+
+  let title: string | null = null
+  let used: 'h1' | 'frontmatter' | 'filename' | null = null
+  for (const key of titleCandidateOrder(titleSource)) {
+    const value = candidates[key]
+    if (value) {
+      title = value
+      used = key
+      break
     }
+  }
+
+  // 仅当标题取自一级标题时，从正文去掉该行，避免重复
+  if (used === 'h1' && h1Match) {
+    body = body.replace(/^#\s+.+\n?/, '')
   }
 
   if (!body.trim()) body = content
@@ -355,7 +432,8 @@ export async function loadMarkdownFromFiles(
   }
 
   const raw = await mdFile.text()
-  const parsed = parseMarkdown(raw, basenameWithoutExt(mdFile.name))
+  const titleSource = await getLocalMdTitleSource()
+  const parsed = parseMarkdown(raw, basenameWithoutExt(mdFile.name), { titleSource })
 
   // Markdown 文件所在目录（基于 webkitRelativePath）
   const relPath = (mdFile as RelativeFile).webkitRelativePath || mdFile.name

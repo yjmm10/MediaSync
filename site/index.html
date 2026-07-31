@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>同步派 MediaSync · 多平台文章一键同步</title>
   <meta name="description" content="开源免费的 Chrome 浏览器扩展，一键同步文章到知乎、掘金、CSDN、头条等 29+ 平台。" />
+  <link rel="icon" type="image/png" href="assets/favicon.png" />
   <meta name="color-scheme" content="light dark" />
   <script>
     (function () {
@@ -85,7 +86,7 @@
     }
     nav .container { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 12px; }
     nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; color: var(--fg); }
-    nav .brand .logo { width: 30px; height: 30px; border-radius: 8px; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; }
+    nav .brand .logo { width: 30px; height: 30px; border-radius: 8px; display: block; object-fit: cover; }
     nav .links { display: flex; align-items: center; gap: 20px; font-size: 14px; }
     nav .links a { color: var(--muted); }
     nav .links a:hover { color: var(--fg); text-decoration: none; }
@@ -209,7 +210,7 @@
   <nav>
     <div class="container">
       <div class="brand">
-        <span class="logo">同</span>
+        <img class="logo" src="assets/logo.png" width="30" height="30" alt="同步派" />
         <span>同步派</span>
       </div>
       <div class="links">
@@ -496,7 +497,16 @@
       </div>
       <div class="releases">
         <div class="release">
-          <h3>v2.1.12 <span class="ver-tag">最新</span></h3>
+          <h3>v2.1.15 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-07-31</div>
+          <ul>
+            <li>🔧 大文章超可配置阈值时经 storage 传递，避免同步消息 64MiB 报错</li>
+            <li>🆕 设置增加同步消息体积阈值；错误提示移至同步按钮上方</li>
+            <li>🔧 同步按钮 loading 禁用、本地 MD 标题来源、关于页与路由记忆等体验修复</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v2.1.12</h3>
           <div class="date">2026-07-28</div>
           <ul>
             <li>📝 平台表状态校准：头条号、抖音图文、搜狐焦点、什么值得买、X (Twitter) 标为「暂未支持」</li>

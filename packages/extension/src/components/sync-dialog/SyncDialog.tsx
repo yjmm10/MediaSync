@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { ArticleCard } from './ArticleCard'
 import { PlatformList } from './PlatformList'
@@ -29,18 +30,38 @@ export function SyncDialog({
   onEditArticle,
   onClose,
   onContinueSync,
+  onDismissError,
   className,
 }: SyncDialogProps) {
   const selectedSet = new Set(selectedPlatforms)
-  const authenticatedPlatforms = platforms.filter(p => p.isAuthenticated)
   const failedCount = results.filter(r => !r.success).length
 
   const isIdle = status === 'idle' || status === 'loading'
   const isSyncing = status === 'syncing'
   const isCompleted = status === 'completed'
 
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current)
+      dismissTimerRef.current = null
+    }
+    if (!error || !onDismissError) return
+    dismissTimerRef.current = setTimeout(() => {
+      onDismissError()
+      dismissTimerRef.current = null
+    }, 60_000)
+    return () => {
+      if (dismissTimerRef.current) {
+        clearTimeout(dismissTimerRef.current)
+        dismissTimerRef.current = null
+      }
+    }
+  }, [error, onDismissError])
+
   return (
-    <div className={cn('flex flex-col', className)}>
+    <div className={cn('flex flex-col h-full min-h-0', className)}>
       {/* Scrollable content — single continuous layout */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {/* Promo banner — idle, show before article when no article */}
@@ -56,8 +77,8 @@ export function SyncDialog({
         {/* Promo banner — idle, show after article when article exists */}
         {isIdle && article && <PromoBanner />}
 
-        {/* Unified platform list — 有文章时选平台；无文章也可检测登录 */}
-        {platforms.length > 0 && (article || isIdle) && (
+        {/* Unified platform list — 仅检测/导入得到文章后展示 */}
+        {platforms.length > 0 && article && (
           <PlatformList
             platforms={platforms}
             selected={selectedSet}
@@ -71,24 +92,25 @@ export function SyncDialog({
             onRecheckAuth={onRecheckAuth}
           />
         )}
-
-        {/* Error */}
-        {error && (
-          <div className="rounded-lg p-3 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">
-            {error}
-          </div>
-        )}
-
-        {/* No article hint */}
-        {!article && platforms.length > 0 && (
-          <div className="text-xs text-muted-foreground text-center py-1">
-            已登录 {authenticatedPlatforms.length} 个平台，共 {platforms.length} 个可用
-          </div>
-        )}
       </div>
 
       {/* Footer */}
-      <div className="flex-shrink-0 border-t p-4">
+      <div className="flex-shrink-0 border-t p-4 space-y-2">
+        {error && (
+          <div className="rounded-lg p-3 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 flex items-start gap-2">
+            <p className="flex-1 min-w-0 break-words">{error}</p>
+            {onDismissError && (
+              <button
+                type="button"
+                onClick={onDismissError}
+                className="flex-shrink-0 text-xs text-red-500/80 hover:text-red-700 dark:hover:text-red-300"
+                aria-label="关闭错误提示"
+              >
+                关闭
+              </button>
+            )}
+          </div>
+        )}
         {isCompleted ? (
           <div className="flex gap-2">
             {failedCount > 0 && (
@@ -128,8 +150,9 @@ export function SyncDialog({
           </button>
         ) : (
           <button
+            type="button"
             onClick={onStartSync}
-            disabled={!article || selectedPlatforms.length === 0 || status === 'loading'}
+            disabled={!article || selectedPlatforms.length === 0}
             className={cn(
               'w-full py-2.5 rounded-lg font-medium transition-colors',
               !article || selectedPlatforms.length === 0
@@ -138,10 +161,12 @@ export function SyncDialog({
             )}
           >
             {!article
-              ? '请先打开文章页面'
-              : selectedPlatforms.length === 0
-                ? '请选择同步平台'
-                : `同步到 ${selectedPlatforms.length} 个平台`
+              ? '请先检测文章或导入 Markdown'
+              : platforms.length === 0
+                ? '平台列表加载中…'
+                : selectedPlatforms.length === 0
+                  ? '请选择同步平台'
+                  : `同步到 ${selectedPlatforms.length} 个平台`
             }
           </button>
         )}
