@@ -159,6 +159,9 @@ export class QiehaoAdapter extends CodeAdapter {
           }
         )
 
+        // 嵌套列表 → 兄弟结构，减轻二级缩进被 ex-editor 拆平
+        content = this.transformContent(content)
+
         // 对齐创作页 editorCache / omSave 字段
         const payload: Record<string, unknown> = {
           title,
@@ -242,6 +245,215 @@ export class QiehaoAdapter extends CodeAdapter {
     } finally {
       await this.releaseEphemeralTabs()
     }
+  }
+
+  /**
+   * 企鹅号内容变换：目前仅处理列表为 ex-editor 嵌套格式（公式/代码块不改）。
+   */
+  private transformContent(content: string): string {
+    return this.transformLists(content)
+  }
+
+  /** 无序列表：对齐创作页 ex-editor 导出结构 */
+  private static readonly EX_UL_ATTRS =
+    `style="--ul-list-style-type: '\\25EF'" class="nonUnicode-list-style-type" data-list-style-type="circle" classname="ex-list" data-ex-list="ul"`
+
+  /** 有序列表：对称属性（平台样例以 ul 为主） */
+  private static readonly EX_OL_ATTRS =
+    `style="--ol-list-style-type: decimal" class="nonUnicode-list-style-type" data-list-style-type="decimal" classname="ex-list" data-ex-list="ol"`
+
+  /**
+   * 将普通 ul/ol 转为企鹅号 ex-list 嵌套格式：
+   * - 子列表仍在父 li 内（不做兄弟提升）
+   * - li 文案包在 p 中；嵌套层级加 text-indent: 2em
+   * - 仅本适配器调用，不影响其它平台
+   */
+  private transformLists(html: string): string {
+    const preBlocks: string[] = []
+    const withPlaceholders = html.replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (block) => {
+      const idx = preBlocks.length
+      preBlocks.push(block)
+      return `<!--QIEHAO_PRE_${idx}-->`
+    })
+
+    const transformed = this.transformListFragment(withPlaceholders, 0)
+
+    return transformed.replace(/<!--QIEHAO_PRE_(\d+)-->/g, (_m, idx: string) => {
+      return preBlocks[Number(idx)] ?? ''
+    })
+  }
+
+  /** 扫描片段中的 ul/ol，按出现顺序改写 */
+  private transformListFragment(html: string, listDepth: number): string {
+    let result = ''
+    let i = 0
+    const len = html.length
+
+    while (i < len) {
+      const slice = html.slice(i)
+      const open = /^<(ul|ol)(\b[^>]*)>/i.exec(slice)
+      if (open) {
+        const tag = open[1].toLowerCase() as 'ul' | 'ol'
+        const innerStart = i + open[0].length
+        const closeIdx = this.findMatchingCloseTag(html, innerStart, tag)
+        if (closeIdx < 0) {
+          result += html[i]
+          i += 1
+          continue
+        }
+        const inner = html.slice(innerStart, closeIdx)
+        result += this.transformOneList(tag, inner, listDepth)
+        i = closeIdx + tag.length + 3 // </ul> / </ol>
+        continue
+      }
+
+      const next = slice.search(/<(ul|ol)\b/i)
+      if (next === -1) {
+        result += html.slice(i)
+        break
+      }
+      result += html.slice(i, i + next)
+      i += next
+    }
+
+    return result
+  }
+
+  private transformOneList(tag: 'ul' | 'ol', inner: string, depth: number): string {
+    const attrs = tag === 'ul' ? QiehaoAdapter.EX_UL_ATTRS : QiehaoAdapter.EX_OL_ATTRS
+    const items = this.splitTopLevelLis(inner)
+    const lis = items
+      .map((liInner) => {
+        // 先处理子列表（更深一层），再包 p
+        const withNested = this.transformListFragment(liInner, depth + 1)
+        const body = this.wrapLiBlocks(withNested, depth)
+        return `<li>${body}</li>`
+      })
+      .join('')
+    return `<${tag} ${attrs}>${lis}</${tag}>`
+  }
+
+  /**
+   * 将 li 内非列表块包进 <p>；depth>=1（嵌套列表项）加 text-indent。
+   */
+  private wrapLiBlocks(liHtml: string, listDepth: number): string {
+    const parts = this.splitByTopLevelLists(liHtml)
+    const indent = listDepth >= 1
+    return parts
+      .map((part) => {
+        if (/^<(ul|ol)\b/i.test(part.trim())) return part
+        const trimmed = part.trim()
+        if (!trimmed) return ''
+        return this.ensureParagraph(trimmed, indent)
+      })
+      .join('')
+  }
+
+  private ensureParagraph(html: string, indent: boolean): string {
+    const indentStyle = indent ? ' style="text-indent: 2em"' : ''
+    // 单个 p：按需补/改 text-indent
+    const singleP = /^<p(\b[^>]*)>([\s\S]*)<\/p>$/i.exec(html)
+    if (singleP) {
+      let attrs = singleP[1] || ''
+      const body = singleP[2]
+      if (indent) {
+        if (/\bstyle\s*=/i.test(attrs)) {
+          attrs = attrs.replace(
+            /\bstyle\s*=\s*(["'])(.*?)\1/i,
+            (_m, q: string, style: string) => {
+              const next = /text-indent\s*:/i.test(style)
+                ? style
+                : `${style}${style.trim().endsWith(';') || !style.trim() ? '' : ';'}text-indent: 2em`
+              return `style=${q}${next}${q}`
+            }
+          )
+        } else {
+          attrs += ' style="text-indent: 2em"'
+        }
+      }
+      return `<p${attrs}>${body}</p>`
+    }
+    return `<p${indentStyle}>${html}</p>`
+  }
+
+  /** 按顶层 ul/ol 切开，保留列表块 */
+  private splitByTopLevelLists(html: string): string[] {
+    const parts: string[] = []
+    let i = 0
+    let buf = ''
+    while (i < html.length) {
+      const slice = html.slice(i)
+      const open = /^<(ul|ol)(\b[^>]*)>/i.exec(slice)
+      if (open) {
+        if (buf) {
+          parts.push(buf)
+          buf = ''
+        }
+        const tag = open[1].toLowerCase()
+        const innerStart = i + open[0].length
+        const closeIdx = this.findMatchingCloseTag(html, innerStart, tag)
+        if (closeIdx < 0) {
+          buf += html[i]
+          i += 1
+          continue
+        }
+        const end = closeIdx + tag.length + 3
+        parts.push(html.slice(i, end))
+        i = end
+        continue
+      }
+      buf += html[i]
+      i += 1
+    }
+    if (buf) parts.push(buf)
+    return parts
+  }
+
+  /** 拆出顶层 li 的 innerHTML */
+  private splitTopLevelLis(listInner: string): string[] {
+    const items: string[] = []
+    let i = 0
+    while (i < listInner.length) {
+      const slice = listInner.slice(i)
+      const open = /^<li(\b[^>]*)>/i.exec(slice)
+      if (!open) {
+        i += 1
+        continue
+      }
+      const innerStart = i + open[0].length
+      const closeIdx = this.findMatchingCloseTag(listInner, innerStart, 'li')
+      if (closeIdx < 0) break
+      items.push(listInner.slice(innerStart, closeIdx))
+      i = closeIdx + 5 // </li>
+    }
+    return items
+  }
+
+  /** 从 innerStart 起找与 tag 匹配的关闭标签位置（返回 '<' 下标） */
+  private findMatchingCloseTag(html: string, innerStart: number, tag: string): number {
+    const openRe = new RegExp(`<${tag}\\b[^>]*>`, 'i')
+    const closeRe = new RegExp(`</${tag}\\s*>`, 'i')
+    let depth = 1
+    let i = innerStart
+    while (i < html.length && depth > 0) {
+      const rest = html.slice(i)
+      const openM = openRe.exec(rest)
+      const closeM = closeRe.exec(rest)
+      const openAt = openM ? openM.index : -1
+      const closeAt = closeM ? closeM.index : -1
+      if (closeAt < 0) return -1
+      if (openAt >= 0 && openAt < closeAt && openM) {
+        depth += 1
+        i += openAt + openM[0].length
+      } else if (closeM) {
+        depth -= 1
+        if (depth === 0) return i + closeAt
+        i += closeAt + closeM[0].length
+      } else {
+        return -1
+      }
+    }
+    return -1
   }
 
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {
