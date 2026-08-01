@@ -15,12 +15,13 @@ const logger = createLogger('PreparePlatformContents')
 
 /**
  * 中间层不调用 uploadImage（本地 data URI）：
- * - qianfan：本地图与外链中转均不支持（中间层不传图）
+ * - qianfan / v2ex：本地图与外链中转均不支持（中间层不传图；v2ex 另剥离 data URI）
  * - tencentcloud / volcengine：本地图暂不支持；外链在适配器 publish 内经 processImages 转存
+ * 阿里云开发者社区（aliyun-developer）等支持本地图的平台不在此集合，走中间层 uploadImage + 适配器兜底
  */
-const SKIP_MIDDLEWARE_IMAGE_UPLOAD = new Set(['qianfan', 'tencentcloud', 'volcengine'])
-/** 腾讯云/火山：剥离本地 data URI，保留 http(s) 外链给适配器 */
-const STRIP_LOCAL_DATA_URI = new Set(['tencentcloud', 'volcengine'])
+const SKIP_MIDDLEWARE_IMAGE_UPLOAD = new Set(['qianfan', 'tencentcloud', 'volcengine', 'v2ex'])
+/** 腾讯云/火山/V2EX：剥离本地 data URI，保留 http(s) 外链给适配器（V2EX 亦不中转外链） */
+const STRIP_LOCAL_DATA_URI = new Set(['tencentcloud', 'volcengine', 'v2ex'])
 
 const DATA_URI_RE = /data:image\/[a-zA-Z0-9.+-]+;base64,/
 

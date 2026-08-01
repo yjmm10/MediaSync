@@ -56,6 +56,10 @@ import {
   VolcengineAdapter,
   TencentCloudAdapter,
   QianfanAdapter,
+  ModelscopeAdapter,
+  AliyunDeveloperAdapter,
+  BaiduDeveloperAdapter,
+  V2exAdapter,
 } from '@mediasync/core'
 
 // 私有适配器 - private/ 目录通过 git submodule 管理
@@ -123,6 +127,10 @@ const ADAPTER_CLASSES: AdapterConstructor[] = [
   VolcengineAdapter,
   TencentCloudAdapter,
   QianfanAdapter,
+  ModelscopeAdapter,
+  AliyunDeveloperAdapter,
+  BaiduDeveloperAdapter,
+  V2exAdapter,
   ...getPrivateAdapters(),
 ]
 

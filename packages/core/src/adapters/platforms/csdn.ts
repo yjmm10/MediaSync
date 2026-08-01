@@ -60,6 +60,15 @@ export class CSDNAdapter extends CodeAdapter {
       },
       resourceTypes: ['xmlhttprequest'],
     },
+    // 签名接口可能返回其它 OBS host，追加通配避免 Origin/Referer 缺失
+    {
+      urlFilter: '*://*.myhuaweicloud.com/*',
+      headers: {
+        'Origin': 'https://editor.csdn.net',
+        'Referer': 'https://editor.csdn.net/',
+      },
+      resourceTypes: ['xmlhttprequest'],
+    },
   ]
 
   async checkAuth(): Promise<AuthResult> {
@@ -214,6 +223,10 @@ export class CSDNAdapter extends CodeAdapter {
       markdown = await this.processImages(markdown, uploadCached, imageOpts)
       htmlContent = await this.processImages(htmlContent, uploadCached, imageOpts)
 
+      // 上传失败残留的 data URI 不得写入草稿（体积过大）
+      markdown = stripDataUriImages(markdown)
+      htmlContent = stripDataUriImages(htmlContent)
+
       // Generate signature and save article
       const apiPath = '/blog-console-api/v3/mdeditor/saveArticle'
       const headers = await this.signRequest(apiPath)
@@ -277,38 +290,35 @@ export class CSDNAdapter extends CodeAdapter {
 
   /**
    * 通过 Blob 上传图片（覆盖基类方法）
-   * 需要设置动态请求头规则以支持 MCP 调用
+   * 需要设置动态请求头规则以支持 MCP / 中间层调用
+   * 直接上传 Blob，禁止再转大 data URI 后 fetch
    */
-  async uploadImage(file: Blob, _filename?: string): Promise<string> {
+  async uploadImage(file: Blob, filename?: string): Promise<string> {
     return this.withHeaderRules(this.HEADER_RULES, async () => {
-      // 转为 data URI 然后调用 uploadImageByUrl
-      const dataUri = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result as string)
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
-      const result = await this.uploadImageByUrl(dataUri)
-      return result.url
+      const ext = guessImageExt(file, filename || '')
+      return this.uploadBlobToCsdn(file, ext)
     })
   }
 
   /**
-   * 通过 URL 上传图片
+   * 通过 URL / data URI 上传图片
+   * Header rules 由 publish / uploadImage 外层负责（避免嵌套 withHeaderRules 清规则）
    */
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {
-    // 1. 下载图片
-    const imageResponse = await fetch(src)
-    if (!imageResponse.ok) {
-      throw new Error('图片下载失败: ' + src)
+    const blob = await resolveImageBlob(src, (url, init) => this.runtime.fetch(url, init))
+    const ext = guessImageExt(blob, src)
+    const url = await this.uploadBlobToCsdn(blob, ext)
+    return { url }
+  }
+
+  /**
+   * 签名 + OBS 直传；成功必须返回 http(s)，失败抛错（禁止回退 data URI）
+   */
+  private async uploadBlobToCsdn(blob: Blob, ext: string): Promise<string> {
+    if (!blob || blob.size === 0) {
+      throw new Error('图片内容为空')
     }
-    const imageBlob = await imageResponse.blob()
 
-    // 2. 获取文件扩展名
-    const ext = src.split('.').pop()?.toLowerCase()?.split('?')[0] || 'jpg'
-    const validExt = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext) ? ext : 'jpg'
-
-    // 3. 获取上传签名 (新 API: bizapi.csdn.net)
     const apiPath = '/resource-api/v1/image/direct/upload/signature'
     const headers = await this.signRequest(apiPath, 'POST')
 
@@ -321,13 +331,15 @@ export class CSDNAdapter extends CodeAdapter {
         body: JSON.stringify({
           imageTemplate: '',
           appName: 'direct_blog_markdown',
-          imageSuffix: validExt,
+          imageSuffix: ext,
         }),
       }
     )
 
     const signatureData = await signatureRes.json() as {
       code: number
+      message?: string
+      msg?: string
       data?: {
         filePath: string
         host: string
@@ -352,14 +364,15 @@ export class CSDNAdapter extends CodeAdapter {
     logger.debug('Upload signature response:', signatureData)
 
     if (signatureData.code !== 200 || !signatureData.data) {
-      logger.warn('Failed to get upload signature, using original URL')
-      return { url: src }
+      const detail = signatureData.msg || signatureData.message || `code=${signatureData.code}`
+      logger.warn('Failed to get upload signature:', detail)
+      throw new Error(`CSDN 获取上传签名失败: ${detail}`)
     }
 
     const uploadData = signatureData.data
     const customParam = uploadData.customParam
+    logger.debug('OBS upload host:', uploadData.host)
 
-    // 4. 上传到华为云 OBS
     const formData = new FormData()
     formData.append('key', uploadData.filePath)
     formData.append('policy', uploadData.policy)
@@ -375,27 +388,97 @@ export class CSDNAdapter extends CodeAdapter {
     formData.append('x:type', customParam.type)
     formData.append('x:x-image-suffix', customParam['x-image-suffix'])
     formData.append('x:username', customParam.username)
-    formData.append('file', imageBlob, `image.${validExt}`)
+    formData.append('file', blob, `image.${ext}`)
 
     const obsResponse = await this.runtime.fetch(uploadData.host, {
       method: 'POST',
       body: formData,
     })
 
-    const obsRes = await obsResponse.json() as {
-      code: number
-      data?: { imageUrl: string }
+    const obsText = await obsResponse.text()
+    let obsRes: { code: number; message?: string; msg?: string; data?: { imageUrl: string } }
+    try {
+      obsRes = JSON.parse(obsText) as typeof obsRes
+    } catch {
+      logger.warn('OBS upload non-JSON:', obsText.slice(0, 120))
+      throw new Error(`CSDN OBS 响应非 JSON HTTP ${obsResponse.status}`)
     }
 
     logger.debug('OBS upload response:', obsRes)
 
     if (obsRes.code !== 200 || !obsRes.data?.imageUrl) {
-      logger.warn('OBS upload failed, using original URL')
-      return { url: src }
+      const detail = obsRes.msg || obsRes.message || `code=${obsRes.code}`
+      logger.warn('OBS upload failed:', detail)
+      throw new Error(`CSDN OBS 上传失败: ${detail}`)
     }
 
-    return {
-      url: obsRes.data.imageUrl,
+    if (!/^https?:\/\//i.test(obsRes.data.imageUrl)) {
+      throw new Error('CSDN 图床未返回 http(s) URL')
     }
+
+    return obsRes.data.imageUrl
   }
+}
+
+/** 从 MIME / path / data URI 推断扩展名，默认 png */
+function guessImageExt(blob: Blob, src: string): string {
+  const type = (blob.type || '').toLowerCase()
+  if (type.includes('jpeg') || type.includes('jpg')) return 'jpg'
+  if (type.includes('png')) return 'png'
+  if (type.includes('gif')) return 'gif'
+  if (type.includes('webp')) return 'webp'
+
+  const dataMime = src.match(/^data:image\/([a-zA-Z0-9.+-]+)/i)
+  if (dataMime) {
+    const sub = dataMime[1].toLowerCase()
+    if (sub === 'jpeg' || sub === 'jpg') return 'jpg'
+    if (sub === 'png' || sub === 'gif' || sub === 'webp') return sub
+  }
+
+  const pathExt = src.match(/\.([a-zA-Z0-9]+)(?:\?|#|$)/)
+  if (pathExt) {
+    const ext = pathExt[1].toLowerCase()
+    if (ext === 'jpeg') return 'jpg'
+    if (['jpg', 'png', 'gif', 'webp'].includes(ext)) return ext
+  }
+
+  return 'png'
+}
+
+/** data: 用 atob 解析；http(s) 用 runtime.fetch。禁止对大 data URI 再 fetch */
+async function resolveImageBlob(
+  src: string,
+  fetchFn: (url: string, init?: RequestInit) => Promise<Response>
+): Promise<Blob> {
+  if (src.startsWith('data:')) {
+    const m = src.match(/^data:([^;,]+)?(;base64)?,(.*)$/i)
+    if (!m) throw new Error('无效 data URI')
+    const mime = m[1] || 'image/png'
+    const isBase64 = !!m[2]
+    const data = m[3] || ''
+    if (isBase64) {
+      const bin = atob(data)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      return new Blob([bytes], { type: mime })
+    }
+    return new Blob([decodeURIComponent(data)], { type: mime })
+  }
+
+  if (!/^https?:\/\//i.test(src)) {
+    throw new Error(`不支持的图片地址: ${src.slice(0, 80)}`)
+  }
+
+  const response = await fetchFn(src, { method: 'GET' })
+  if (!response.ok) {
+    throw new Error(`下载图片失败 HTTP ${response.status}`)
+  }
+  return response.blob()
+}
+
+/** 去掉残留 data: 图，避免 base64 撑爆草稿 */
+function stripDataUriImages(content: string): string {
+  return (content || '')
+    .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
+    .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
 }

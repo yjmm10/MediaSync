@@ -42,7 +42,7 @@ const LINKS = [
 const HIGHLIGHTS = [
   {
     icon: Layers,
-    title: '29+ 平台',
+    title: '35+ 平台',
     desc: '一键同步草稿或发布',
   },
   {

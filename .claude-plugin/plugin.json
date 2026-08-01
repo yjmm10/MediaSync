@@ -1,7 +1,7 @@
 {
   "name": "sync",
   "version": "2.1.5",
-  "description": "Sync articles to 29+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
+  "description": "Sync articles to 35+ content platforms (Zhihu, Juejin, CSDN, Toutiao, Weibo, etc.)",
   "author": {
     "name": "lusca",
     "url": "https://github.com/yjmm10"

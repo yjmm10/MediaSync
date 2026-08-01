@@ -973,7 +973,7 @@ if (process.argv.length <= 2) {
   console.log()
   console.log(`官网: ${chalk.cyan(WEBSITE_URL)}`)
   console.log()
-  console.log('支持的平台: 知乎、掘金、CSDN、头条、微博、B站、简书 等 29+ 平台')
+  console.log('支持的平台: 知乎、掘金、CSDN、头条、微博、B站、简书 等 35+ 平台')
   console.log()
   console.log(chalk.bold('快速开始:'))
   console.log(`  ${chalk.cyan('mediasync sync article.md')}        同步 Markdown 文件`)

@@ -216,10 +216,13 @@ async publish(article: Article): Promise<SyncResult> {
 
 ### 3.4 图片上传规范
 
-> **图片例外（v2.1.18）**：
-> - **外链中转**：仅 `qianfan` 不支持（不 `processImages`、不上图床）；其余平台均支持将 http(s) 转存到平台图床。
+> **图片例外（v2.1.20+）**：
+> - **外链中转**：`qianfan`、`v2ex` **暂不支持**（不上图床）；其余平台均支持将 http(s) 转存到平台图床。
 > - `qianfan`：本地图亦不支持（data URI 剥离；http(s) 仅原样保留）。
 > - `tencentcloud` / `volcengine`：支持外链中转；**不支持本地 data URI**（中间层 `STRIP_LOCAL_DATA_URI` + 适配器剥离）。中间层跳过本地 `uploadImage`（`SKIP_MIDDLEWARE_IMAGE_UPLOAD`）。
+> - `aliyun-developer` / `baidu-developer`：**支持外链与本地图转存**；`aliyun-developer` 不传摘要（用户在草稿箱手工补）；Mermaid 保留为普通代码块（平台不渲染图）。
+> - `modelscope`（魔搭研习社）：支持外链中转；**不支持本地 data URI**；**不支持 Mermaid / 公式**（降级为普通代码块，平台不渲染）；创建需勋章。
+> - `v2ex`：**直接发布**到节点 `algorithm`；**暂不支持**中转图片链接、公式、Mermaid 代码块（本地 data URI 剥离；http(s) 图链 Markdown 原样保留、不转存图床）。
 > - 另：部分平台有图片稳定性/整段关闭问题（如小红书、美篇、Reddit），见 README 平台限制，与「外链中转策略」分开标注。
 
 ```typescript
