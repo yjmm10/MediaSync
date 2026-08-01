@@ -117,11 +117,18 @@ export class FileIndex {
     return this.byPath.get(key) || this.byLower.get(key.toLowerCase())
   }
 
-  /** 按 basename 查找（绝对路径引用的兜底） */
+  /** 按 basename 查找（绝对路径 / Obsidian ![[name.png]] 引用的兜底） */
   getByBasename(relPath: string): File | undefined {
     const base = normalizePath(relPath).split('/').pop()
     if (!base) return undefined
-    return this.get(base)
+    const direct = this.get(base)
+    if (direct) return direct
+    const lower = base.toLowerCase()
+    for (const [path, file] of this.byPath) {
+      const name = path.split('/').pop()
+      if (name && name.toLowerCase() === lower) return file
+    }
+    return undefined
   }
 }
 
@@ -296,6 +303,17 @@ function extractImageRefs(content: string): ImageRef[] {
       .split(/\s+/)[0]
       .trim()
     refs.push({ full: m[0], src, alt: m[1], kind: 'md' })
+  }
+
+  // Obsidian / 部分笔记软件: ![[path.png]] 或 ![[path.png|alt]]
+  const wikiRe = /!\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g
+  while ((m = wikiRe.exec(content)) !== null) {
+    refs.push({
+      full: m[0],
+      src: m[1].trim(),
+      alt: (m[2] || '').trim(),
+      kind: 'md',
+    })
   }
 
   // HTML: <img src="..."> （单双引号都支持）

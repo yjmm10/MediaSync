@@ -13,7 +13,24 @@ import { createLogger } from '../lib/logger'
 
 const logger = createLogger('PreparePlatformContents')
 
+/**
+ * 中间层不调用 uploadImage（本地 data URI）：
+ * - qianfan：本地图与外链中转均不支持（中间层不传图）
+ * - tencentcloud / volcengine：本地图暂不支持；外链在适配器 publish 内经 processImages 转存
+ */
+const SKIP_MIDDLEWARE_IMAGE_UPLOAD = new Set(['qianfan', 'tencentcloud', 'volcengine'])
+/** 腾讯云/火山：剥离本地 data URI，保留 http(s) 外链给适配器 */
+const STRIP_LOCAL_DATA_URI = new Set(['tencentcloud', 'volcengine'])
+
 const DATA_URI_RE = /data:image\/[a-zA-Z0-9.+-]+;base64,/
+
+function stripLocalDataUriImages(markdown: string, html: string): { markdown: string; html: string } {
+  const stripMd = (s: string) =>
+    (s || '')
+      .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
+      .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
+  return { markdown: stripMd(markdown), html: stripMd(html) }
+}
 
 export type PlatformContent = { html: string; markdown: string }
 
@@ -65,7 +82,17 @@ export async function preparePlatformContents(
     let html = seed.html || baseHtml
     let markdown = seed.markdown || baseMarkdown
 
-    if (DATA_URI_RE.test(markdown) || DATA_URI_RE.test(html)) {
+    if (STRIP_LOCAL_DATA_URI.has(platformId)) {
+      const stripped = stripLocalDataUriImages(markdown, html)
+      markdown = stripped.markdown
+      html = stripped.html
+      logger.debug(`${platformId}: 已剥离本地 data URI（外链图由适配器转存）`)
+    }
+
+    if (
+      !SKIP_MIDDLEWARE_IMAGE_UPLOAD.has(platformId) &&
+      (DATA_URI_RE.test(markdown) || DATA_URI_RE.test(html))
+    ) {
       try {
         const adapter = await getAdapter(platformId)
         if (!adapter?.uploadImage) {
@@ -93,6 +120,8 @@ export async function preparePlatformContents(
       } catch (e) {
         logger.warn(`${platformId}: 中间层传图跳过，副本保留 base64:`, e)
       }
+    } else if (platformId === 'qianfan') {
+      logger.debug(`${platformId}: 暂时跳过全部图片处理`)
     }
 
     result[platformId] = { html, markdown }

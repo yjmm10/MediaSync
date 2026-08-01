@@ -50,8 +50,12 @@ import {
   HupuAdapter,
   MeipianAdapter,
   QiehaoAdapter,
+  InfoqAdapter,
   XiaohongshuAdapter,
   RedditAdapter,
+  VolcengineAdapter,
+  TencentCloudAdapter,
+  QianfanAdapter,
 } from '@mediasync/core'
 
 // 私有适配器 - private/ 目录通过 git submodule 管理
@@ -113,8 +117,12 @@ const ADAPTER_CLASSES: AdapterConstructor[] = [
   HupuAdapter,
   MeipianAdapter,
   QiehaoAdapter,
+  InfoqAdapter,
   XiaohongshuAdapter,
   RedditAdapter,
+  VolcengineAdapter,
+  TencentCloudAdapter,
+  QianfanAdapter,
   ...getPrivateAdapters(),
 ]
 
@@ -198,7 +206,7 @@ const AUTH_CACHE_KEY = 'authCache'
 const AUTH_CACHE_TTL_AUTHENTICATED = 5 * 60 * 1000 // 已登录：5 分钟缓存
 const AUTH_CACHE_TTL_UNAUTHENTICATED = 30 * 1000 // 未登录：30 秒缓存（用户可能随时登录）
 const AUTH_CHECK_CONCURRENCY = 5 // 并行检查数量
-const AUTH_CHECK_TIMEOUT = 10 * 1000 // 单个平台认证检查超时：10 秒
+const AUTH_CHECK_TIMEOUT = 20 * 1000 // 单个平台认证检查超时：20 秒（含页面探测/开标签）
 const PUBLISH_TIMEOUT = 10 * 60 * 1000 // 单个平台发布超时：10 分钟（包含图片上传）
 
 /**

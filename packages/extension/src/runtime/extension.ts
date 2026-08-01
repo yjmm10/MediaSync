@@ -13,7 +13,7 @@ export class ExtensionRuntime implements RuntimeInterface {
   private ruleIdBase = Date.now() % 100000
   private ruleIdCounter = 0
 
-  constructor(private config?: RuntimeConfig) {}
+  constructor(private config?: RuntimeConfig) { }
 
   /**
    * HTTP 请求 - 自动携带 cookies，带超时保护
@@ -45,16 +45,25 @@ export class ExtensionRuntime implements RuntimeInterface {
    */
   cookies = {
     async get(domain: string): Promise<Cookie[]> {
-      const cookies = await chrome.cookies.getAll({ domain })
-      return cookies.map(c => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain,
-        path: c.path,
-        secure: c.secure,
-        httpOnly: c.httpOnly,
-        expirationDate: c.expirationDate,
-      }))
+      const host = domain.replace(/^\./, '')
+      const byDomain = await chrome.cookies.getAll({ domain: host })
+      // host-only / path 限定 cookie 用 url 查询更全（SameSite 会话常见）
+      const byUrl = await chrome.cookies.getAll({ url: `https://${host}/` })
+      const map = new Map<string, Cookie>()
+      for (const c of [...byDomain, ...byUrl]) {
+        if (!map.has(c.name)) {
+          map.set(c.name, {
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: c.secure,
+            httpOnly: c.httpOnly,
+            expirationDate: c.expirationDate,
+          })
+        }
+      }
+      return [...map.values()]
     },
 
     async set(cookie: Cookie): Promise<void> {
@@ -262,12 +271,13 @@ export class ExtensionRuntime implements RuntimeInterface {
     async executeScript<T, A extends unknown[]>(
       tabId: number,
       func: (...args: A) => T | Promise<T>,
-      args: A
+      args: A,
+      options?: { world?: 'MAIN' | 'ISOLATED' }
     ): Promise<T> {
       try {
         const results = await chrome.scripting.executeScript({
           target: { tabId },
-          world: 'MAIN',
+          world: options?.world ?? 'MAIN',
           func: func as (...args: unknown[]) => unknown,
           args: args as unknown[],
         })

@@ -216,6 +216,12 @@ async publish(article: Article): Promise<SyncResult> {
 
 ### 3.4 图片上传规范
 
+> **图片例外（v2.1.18）**：
+> - **外链中转**：仅 `qianfan` 不支持（不 `processImages`、不上图床）；其余平台均支持将 http(s) 转存到平台图床。
+> - `qianfan`：本地图亦不支持（data URI 剥离；http(s) 仅原样保留）。
+> - `tencentcloud` / `volcengine`：支持外链中转；**不支持本地 data URI**（中间层 `STRIP_LOCAL_DATA_URI` + 适配器剥离）。中间层跳过本地 `uploadImage`（`SKIP_MIDDLEWARE_IMAGE_UPLOAD`）。
+> - 另：部分平台有图片稳定性/整段关闭问题（如小红书、美篇、Reddit），见 README 平台限制，与「外链中转策略」分开标注。
+
 ```typescript
 async uploadImageByUrl(url: string): Promise<ImageUploadResult> {
   // 1. 下载图片

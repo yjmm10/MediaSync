@@ -101,12 +101,14 @@ export interface RuntimeInterface {
      * @param tabId Tab ID
      * @param func 要执行的函数
      * @param args 函数参数
+     * @param options.world 默认 MAIN；ISOLATED 可使用 chrome.*（如 storage）
      * @returns 函数执行结果
      */
     executeScript<T, A extends unknown[]>(
       tabId: number,
       func: (...args: A) => T | Promise<T>,
-      args: A
+      args: A,
+      options?: { world?: 'MAIN' | 'ISOLATED' }
     ): Promise<T>
   }
 
