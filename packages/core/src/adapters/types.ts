@@ -1,5 +1,9 @@
 import type { Article, AuthResult, SyncResult, PlatformMeta } from '../types'
 import type { RuntimeInterface } from '../runtime/interface'
+import type { PublishParams, PublishMode } from './publish-params'
+import type { PublishSchema } from './publish-schema'
+import type { PlatformCategory, AuthMode } from './platform-profile'
+import type { SharedImageCache } from './image-cache'
 
 /**
  * 输出格式类型
@@ -107,10 +111,16 @@ export type ImageProgressCallback = (current: number, total: number) => void
  * 发布选项
  */
 export interface PublishOptions {
-  /** 只保存草稿，不发布 */
+  /** 只保存草稿，不发布（保留向后兼容；新适配器用 params.mode） */
   draftOnly?: boolean
   /** 图片上传进度回调 */
   onImageProgress?: ImageProgressCallback
+  /** 每平台发布参数（已合并默认值；PipelineAdapter 管道使用） */
+  params?: PublishParams
+  /** 同步任务级图片缓存（同平台去重） */
+  imageCache?: SharedImageCache
+  /** 取消信号 */
+  signal?: AbortSignal
 }
 
 /**
@@ -174,4 +184,14 @@ export interface AdapterRegistryEntry {
   factory: (runtime: RuntimeInterface) => PlatformAdapter
   /** 预处理配置 (Content Script 根据此配置预处理内容) */
   preprocessConfig?: Partial<PreprocessConfig>
+  /** 平台分类（迁移期可选；未声明默认 'special'） */
+  category?: PlatformCategory
+  /** 鉴权模式（迁移期可选；未声明默认 'sw'，调度层据此决定批量刷新是否跳过） */
+  authMode?: AuthMode
+  /** 支持的发布模式（未声明默认 ['draft']） */
+  publishModes?: PublishMode[]
+  /** 配置 Schema（声明式 UI 表单） */
+  publishSchema?: PublishSchema
+  /** 默认发布参数 */
+  publishDefaults?: PublishParams
 }

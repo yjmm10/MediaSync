@@ -2,6 +2,7 @@ import type { PlatformAdapter, AdapterRegistryEntry, PreprocessConfig } from './
 import { DEFAULT_PREPROCESS_CONFIG } from './types'
 import type { RuntimeInterface } from '../runtime/interface'
 import type { PlatformMeta } from '../types'
+import type { PlatformProfile, PlatformCategory } from './platform-profile'
 
 /**
  * 适配器注册中心
@@ -111,6 +112,39 @@ class AdapterRegistry {
       configs[id] = this.getPreprocessConfig(id)
     }
     return configs
+  }
+
+  /**
+   * 获取平台档案（UI 渲染所需的全部元数据）
+   * 未声明的字段用默认值兜底（迁移期未声明的平台返回 special/sw/draft）
+   */
+  getProfile(platformId: string): PlatformProfile | null {
+    const entry = this.adapters.get(platformId)
+    if (!entry) return null
+    return {
+      meta: entry.meta,
+      category: entry.category ?? 'special',
+      preprocessConfig: {
+        ...DEFAULT_PREPROCESS_CONFIG,
+        ...(entry.preprocessConfig || {}),
+      },
+      publishModes: entry.publishModes ?? ['draft'],
+      authMode: entry.authMode ?? 'sw',
+      publishSchema: entry.publishSchema,
+      publishDefaults: entry.publishDefaults,
+    }
+  }
+
+  /** 获取所有平台档案 */
+  getProfiles(): PlatformProfile[] {
+    return Array.from(this.adapters.keys())
+      .map(id => this.getProfile(id))
+      .filter((p): p is PlatformProfile => p !== null)
+  }
+
+  /** 按分类筛选平台档案 */
+  getByCategory(category: PlatformCategory): PlatformProfile[] {
+    return this.getProfiles().filter(p => p.category === category)
   }
 }
 
