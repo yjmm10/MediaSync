@@ -1,15 +1,19 @@
 /**
- * 51CTO 适配器
- * https://blog.51cto.com
+ * 51CTO 适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：blogger/publish 页面探测登录 + csrf 提取 + 腾讯云 COS 图床 + blogger/draft 草稿全部保留。
+ * checkAuth 重写（保留页面探测 + csrf 设置原逻辑）。
  *
  * 新版图片上传流程:
  * 1. getUploadSign - 获取上传签名
  * 2. getUploadConfig - 获取腾讯云 COS 上传凭证
  * 3. 上传到腾讯云 COS
  */
-import { CodeAdapter, ImageUploadResult } from '../code-adapter'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { pickMarkdownOnlyContent } from '../content-origin'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
 
 interface UploadSignResponse {
   code: number
@@ -39,7 +43,7 @@ interface UploadConfigResponse {
   }
 }
 
-export class Cto51Adapter extends CodeAdapter {
+export class Cto51Adapter extends PipelineAdapter {
   meta: PlatformMeta = {
     id: '51cto',
     name: '51CTO',
@@ -53,10 +57,28 @@ export class Cto51Adapter extends CodeAdapter {
     outputFormat: 'markdown' as const,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      {
+        kind: 'visibility',
+        key: 'visibility',
+        label: '可见性',
+        options: [
+          { value: 'public', label: '公开' },
+          { value: 'private', label: '仅自己可见' },
+        ],
+      },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+    ],
+  }
+
   private csrf: string | null = null
 
   /** 51CTO API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://blog.51cto.com/*',
       headers: {
@@ -67,9 +89,8 @@ export class Cto51Adapter extends CodeAdapter {
     },
   ]
 
-  /**
-   * 检查登录状态
-   */
+  // ============ checkAuth（重写，保留页面探测 + csrf 设置原逻辑）============
+
   async checkAuth(): Promise<AuthResult> {
     try {
       const response = await this.runtime.fetch('https://blog.51cto.com/blogger/publish', {
@@ -103,6 +124,111 @@ export class Cto51Adapter extends CodeAdapter {
       return { isAuthenticated: false, error: (error as Error).message }
     }
   }
+
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：确保 csrf 已获取（沿用 checkAuth 页面探测） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.csrf) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('未登录')
+      }
+    }
+  }
+
+  /** 2. 内容规整：用 pickMarkdownOnlyContent 取内容（仅 md 源用原文，否则派生），记录 asMarkdown */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    const { content, asMarkdown } = pickMarkdownOnlyContent(ctx.article)
+    ctx.content.markdown = content
+    ctx.content.html = ''
+    ctx.refs.asMarkdown = asMarkdown
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
+
+  /** 5. 构建草稿请求体（P2 写死保持等价；is_old 由 asMarkdown 决定） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const asMarkdown = (ctx.refs.asMarkdown as boolean) ?? false
+    ctx.payload = {
+      postData: {
+        title: ctx.article.title,
+        content: ctx.content.markdown,
+        pid: '',
+        cate_id: '',
+        custom_id: '0',
+        tag: '',
+        abstract: '',
+        banner_type: '0',
+        blog_type: '1',
+        copy_code: '1',
+        is_hide: '0',
+        top_time: '0',
+        is_comment: '0',
+        is_old: asMarkdown ? '0' : '2',
+        blog_id: '',
+        did: '',
+        work_id: '',
+        class_id: '',
+        subjectId: '',
+        import_type: '-1',
+        invite_code: '',
+        raffle: '',
+        orig: '',
+        _csrf: this.csrf || '',
+      },
+    }
+  }
+
+  /** 6. 提交：blogger/draft */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const payload = ctx.payload as { postData: Record<string, string> }
+    const response = await this.runtime.fetch('https://blog.51cto.com/blogger/draft', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+      },
+      body: new URLSearchParams(payload.postData).toString(),
+    })
+
+    const res = await response.json()
+
+    if (res.status !== 1 || !res.data) {
+      throw new Error(res.msg || '发布失败')
+    }
+
+    return this.createResult(true, {
+      postId: String(res.data.did),
+      postUrl: `https://blog.51cto.com/blogger/draft/${res.data.did}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 图片上传（保持原样）============
 
   /**
    * 获取上传签名
@@ -214,84 +340,5 @@ export class Cto51Adapter extends CodeAdapter {
     const imageUrl = await this.uploadToCOS(configData.url, configData.fields, file)
 
     return { url: imageUrl }
-  }
-
-  /**
-   * 发布文章
-   */
-  async publish(article: Article): Promise<SyncResult> {
-    const now = Date.now()
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      // 确保已获取 csrf
-      if (!this.csrf) {
-        const auth = await this.checkAuth()
-        if (!auth.isAuthenticated) {
-          throw new Error('未登录')
-        }
-      }
-
-      // 仅 md：真 md 源用原文；否则仍走 markdown（派生）。无可用 md 时才退 html
-      const { content: rawContent, asMarkdown } = pickMarkdownOnlyContent(article)
-      let content = await this.processImages(rawContent, (src) => this.uploadImageByUrl(src))
-
-      // 构建请求数据
-      const postData: Record<string, string> = {
-        title: article.title,
-        content: content,
-        pid: '',
-        cate_id: '',
-        custom_id: '0',
-        tag: '',
-        abstract: '',
-        banner_type: '0',
-        blog_type: '1',
-        copy_code: '1',
-        is_hide: '0',
-        top_time: '0',
-        is_comment: '0',
-        is_old: asMarkdown ? '0' : '2',
-        blog_id: '',
-        did: '',
-        work_id: '',
-        class_id: '',
-        subjectId: '',
-        import_type: '-1',
-        invite_code: '',
-        raffle: '',
-        orig: '',
-        _csrf: this.csrf || '',
-      }
-
-      const response = await this.runtime.fetch('https://blog.51cto.com/blogger/draft', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
-        },
-        body: new URLSearchParams(postData).toString(),
-      })
-
-      const res = await response.json()
-
-      if (res.status !== 1 || !res.data) {
-        throw new Error(res.msg || '发布失败')
-      }
-
-      return {
-        platform: this.meta.id,
-        success: true,
-        postId: String(res.data.did),
-        postUrl: `https://blog.51cto.com/blogger/draft/${res.data.did}`,
-        draftOnly: true,
-        timestamp: now,
-      }
-    }).catch((error) => ({
-      platform: this.meta.id,
-      success: false,
-      error: (error as Error).message,
-      timestamp: now,
-    }))
   }
 }

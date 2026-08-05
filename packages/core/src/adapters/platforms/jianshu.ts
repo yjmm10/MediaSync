@@ -1,13 +1,17 @@
 /**
- * 简书适配器（纯 API 草稿）
+ * 简书适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：settings/basic.json 鉴权 + 七牛图床 + 创建笔记 + 写入正文全部保留。
+ * checkAuth 重写（保留 withHeaderRules 包 checkAuthInner 的原逻辑，因需设置 this.account）。
  *
  * 写作台：https://www.jianshu.com/writer
  * 草稿：POST /author/notes 创建笔记，PUT /author/notes/{id} 写入 Markdown 正文
  * 图片：POST /upload_images/fetch 抓取远程图，本地/失败回退走 /upload_images/token.json + 七牛
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Jianshu')
@@ -27,7 +31,7 @@ interface JianshuNoteCreated {
   autosaveControl: number
 }
 
-export class JianshuAdapter extends CodeAdapter {
+export class JianshuAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'jianshu',
     name: '简书',
@@ -42,10 +46,17 @@ export class JianshuAdapter extends CodeAdapter {
     processCodeBlocks: true,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'column', key: 'column', label: '文集', source: 'remote' },
+    ],
+  }
+
   private account: JianshuAccount | null = null
   private defaultNotebookId: number | null = null
 
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://www.jianshu.com/*',
       headers: {
@@ -55,6 +66,8 @@ export class JianshuAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 withHeaderRules + checkAuthInner 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -78,53 +91,73 @@ export class JianshuAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting publish...')
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        if (!this.account) {
-          const ok = await this.checkAuthInner()
-          if (!ok) {
-            throw new Error('请先登录简书')
-          }
-        }
+  // ============ 管道钩子 ============
 
-        const content = this.normalizeMarkdownForJianshu(this.resolveContent(article))
-        if (!content.trim()) {
-          throw new Error('文章内容为空（未得到 Markdown），请重试同步')
-        }
-
-        const processedContent = await this.processImages(
-          content,
-          (src) => this.uploadImageByUrl(src),
-          {
-            skipPatterns: ['jianshu.com', 'jianshuapi.com'],
-            onProgress: options?.onImageProgress,
-          }
-        )
-
-        const notebookId = await this.getDefaultNotebookId()
-        const draft = await this.createNote(notebookId, article.title)
-        // autosave_control 需递增：用创建返回值 +1 作为下一次保存的版本号
-        await this.updateNoteContent(
-          draft.id,
-          article.title,
-          processedContent,
-          draft.autosaveControl + 1
-        )
-
-        return this.createResult(true, {
-          postId: String(draft.id),
-          postUrl: `https://www.jianshu.com/writer#/notebooks/${notebookId}/notes/${draft.id}`,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
+  /** 1. 鉴权：确保 account 已获取 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.account) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录简书')
+      }
     }
   }
+
+  /** 2. 内容规整：取默认内容 + 简书 Markdown 规整（公式/表格） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    const md = (ctx.content.markdown || '').trim() || (ctx.content.html || '').trim()
+    ctx.content.markdown = this.normalizeMarkdownForJianshu(md)
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['jianshu.com', 'jianshuapi.com'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
+
+  /** 5. 构建笔记正文 payload */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      content: ctx.content.markdown,
+    }
+  }
+
+  /** 6. 提交：获取默认文集 → 创建笔记 → 写入正文 */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const payload = ctx.payload as { title: string; content: string }
+    const notebookId = await this.getDefaultNotebookId()
+    const draft = await this.createNote(notebookId, payload.title)
+    // autosave_control 需递增：用创建返回值 +1 作为下一次保存的版本号
+    await this.updateNoteContent(draft.id, payload.title, payload.content, draft.autosaveControl + 1)
+
+    return this.createResult(true, {
+      postId: String(draft.id),
+      postUrl: `https://www.jianshu.com/writer#/notebooks/${notebookId}/notes/${draft.id}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 鉴权与笔记 API（保持原样）============
 
   /** 在已有 header rules 上下文中刷新账号信息，避免嵌套 withHeaderRules */
   private async checkAuthInner(): Promise<boolean> {
@@ -232,13 +265,6 @@ export class JianshuAdapter extends CodeAdapter {
     if (!response.ok) {
       throw new Error(`更新笔记失败 HTTP ${response.status}`)
     }
-  }
-
-  /** 优先使用预处理得到的 Markdown（保留代码块与换行），缺失时回退到 HTML */
-  private resolveContent(article: Article): string {
-    const md = (article.markdown || '').trim()
-    if (md) return md
-    return (article.html || '').trim()
   }
 
   /**

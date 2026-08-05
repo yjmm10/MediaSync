@@ -1,9 +1,17 @@
 /**
- * 知乎适配器
+ * 知乎适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：草稿 create + update 两步流程、HTML 转换（表格/列表/LaTeX/代码块）、
+ * 图片上传（URL API + OSS 直传）全部保留。
+ *
+ * 鉴权策略化：SwApiAuthStrategy 走 user/api/v4/me。
+ * Header 规则拆分：uploadImages 钩子内包一次 + submit 外层管道自动包一次（顺序、不嵌套）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
+import { SwApiAuthStrategy } from '../auth-strategy'
 import { createLogger } from '../../lib/logger'
 import md5Lib from 'js-md5'
 
@@ -12,7 +20,7 @@ const logger = createLogger('Zhihu')
 // js-md5 导出的是函数本身
 const jsMd5 = md5Lib as unknown as (message: string | ArrayBuffer | Uint8Array) => string
 
-export class ZhihuAdapter extends CodeAdapter {
+export class ZhihuAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'zhihu',
     name: '知乎',
@@ -40,8 +48,37 @@ export class ZhihuAdapter extends CodeAdapter {
     removeNestedEmptyContainers: true,
   }
 
+  /** 配置 Schema（声明式，UI 据此渲染；P1/P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '话题' },
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'column', key: 'column', label: '专栏', source: 'remote' },
+    ],
+  }
+
+  /** 鉴权策略：SW 直调 user/api/v4/me（手动带 x-requested-with） */
+  protected readonly authStrategies = [
+    new SwApiAuthStrategy({
+      url: 'https://www.zhihu.com/api/v4/me',
+      headers: { 'x-requested-with': 'fetch' },
+      parse: (json): AuthResult | null => {
+        const data = json as { id?: string; name?: string; avatar_url?: string }
+        if (data.id) {
+          return {
+            isAuthenticated: true,
+            userId: data.id,
+            username: data.name,
+            avatar: data.avatar_url,
+          }
+        }
+        return { isAuthenticated: false }
+      },
+    }),
+  ]
+
   /** 知乎 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://www.zhihu.com/api/*',
       headers: { 'x-requested-with': 'fetch' },
@@ -59,44 +96,58 @@ export class ZhihuAdapter extends CodeAdapter {
     },
   ]
 
-  async checkAuth(): Promise<AuthResult> {
-    try {
-      const response = await this.runtime.fetch('https://www.zhihu.com/api/v4/me', {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'x-requested-with': 'fetch',
-        },
-      })
+  // ============ 管道钩子 ============
 
-      const data = await response.json() as {
-        id?: string
-        name?: string
-        avatar_url?: string
+  // authorize / normalizeContent / resolveReferences 用基类默认：
+  // - authorize：CompositeAuthStrategy 级联 authStrategies（SwApiAuthStrategy）
+  // - normalizeContent：从 platformContents[zhihu] 取 html
+
+  /**
+   * 3. 上传图片 + 知乎特定内容转换
+   *    在 Header 规则保护下走 SharedImageCache 去重 + processImages；
+   *    图片替换后再做知乎 Draft.js 格式转换（表格/列表/LaTeX/代码块/figure）
+   */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
       }
-
-      if (data.id) {
-        return {
-          isAuthenticated: true,
-          userId: data.id,
-          username: data.name,
-          avatar: data.avatar_url,
-        }
+      const opts: ImageProcessOptions = {
+        skipPatterns: [
+          'zhimg.com',
+          'pic1.zhimg.com',
+          'pic2.zhimg.com',
+          'pic3.zhimg.com',
+          'pic4.zhimg.com',
+          'zhihu.com/equation',
+        ],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
       }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+    // 知乎特定的内容转换（图片上传后）
+    ctx.content.html = this.transformContent(ctx.content.html)
+  }
 
-      return { isAuthenticated: false }
-    } catch (error) {
-      logger.debug('checkAuth: not logged in -', error)
-      return { isAuthenticated: false, error: (error as Error).message }
+  /** 5. 构建草稿更新请求体（P2 写死保持等价；P3 读 ctx.params） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      content: ctx.content.html,
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
-
-      // 1. 创建草稿
-      const createResponse = await this.runtime.fetch('https://zhuanlan.zhihu.com/api/articles/drafts', {
+  /** 6. 提交：create draft + PATCH update draft，返回草稿结果 */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    // 1. 创建草稿
+    const createResponse = await this.runtime.fetch(
+      'https://zhuanlan.zhihu.com/api/articles/drafts',
+      {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -104,96 +155,69 @@ export class ZhihuAdapter extends CodeAdapter {
           'x-requested-with': 'fetch',
         },
         body: JSON.stringify({
-          title: article.title,
+          title: ctx.article.title,
           content: '',
           delta_time: 0,
         }),
-      })
+      },
+    )
 
-      // 检查响应状态和内容
-      const responseText = await createResponse.text()
-      logger.debug('Create draft response:', createResponse.status, responseText.substring(0, 200))
+    const responseText = await createResponse.text()
+    logger.debug('Create draft response:', createResponse.status, responseText.substring(0, 200))
 
-      if (!createResponse.ok) {
-        throw new Error(`创建草稿失败: ${createResponse.status} - ${responseText}`)
-      }
+    if (!createResponse.ok) {
+      throw new Error(`创建草稿失败: ${createResponse.status} - ${responseText}`)
+    }
 
-      // 尝试解析 JSON
-      let createData: { id?: string }
-      try {
-        createData = JSON.parse(responseText)
-      } catch {
-        throw new Error(`创建草稿失败: 响应不是有效 JSON - ${responseText.substring(0, 100)}`)
-      }
+    let createData: { id?: string }
+    try {
+      createData = JSON.parse(responseText)
+    } catch {
+      throw new Error(`创建草稿失败: 响应不是有效 JSON - ${responseText.substring(0, 100)}`)
+    }
 
-      if (!createData.id) {
-        throw new Error('创建草稿失败: 无效响应')
-      }
+    if (!createData.id) {
+      throw new Error('创建草稿失败: 无效响应')
+    }
 
-      const draftId = createData.id
-      logger.debug('Draft created:', draftId)
+    const draftId = createData.id
+    logger.debug('Draft created:', draftId)
 
-      // 2. 使用预处理好的 HTML（Content Script 已处理代码块、图片、特殊标签等）
-      // 知乎使用 HTML 格式
-      let content = article.html || ''
+    // 2. 更新草稿内容
+    const updateResponse = await this.runtime.fetch(
+      `https://zhuanlan.zhihu.com/api/articles/${draftId}/draft`,
+      {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requested-with': 'fetch',
+        },
+        body: JSON.stringify(ctx.payload),
+      },
+    )
 
-      // 3. 处理图片（section → div 转换已在 preprocessConfig 中处理）
-      content = await this.processImages(
-        content,
-        (src) => this.uploadImageByUrl(src),
-        {
-          skipPatterns: [
-            'zhimg.com',
-            'pic1.zhimg.com',
-            'pic2.zhimg.com',
-            'pic3.zhimg.com',
-            'pic4.zhimg.com',
-            'zhihu.com/equation',
-          ],
-          onProgress: options?.onImageProgress,
-        }
-      )
+    if (!updateResponse.ok) {
+      const updateText = await updateResponse.text()
+      logger.error('Update draft failed:', updateResponse.status, updateText)
+      throw new Error(`更新草稿失败: ${updateResponse.status}`)
+    }
 
-      // 4. 知乎特定的内容转换
-      content = this.transformContent(content)
+    logger.debug('Draft updated, status:', updateResponse.status)
 
-      // 5. 更新草稿内容
-      const updateResponse = await this.runtime.fetch(
-        `https://zhuanlan.zhihu.com/api/articles/${draftId}/draft`,
-        {
-          method: 'PATCH',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-requested-with': 'fetch',
-          },
-          body: JSON.stringify({
-            title: article.title,
-            content: content,
-          }),
-        }
-      )
-
-      // 检查更新响应 (PATCH 可能返回空响应或 204)
-      if (!updateResponse.ok) {
-        const updateText = await updateResponse.text()
-        logger.error('Update draft failed:', updateResponse.status, updateText)
-        throw new Error(`更新草稿失败: ${updateResponse.status}`)
-      }
-
-      logger.debug('Draft updated, status:', updateResponse.status)
-
-      const draftUrl = `https://zhuanlan.zhihu.com/p/${draftId}/edit`
-
-      return this.createResult(true, {
-        postId: draftId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
+    return this.createResult(true, {
+      postId: draftId,
+      postUrl: `https://zhuanlan.zhihu.com/p/${draftId}/edit`,
+      draftOnly: true,
+    })
   }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 知乎内容转换（保持原样）============
 
   /**
    * 知乎内容转换 - 适配 Draft.js 编辑器格式
@@ -411,6 +435,8 @@ export class ZhihuAdapter extends CodeAdapter {
     return result
   }
 
+  // ============ 图片上传（保持原样）============
+
   /**
    * 通过 Blob 上传图片（覆盖基类方法）
    */
@@ -606,7 +632,7 @@ export class ZhihuAdapter extends CodeAdapter {
           'Authorization': authorization,
           'x-oss-date': ossDate,
           'x-oss-security-token': token.access_token,
-          'x-oss-user-agent': 'aliyun-sdk-js/6.8.0',
+          'x-oss-user-agent': ossUserAgent,
         },
         body: blob,
       })

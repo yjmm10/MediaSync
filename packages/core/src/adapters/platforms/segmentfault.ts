@@ -1,10 +1,16 @@
 /**
- * 思否 (Segmentfault) 适配器
- * https://segmentfault.com
+ * 思否 (Segmentfault) 适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：session token 获取 + 公式/表格 Markdown 规整 + gateway/draft 草稿全部保留。
+ * 鉴权策略化：SwHtmlAuthStrategy 拉 user/settings 页面正则提取登录态。
  */
-import { CodeAdapter, ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-export class SegmentfaultAdapter extends CodeAdapter {
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
+import { SwHtmlAuthStrategy } from '../auth-strategy'
+
+export class SegmentfaultAdapter extends PipelineAdapter {
   meta: PlatformMeta = {
     id: 'segmentfault',
     name: '思否',
@@ -18,10 +24,36 @@ export class SegmentfaultAdapter extends CodeAdapter {
     outputFormat: 'markdown' as const,
   }
 
+  /** 配置 Schema（声明式，UI 据此渲染；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+    ],
+  }
+
+  /** 鉴权策略：SW 拉 user/settings 页面 HTML 正则提取登录态 */
+  protected readonly authStrategies = [
+    new SwHtmlAuthStrategy({
+      url: 'https://segmentfault.com/user/settings',
+      extract: (html): AuthResult | null => {
+        const userLinkMatch = html.match(/href="\/u\/([^"]+)"/)
+        if (!userLinkMatch) return { isAuthenticated: false, error: '未登录' }
+        const uid = userLinkMatch[1]
+        const avatarMatch = html.match(/src="(https:\/\/avatar-static\.segmentfault\.com\/[^"]+)"/)
+        return {
+          isAuthenticated: true,
+          userId: uid,
+          username: uid,
+          avatar: avatarMatch ? avatarMatch[1] : undefined,
+        }
+      },
+    }),
+  ]
+
   private sessionToken: string | null = null
 
   /** 思否 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://segmentfault.com/gateway/*',
       headers: {
@@ -32,38 +64,108 @@ export class SegmentfaultAdapter extends CodeAdapter {
     },
   ]
 
-  /**
-   * 检查登录状态
-   */
-  async checkAuth(): Promise<AuthResult> {
-    try {
-      const response = await this.runtime.fetch('https://segmentfault.com/user/settings', {
-        credentials: 'include',
-      })
-      const html = await response.text()
+  // ============ 管道钩子 ============
 
-      // 匹配用户链接 href="/u/username"
-      const userLinkMatch = html.match(/href="\/u\/([^"]+)"/)
-      if (!userLinkMatch) {
-        return { isAuthenticated: false, error: '未登录' }
+  /** 2. 内容规整：取默认内容 + 思否 Markdown 规整（公式/表格） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.markdown = this.normalizeMarkdownForSegmentfault(ctx.content.markdown || '')
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下获取 session token + SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      this.sessionToken = await this.getSessionToken()
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
       }
-
-      const uid = userLinkMatch[1]
-
-      // 匹配头像 URL (avatar-static.segmentfault.com)
-      const avatarMatch = html.match(/src="(https:\/\/avatar-static\.segmentfault\.com\/[^"]+)"/)
-      const avatar = avatarMatch ? avatarMatch[1] : undefined
-
-      return {
-        isAuthenticated: true,
-        userId: uid,
-        username: uid,
-        avatar: avatar,
+      const opts: ImageProcessOptions = {
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
       }
-    } catch (error) {
-      return { isAuthenticated: false, error: (error as Error).message }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
+
+  /** 5. 构建草稿请求体（P2 写死保持等价） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      tags: [],
+      text: ctx.content.markdown,
+      object_id: '',
+      type: 'article',
     }
   }
+
+  /** 6. 提交：gateway/draft，解析数组/对象两种响应格式 */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    if (!this.sessionToken) {
+      throw new Error('未获取 token')
+    }
+
+    const response = await this.runtime.fetch('https://segmentfault.com/gateway/draft', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        token: this.sessionToken,
+        accept: '*/*',
+      },
+      body: JSON.stringify(ctx.payload),
+    })
+
+    // 处理异常响应
+    const text = await response.text()
+    if (text === 'Unauthorized' || text.includes('禁言') || text.includes('锁定')) {
+      throw new Error(text === 'Unauthorized' ? '未授权' : text)
+    }
+
+    let res
+    try {
+      res = JSON.parse(text)
+    } catch {
+      throw new Error('发布失败: ' + text)
+    }
+
+    // 处理数组格式响应 [1, "error_message"]
+    if (Array.isArray(res)) {
+      if (res[0] === 1) {
+        throw new Error(res[1] || '发布失败')
+      }
+      // [0, data] 成功格式
+      const data = res[1]
+      if (data?.id) {
+        return this.createResult(true, {
+          postId: data.id,
+          postUrl: `https://segmentfault.com/write?draftId=${data.id}`,
+          draftOnly: true,
+        })
+      }
+    }
+
+    if (!res.id) {
+      const errorMsg = res.message || res.msg || res.error || res.errMsg || JSON.stringify(res)
+      throw new Error(errorMsg)
+    }
+
+    return this.createResult(true, {
+      postId: res.id,
+      postUrl: `https://segmentfault.com/write?draftId=${res.id}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ session token 与图片上传（保持原样）============
 
   /**
    * 获取 session token
@@ -191,92 +293,5 @@ export class SegmentfaultAdapter extends CodeAdapter {
     )
 
     return md.replace(/\0CODE(\d+)\0/g, (_m, i: string) => codeBlocks[Number(i)] ?? '')
-  }
-
-  /**
-   * 发布文章
-   */
-  async publish(article: Article): Promise<SyncResult> {
-    const now = Date.now()
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      // 获取 session token
-      this.sessionToken = await this.getSessionToken()
-
-      // 优先使用 markdown，规范化公式/表格后再处理图片
-      let content = article.markdown || article.html || ''
-      content = this.normalizeMarkdownForSegmentfault(content)
-      content = await this.processImages(content, (src) => this.uploadImageByUrl(src))
-
-      const postData = {
-        title: article.title,
-        tags: [],
-        text: content,
-        object_id: '',
-        type: 'article',
-      }
-
-      const response = await this.runtime.fetch('https://segmentfault.com/gateway/draft', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          token: this.sessionToken,
-          accept: '*/*',
-        },
-        body: JSON.stringify(postData),
-      })
-
-      // 处理异常响应
-      const text = await response.text()
-      if (text === 'Unauthorized' || text.includes('禁言') || text.includes('锁定')) {
-        throw new Error(text === 'Unauthorized' ? '未授权' : text)
-      }
-
-      let res
-      try {
-        res = JSON.parse(text)
-      } catch {
-        throw new Error('发布失败: ' + text)
-      }
-
-      // 处理数组格式响应 [1, "error_message"]
-      if (Array.isArray(res)) {
-        if (res[0] === 1) {
-          throw new Error(res[1] || '发布失败')
-        }
-        // [0, data] 成功格式
-        const data = res[1]
-        if (data?.id) {
-          return {
-            platform: this.meta.id,
-            success: true,
-            postId: data.id,
-            postUrl: `https://segmentfault.com/write?draftId=${data.id}`,
-            draftOnly: true,
-            timestamp: now,
-          }
-        }
-      }
-
-      if (!res.id) {
-        // 尝试多种错误字段
-        const errorMsg = res.message || res.msg || res.error || res.errMsg || JSON.stringify(res)
-        throw new Error(errorMsg)
-      }
-
-      return {
-        platform: this.meta.id,
-        success: true,
-        postId: res.id,
-        postUrl: `https://segmentfault.com/write?draftId=${res.id}`,
-        draftOnly: true,
-        timestamp: now,
-      }
-    }).catch((error) => ({
-      platform: this.meta.id,
-      success: false,
-      error: (error as Error).message,
-      timestamp: now,
-    }))
   }
 }

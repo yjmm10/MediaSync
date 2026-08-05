@@ -4,9 +4,10 @@
  *
  * 流程：create 草稿 → pushFull 写入 ProseMirror JSON → 返回草稿链接（不自动发布）
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('InfoQ')
@@ -432,7 +433,7 @@ function parseEmphasis(text: string): InfoqNode[] {
   return nodes.length ? nodes : [textNode(text)]
 }
 
-export class InfoqAdapter extends CodeAdapter {
+export class InfoqAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'infoq',
     name: 'InfoQ',
@@ -445,7 +446,15 @@ export class InfoqAdapter extends CodeAdapter {
     outputFormat: 'markdown' as const,
   }
 
-  private readonly HEADER_RULES = [
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+    ],
+  }
+
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://xie.infoq.cn/*',
       headers: {
@@ -484,69 +493,92 @@ export class InfoqAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting InfoQ draft sync...')
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        const user = await this.fetchUser()
-        if (!user?.uid) {
-          throw new Error('请先登录 InfoQ 写作社区')
-        }
-        if ((user.is_author ?? 0) < 2) {
-          throw new Error('请先在 InfoQ 开通创作权限')
-        }
+  // ============ 管道钩子 ============
 
-        const content = (article.markdown || '').trim()
-        if (!content) {
-          throw new Error('文章内容为空（未得到 Markdown），请重试同步')
-        }
+  /** 1. 鉴权：fetchUser + is_author 检查（在 Header 规则保护下） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const user = await this.fetchUser()
+      if (!user?.uid) {
+        throw new Error('请先登录 InfoQ 写作社区')
+      }
+      if ((user.is_author ?? 0) < 2) {
+        throw new Error('请先在 InfoQ 开通创作权限')
+      }
+    })
+  }
 
-        const processedMd = await this.processImages(
-          content,
-          (src) => this.uploadImageByUrl(src),
-          {
-            skipPatterns: SKIP_IMAGE_HOSTS,
-            onProgress: options?.onImageProgress,
-          }
-        )
-
-        const doc = markdownToInfoqDoc(processedMd)
-        const summary = buildSummary(processedMd)
-
-        let cover = ''
-        const coverSrc = (article.cover || '').trim()
-        if (/^https?:\/\//i.test(coverSrc)) {
-          try {
-            const up = await this.uploadImageByUrl(coverSrc)
-            cover = up.url
-          } catch (e) {
-            logger.warn('cover upload failed, skip:', e)
-          }
-        }
-
-        const draftId = await this.createDraft()
-        await this.pushFull({
-          id: draftId,
-          version: 0,
-          cover,
-          title: article.title,
-          summary,
-          is_force: 1,
-          content: JSON.stringify(doc),
-        })
-
-        return this.createResult(true, {
-          postId: String(draftId),
-          postUrl: `${BASE}/draft/${draftId}`,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      logger.error('publish failed:', error)
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
+  /** 2. 内容规整：确保 markdown 非空 */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    if (!(ctx.content.markdown || '').trim()) {
+      throw new Error('文章内容为空（未得到 Markdown），请重试同步')
     }
+  }
+
+  /** 3. 上传图片：正文图 + 封面图，SharedImageCache 去重 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: SKIP_IMAGE_HOSTS,
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+
+      // 封面图（与原 publish 一致：article.cover 转 InfoQ 图床）
+      let cover = ''
+      const coverSrc = (ctx.article.cover || '').trim()
+      if (/^https?:\/\//i.test(coverSrc)) {
+        try {
+          const up = await this.uploadImageByUrl(coverSrc)
+          cover = up.url
+        } catch (e) {
+          logger.warn('cover upload failed, skip:', e)
+        }
+      }
+      ctx.refs.cover = cover
+    })
+  }
+
+  /** 5. 构建 pushFull 请求体（markdown → ProseMirror JSON + 摘要） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const doc = markdownToInfoqDoc(ctx.content.markdown)
+    const summary = buildSummary(ctx.content.markdown)
+    ctx.payload = {
+      cover: (ctx.refs.cover as string) ?? '',
+      title: ctx.article.title,
+      summary,
+      is_force: 1,
+      content: JSON.stringify(doc),
+    }
+  }
+
+  /** 6. 提交：createDraft + pushFull */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const draftId = await this.createDraft()
+    await this.pushFull({
+      id: draftId,
+      version: 0,
+      ...(ctx.payload as Record<string, unknown>),
+    })
+    return this.createResult(true, {
+      postId: String(draftId),
+      postUrl: `${BASE}/draft/${draftId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
   }
 
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {

@@ -1,10 +1,16 @@
 /**
- * 开源中国适配器
+ * 开源中国适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：user/myDetails 鉴权 + ai/creation 图床 + save_draft 草稿全部保留。
+ * checkAuth 重写（保留 fetch JSON + 设 userId 原逻辑）。
  * https://my.oschina.net
  */
-import { CodeAdapter, ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-export class OschinaAdapter extends CodeAdapter {
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
+
+export class OschinaAdapter extends PipelineAdapter {
   meta: PlatformMeta = {
     id: 'oschina',
     name: '开源中国',
@@ -18,10 +24,27 @@ export class OschinaAdapter extends CodeAdapter {
     outputFormat: 'markdown' as const,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      {
+        kind: 'visibility',
+        key: 'visibility',
+        label: '可见性',
+        options: [
+          { value: 'public', label: '公开' },
+          { value: 'private', label: '仅自己可见' },
+        ],
+      },
+      { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
+    ],
+  }
+
   private userId: string | null = null
 
   /** 开源中国 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://apiv1.oschina.net/oschinapi/*',
       headers: {
@@ -32,9 +55,8 @@ export class OschinaAdapter extends CodeAdapter {
     },
   ]
 
-  /**
-   * 检查登录状态
-   */
+  // ============ checkAuth（重写，保留 fetch JSON + 设 userId 原逻辑）============
+
   async checkAuth(): Promise<AuthResult> {
     try {
       const response = await this.runtime.fetch('https://apiv1.oschina.net/oschinapi/user/myDetails', {
@@ -67,6 +89,99 @@ export class OschinaAdapter extends CodeAdapter {
       return { isAuthenticated: false, error: (error as Error).message }
     }
   }
+
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：确保 userId 已获取 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.userId) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('未登录')
+      }
+    }
+  }
+
+  /** 2. 内容规整：记录使用 markdown 还是 html（与原 publish 一致） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.refs.useMarkdown = (ctx.content.markdown || '').trim().length > 0
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传（处理选定内容） */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const useMarkdown = (ctx.refs.useMarkdown as boolean) ?? true
+      const target: 'markdown' | 'html' = useMarkdown ? 'markdown' : 'html'
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content[target] = await this.processImages(ctx.content[target], upload, opts)
+    })
+  }
+
+  /** 5. 构建 save_draft 请求体（P2 写死保持等价） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const useMarkdown = (ctx.refs.useMarkdown as boolean) ?? true
+    const content = useMarkdown ? ctx.content.markdown : ctx.content.html
+    ctx.payload = {
+      title: ctx.article.title,
+      user: Number(this.userId),
+      content,
+      contentType: useMarkdown ? 1 : 2, // 1=markdown, 2=html
+      catalog: 0,
+      originUrl: '',
+      privacy: true,
+      disableComment: false,
+    }
+  }
+
+  /** 6. 提交：save_draft */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const response = await this.runtime.fetch(
+      'https://apiv1.oschina.net/oschinapi/api/draft/save_draft',
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(ctx.payload),
+      }
+    )
+
+    const res = await response.json() as {
+      success?: boolean
+      message?: string
+      result?: { id?: number }
+    }
+
+    if (!res.success || !res.result?.id) {
+      throw new Error(res.message || '发布失败')
+    }
+
+    const draftId = String(res.result.id)
+    return this.createResult(true, {
+      postId: draftId,
+      postUrl: `https://my.oschina.net/u/${this.userId}/blog/write/draft/${draftId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 图片上传（保持原样）============
 
   /**
    * 上传图片
@@ -115,76 +230,5 @@ export class OschinaAdapter extends CodeAdapter {
     } catch {
       return null
     }
-  }
-
-  /**
-   * 发布文章
-   */
-  async publish(article: Article): Promise<SyncResult> {
-    const now = Date.now()
-
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      // 确保已获取用户 ID
-      if (!this.userId) {
-        const auth = await this.checkAuth()
-        if (!auth.isAuthenticated) {
-          throw new Error('未登录')
-        }
-      }
-
-      const rawMarkdown = article.markdown || ''
-      const rawHtml = article.html || ''
-      const useMarkdown = rawMarkdown.trim().length > 0
-
-      let content = useMarkdown ? rawMarkdown : rawHtml
-      content = await this.processImages(content, (src) => this.uploadImageByUrl(src))
-
-      const response = await this.runtime.fetch(
-        'https://apiv1.oschina.net/oschinapi/api/draft/save_draft',
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            title: article.title,
-            user: Number(this.userId),
-            content,
-            contentType: useMarkdown ? 1 : 2, // 1=markdown, 2=html
-            catalog: 0,
-            originUrl: '',
-            privacy: true,
-            disableComment: false,
-          }),
-        }
-      )
-
-      const res = await response.json() as {
-        success?: boolean
-        message?: string
-        result?: { id?: number }
-      }
-
-      if (!res.success || !res.result?.id) {
-        throw new Error(res.message || '发布失败')
-      }
-
-      const draftId = String(res.result.id)
-
-      return {
-        platform: this.meta.id,
-        success: true,
-        postId: draftId,
-        postUrl: `https://my.oschina.net/u/${this.userId}/blog/write/draft/${draftId}`,
-        draftOnly: true,
-        timestamp: now,
-      }
-    }).catch((error) => ({
-      platform: this.meta.id,
-      success: false,
-      error: (error as Error).message,
-      timestamp: now,
-    }))
   }
 }
