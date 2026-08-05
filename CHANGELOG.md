@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.0.1 (2026-08-05)
+
+- 🔧 知乎：引用块内的列表转圆点（平台 blockquote 不支持 ul/ol）
+- 🔧 掘金 / 火山：引用块内非列表行加 `\` 强制换行，避免多行引用被渲染合并
+- 🔧 腾讯云：结尾单独引用块补空行，修复第一行不生效
+- 🔧 魔搭 / 千帆：引用块降级为段落 + 引用前缀 `▎`（平台不支持 blockquote）
+
+## v3.0.0 (2026-08-05) — 重构大版本
+
+> v3.0 是适配器架构重构（分支 `refactor/adapter-architecture`）的第一个稳定基线。**与 v2.x 行为兼容**：35+ 平台功能完全不变。内部抽象层与前端设计系统全面升级。
+
+### 架构
+
+- 🏗️ 适配器三正交维度骨架：鉴权 / 配置 / 发布解耦，新增平台改为按声明组合，见 `docs/refactor-architecture.md`
+- 🏗️ PipelineAdapter 迁移：CSDN / 掘金（P1 试点）、tech-community 8 平台、微博 / 百家号、media-account 12 平台（共 20+ 平台）
+- 🔧 老适配器零改动，PipelineAdapter 与旧 `CodeAdapter` 两套模式共存、渐进迁移
+
+### 前端
+
+- 🎨 前端设计系统重建：扩展与官网统一品牌色 green-600（`--primary`），主 CTA / 卡片 / 状态指示视觉全面升级
+- 🎨 新增 utility class：`btn-brand` / `btn-secondary` / `card-soft` / `card-interactive`（定义于 `packages/extension/src/popup/styles/globals.css`）
+- 🎨 平台列表选中态（ring-inset）、进度条（渐变 + 光晕）、计数徽章、文章识别卡精致化；About 品牌区重建
+- 🎨 官网 `btn-primary` 渐变 + 品牌阴影呼应扩展；feature 卡 hover 边框转主色
+
+### 规范
+
+- 📝 新增前端设计规范 `docs/ui-style-guide.md`（扩展 + 官网共同遵循的单一事实来源）
+- 📝 新增版本号规范 `docs/versioning.md`（semver 语义 + 项目发版流程）
+- 📝 `CLAUDE.md` 「开发约束」补充前端 UI 与版本规范条目
+
 ## v2.1.22 (2026-08-05)
 
 - 🔧 InfoQ：多行引用按行拆成多个 paragraph，修复引用内换行丢失

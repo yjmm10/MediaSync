@@ -376,7 +376,8 @@ export function markdownToModelscopeJsonML(markdown: string): string {
         quoteLines.push(lines[i].replace(/^\s*>\s?/, ''))
         i++
       }
-      blocks.push(pNode(...parseInline(quoteLines.join(' '))))
+      // 魔搭不支持 blockquote：降级为段落 + 引用前缀
+      blocks.push(pNode(...parseInline(`▎ ${quoteLines.join(' ')}`)))
       continue
     }
 

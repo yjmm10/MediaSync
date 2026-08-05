@@ -1,8 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type { DragEvent, MouseEvent } from 'react'
-import { Check, X, Loader2, ExternalLink, ChevronRight, LayoutGrid, List, GripVertical, RefreshCw } from 'lucide-react'
+import { Check, X, Loader2, ExternalLink, ChevronRight, ChevronDown, LayoutGrid, List, GripVertical, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { openUrlsInTabGroup } from '@/lib/tabs'
+import {
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  getPlatformCategory,
+  type PlatformCategory,
+} from '@/lib/platform-categories'
 import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './types'
 
 const PLATFORM_ORDER_KEY = 'platformOrder'
@@ -16,6 +22,22 @@ function sortByOrder<T extends { id: string }>(list: T[], order: string[]): T[] 
   const rest = list.filter(p => !indexMap.has(p.id))
   pinned.sort((a, b) => (indexMap.get(a.id)!) - (indexMap.get(b.id)!))
   return [...pinned, ...rest]
+}
+
+function platformCat(p: Platform): PlatformCategory {
+  return p.category || getPlatformCategory(p.id)
+}
+
+function groupByCategory(list: Platform[], order: string[]): Array<{ category: PlatformCategory; platforms: Platform[] }> {
+  const groups: Array<{ category: PlatformCategory; platforms: Platform[] }> = []
+  for (const category of CATEGORY_ORDER) {
+    const items = sortByOrder(
+      list.filter(p => platformCat(p) === category),
+      order,
+    )
+    if (items.length > 0) groups.push({ category, platforms: items })
+  }
+  return groups
 }
 
 interface PlatformListProps {
@@ -53,12 +75,8 @@ export function PlatformList({
   const selectedAuthCount = authenticatedPlatforms.filter(p => selected.has(p.id)).length
   const successCount = results.filter(r => r.success).length
   const failedCount = results.filter(r => !r.success).length
-  // 成功且有可访问链接的结果（草稿/文章页），用于"打开全部"
   const openableResults = results.filter(r => r.success && r.postUrl)
 
-  /**
-   * 一键打开所有草稿/文章链接（去重、归入标签组；降级由 openUrlsInTabGroup 处理）
-   */
   const handleOpenAllDrafts = () => {
     openUrlsInTabGroup(
       openableResults.map(r => r.postUrl!),
@@ -66,7 +84,6 @@ export function PlatformList({
     )
   }
 
-  // 视图模式：列表 / 网格（持久化到 storage）
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list')
   useEffect(() => {
     chrome.storage.local.get('platformViewMode').then(r => {
@@ -79,7 +96,12 @@ export function PlatformList({
     chrome.storage.local.set({ platformViewMode: next })
   }
 
-  // 单平台手动登录检测中
+  const [categoryFilter, setCategoryFilter] = useState<'all' | PlatformCategory>('all')
+  const [unauthCollapsed, setUnauthCollapsed] = useState(true)
+  useEffect(() => {
+    if (authenticatedPlatforms.length < 3) setUnauthCollapsed(false)
+  }, [authenticatedPlatforms.length])
+
   const [checkingIds, setCheckingIds] = useState<Set<string>>(() => new Set())
   const handleRecheckAuth = async (platformId: string) => {
     if (!onRecheckAuth || checkingIds.has(platformId)) return
@@ -95,7 +117,6 @@ export function PlatformList({
     }
   }
 
-  // 自定义平台排序（仅 idle + 列表视图可拖拽；顺序持久化到 storage）
   const [platformOrder, setPlatformOrder] = useState<string[]>([])
   const [dragId, setDragId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
@@ -108,9 +129,13 @@ export function PlatformList({
     setPlatformOrder(next)
     chrome.storage.local.set({ [PLATFORM_ORDER_KEY]: next })
   }
-  // 把当前拖动的平台移到目标平台的位置（drop 时单次触发，避免抖动）
+
   const handleReorder = (targetId: string) => {
     if (!dragId || dragId === targetId) return
+    const dragP = authenticatedPlatforms.find(p => p.id === dragId)
+    const targetP = authenticatedPlatforms.find(p => p.id === targetId)
+    if (!dragP || !targetP) return
+    if (platformCat(dragP) !== platformCat(targetP)) return
     const ordered = sortByOrder(authenticatedPlatforms, platformOrder)
     const fromIdx = ordered.findIndex(p => p.id === dragId)
     const toIdx = ordered.findIndex(p => p.id === targetId)
@@ -122,22 +147,102 @@ export function PlatformList({
   }
   const canDrag = isIdle && viewMode === 'list'
 
-  // Idle: show all (authenticated first, 按自定义排序), syncing/completed: only selected
-  const visiblePlatforms = isIdle
-    ? [...sortByOrder(authenticatedPlatforms, platformOrder), ...unauthenticatedPlatforms]
-    : selectedPlatforms
-        .map(id => platforms.find(p => p.id === id))
-        .filter(Boolean) as Platform[]
+  const filteredAuth = useMemo(
+    () => authenticatedPlatforms.filter(
+      p => categoryFilter === 'all' || platformCat(p) === categoryFilter,
+    ),
+    [authenticatedPlatforms, categoryFilter],
+  )
+  const filteredUnauth = useMemo(
+    () => unauthenticatedPlatforms.filter(
+      p => categoryFilter === 'all' || platformCat(p) === categoryFilter,
+    ),
+    [unauthenticatedPlatforms, categoryFilter],
+  )
+
+  const authGroups = useMemo(
+    () => groupByCategory(filteredAuth, platformOrder),
+    [filteredAuth, platformOrder],
+  )
+  const unauthGroups = useMemo(
+    () => groupByCategory(filteredUnauth, platformOrder),
+    [filteredUnauth, platformOrder],
+  )
+
+  const availableChips = useMemo(() => {
+    const present = new Set(platforms.map(platformCat))
+    return CATEGORY_ORDER.filter(c => present.has(c))
+  }, [platforms])
+
+  const selectGroup = (groupPlatforms: Platform[]) => {
+    for (const p of groupPlatforms) {
+      if (p.isAuthenticated && !selected.has(p.id)) onToggle(p.id)
+    }
+  }
+
+  const renderPlatformItem = (platform: Platform) => {
+    const result = results.find(r => r.platform === platform.id)
+    const progress = platformProgress.get(platform.id)
+    const isSelected = selected.has(platform.id)
+    const isWaiting = isSyncing && !result && !progress
+    const isInProgress = isSyncing && !result && !!progress
+
+    if (viewMode === 'grid') {
+      return (
+        <PlatformGridCell
+          key={platform.id}
+          platform={platform}
+          isSelected={isSelected}
+          isIdle={isIdle}
+          isWaiting={isWaiting}
+          isInProgress={isInProgress}
+          isCheckingAuth={checkingIds.has(platform.id)}
+          result={result || null}
+          alreadySynced={isIdle && !!result?.success}
+          onToggle={() => onToggle(platform.id)}
+          onRecheckAuth={() => handleRecheckAuth(platform.id)}
+        />
+      )
+    }
+
+    return (
+      <PlatformRow
+        key={platform.id}
+        platform={platform}
+        isSelected={isSelected}
+        isIdle={isIdle}
+        isWaiting={isWaiting}
+        isInProgress={isInProgress}
+        isCheckingAuth={checkingIds.has(platform.id)}
+        result={result || null}
+        progress={progress || null}
+        alreadySynced={isIdle && !!result?.success}
+        onToggle={() => onToggle(platform.id)}
+        onRecheckAuth={() => handleRecheckAuth(platform.id)}
+        draggable={canDrag && platform.isAuthenticated}
+        isDragging={dragId === platform.id}
+        isDragOver={overId === platform.id}
+        onDragStart={() => { setDragId(platform.id); setOverId(null) }}
+        onDragEnter={() => setOverId(platform.id)}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={() => handleReorder(platform.id)}
+        onDragEnd={() => { setDragId(null); setOverId(null) }}
+      />
+    )
+  }
+
+  const flatSelected = selectedPlatforms
+    .map(id => platforms.find(p => p.id === id))
+    .filter(Boolean) as Platform[]
 
   return (
     <div className="space-y-2">
-      {/* Header */}
       <div className="flex items-center justify-between px-1">
         {isIdle && (
           <>
-            <span className="text-sm font-medium text-foreground">
+            <span className="text-sm font-semibold tracking-tight text-foreground">
               选择平台
-              <span className="ml-1.5 text-muted-foreground font-normal">
+              <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium tabular-nums align-middle">
                 {selectedCount}/{authenticatedPlatforms.length}
               </span>
             </span>
@@ -181,7 +286,7 @@ export function PlatformList({
           <>
             <div className="flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-              <span className="text-sm font-medium">同步中</span>
+              <span className="text-sm font-semibold">同步中</span>
             </div>
             <span className="text-sm tabular-nums text-muted-foreground">
               {results.length}/{selectedPlatforms.length}
@@ -190,16 +295,16 @@ export function PlatformList({
         )}
         {isCompleted && (
           <>
-            <span className="text-sm font-medium">同步完成</span>
+            <span className="text-sm font-semibold">同步完成</span>
             <div className="flex items-center gap-2">
               {successCount > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-xs text-green-600">
-                  <Check className="w-3 h-3" />{successCount}
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary tabular-nums">
+                  <Check className="w-3 h-3" strokeWidth={3} />{successCount}
                 </span>
               )}
               {failedCount > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-xs text-red-500">
-                  <X className="w-3 h-3" />{failedCount}
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 text-destructive tabular-nums">
+                  <X className="w-3 h-3" strokeWidth={3} />{failedCount}
                 </span>
               )}
               {openableResults.length > 1 && (
@@ -217,71 +322,127 @@ export function PlatformList({
         )}
       </div>
 
-      {/* Progress bar (syncing only) */}
+      {isIdle && availableChips.length > 1 && (
+        <div className="flex flex-wrap gap-1 px-0.5">
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('all')}
+            className={cn(
+              'px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
+              categoryFilter === 'all'
+                ? 'bg-primary/15 text-primary'
+                : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+            )}
+          >
+            全部
+          </button>
+          {availableChips.map(c => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCategoryFilter(c)}
+              className={cn(
+                'px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
+                categoryFilter === c
+                  ? 'bg-primary/15 text-primary'
+                  : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {CATEGORY_LABELS[c]}
+            </button>
+          ))}
+        </div>
+      )}
+
       {isSyncing && selectedPlatforms.length > 0 && (
-        <div className="h-1 bg-muted rounded-full overflow-hidden">
+        <div className="relative h-1.5 bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
+            className="h-full rounded-full bg-gradient-to-r from-primary to-primary-strong transition-all duration-500 ease-out shadow-[0_0_8px_rgba(22,163,74,0.4)]"
             style={{ width: `${(results.length / selectedPlatforms.length) * 100}%` }}
           />
         </div>
       )}
 
-      {/* Platform rows */}
-      <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
-        {visiblePlatforms.map(platform => {
-          const result = results.find(r => r.platform === platform.id)
-          const progress = platformProgress.get(platform.id)
-          const isSelected = selected.has(platform.id)
-          const isWaiting = isSyncing && !result && !progress
-          const isInProgress = isSyncing && !result && !!progress
+      {isIdle ? (
+        <div className="space-y-3">
+          {authGroups.length > 0 && (
+            <div className="space-y-2">
+              <div className="px-1 text-[11px] font-semibold text-muted-foreground tracking-wide">
+                已登录
+              </div>
+              {authGroups.map((group, gi) => (
+                <div
+                  key={group.category}
+                  className="platform-group-enter space-y-0.5"
+                  style={{ animationDelay: `${gi * 30}ms` }}
+                >
+                  <div className="flex items-center gap-2 px-1 py-0.5">
+                    <span className="w-0.5 h-3 rounded-full bg-primary flex-shrink-0" />
+                    <span className="text-[11px] font-semibold text-foreground">
+                      {CATEGORY_LABELS[group.category]}
+                    </span>
+                    <span className="text-[10px] tabular-nums text-muted-foreground">
+                      {group.platforms.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => selectGroup(group.platforms)}
+                      className="ml-auto text-[11px] text-primary hover:underline"
+                    >
+                      本组全选
+                    </button>
+                  </div>
+                  <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
+                    {group.platforms.map(renderPlatformItem)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-          if (viewMode === 'grid') {
-            return (
-              <PlatformGridCell
-                key={platform.id}
-                platform={platform}
-                isSelected={isSelected}
-                isIdle={isIdle}
-                isWaiting={isWaiting}
-                isInProgress={isInProgress}
-                isCheckingAuth={checkingIds.has(platform.id)}
-                result={result || null}
-                alreadySynced={isIdle && !!result?.success}
-                onToggle={() => onToggle(platform.id)}
-                onRecheckAuth={() => handleRecheckAuth(platform.id)}
-              />
-            )
-          }
+          {filteredUnauth.length > 0 && (
+            <div className="space-y-1">
+              <button
+                type="button"
+                onClick={() => setUnauthCollapsed(c => !c)}
+                className="flex w-full items-center gap-1.5 px-1 py-0.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {unauthCollapsed
+                  ? <ChevronRight className="w-3 h-3" />
+                  : <ChevronDown className="w-3 h-3" />}
+                未登录
+                <span className="tabular-nums font-normal">· {filteredUnauth.length}</span>
+                <span className="ml-auto font-normal text-muted-foreground/80">点击检测</span>
+              </button>
+              {!unauthCollapsed && unauthGroups.map((group, gi) => (
+                <div
+                  key={group.category}
+                  className="platform-group-enter space-y-0.5"
+                  style={{ animationDelay: `${gi * 30}ms` }}
+                >
+                  <div className="flex items-center gap-2 px-1 py-0.5">
+                    <span className="w-0.5 h-3 rounded-full bg-muted-foreground/40 flex-shrink-0" />
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {CATEGORY_LABELS[group.category]}
+                    </span>
+                    <span className="text-[10px] tabular-nums text-muted-foreground/70">
+                      {group.platforms.length}
+                    </span>
+                  </div>
+                  <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
+                    {group.platforms.map(renderPlatformItem)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
+          {flatSelected.map(renderPlatformItem)}
+        </div>
+      )}
 
-          return (
-            <PlatformRow
-              key={platform.id}
-              platform={platform}
-              isSelected={isSelected}
-              isIdle={isIdle}
-              isWaiting={isWaiting}
-              isInProgress={isInProgress}
-              isCheckingAuth={checkingIds.has(platform.id)}
-              result={result || null}
-              progress={progress || null}
-              alreadySynced={isIdle && !!result?.success}
-              onToggle={() => onToggle(platform.id)}
-              onRecheckAuth={() => handleRecheckAuth(platform.id)}
-              draggable={canDrag && platform.isAuthenticated}
-              isDragging={dragId === platform.id}
-              isDragOver={overId === platform.id}
-              onDragStart={() => { setDragId(platform.id); setOverId(null) }}
-              onDragEnter={() => setOverId(platform.id)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => handleReorder(platform.id)}
-              onDragEnd={() => { setDragId(null); setOverId(null) }}
-            />
-          )
-        })}
-      </div>
-
-      {/* No platforms logged in */}
       {isIdle && platforms.length > 0 && authenticatedPlatforms.length === 0 && (
         <div className="text-center py-4">
           <p className="text-sm text-muted-foreground">还没有登录任何平台</p>
@@ -364,12 +525,12 @@ function PlatformGridCell({
       className={cn(
         // 与「添加平台」第三方平台格子一致：p-2 + 24px 图标，列数由容器宽度自适应
         'relative flex flex-col items-center gap-1 p-2 rounded-lg transition-all duration-200',
-        isIdle && 'cursor-pointer hover:bg-muted',
-        isIdle && platform.isAuthenticated && isSelected && 'bg-primary/5 ring-1 ring-primary',
-        isIdle && !platform.isAuthenticated && 'opacity-50',
+        isIdle && 'cursor-pointer hover:bg-muted/70',
+        isIdle && platform.isAuthenticated && isSelected && 'bg-primary/[0.07] ring-1 ring-primary/30',
+        isIdle && !platform.isAuthenticated && 'opacity-50 hover:opacity-100',
         syncedIdle && 'opacity-50',
-        !syncedIdle && isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
-        !syncedIdle && isDone && result && !result.success && 'bg-red-50 dark:bg-red-950/20',
+        !syncedIdle && isDone && result?.success && 'bg-primary/[0.06] ring-1 ring-primary/20',
+        !syncedIdle && isDone && result && !result.success && 'bg-destructive/[0.05] ring-1 ring-destructive/20',
       )}
     >
       {/* 图标 + 状态角标 */}
@@ -514,15 +675,15 @@ function PlatformRow({
       }
       className={cn(
         'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-200',
-        isIdle && platform.isAuthenticated && 'cursor-pointer hover:bg-muted/60',
-        isIdle && !platform.isAuthenticated && 'cursor-pointer opacity-60 hover:opacity-100',
-        isIdle && isSelected && 'bg-primary/5',
+        isIdle && platform.isAuthenticated && 'cursor-pointer hover:bg-muted/70',
+        isIdle && !platform.isAuthenticated && 'cursor-pointer opacity-55 hover:opacity-100 hover:bg-muted/40',
+        isIdle && isSelected && 'bg-primary/[0.07] ring-1 ring-inset ring-primary/25',
         syncedIdle && 'opacity-50',
         draggable && platform.isAuthenticated && 'cursor-grab active:cursor-grabbing',
         isDragging && 'opacity-40',
-        isDragOver && 'ring-2 ring-primary/50',
-        !syncedIdle && isDone && result?.success && 'bg-green-50 dark:bg-green-950/20',
-        !syncedIdle && isDone && result && !result.success && 'bg-red-50 dark:bg-red-950/20',
+        isDragOver && 'ring-2 ring-primary/40',
+        !syncedIdle && isDone && result?.success && 'bg-primary/[0.06] ring-1 ring-inset ring-primary/20',
+        !syncedIdle && isDone && result && !result.success && 'bg-destructive/[0.05] ring-1 ring-inset ring-destructive/20',
       )}
     >
       {/* 拖拽手柄（仅 idle 列表视图） */}
@@ -629,12 +790,12 @@ function RowIndicator({
   }
   if (result) {
     return result.success ? (
-      <div className="w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
-        <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
+      <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+        <Check className="w-3 h-3 text-primary" strokeWidth={3} />
       </div>
     ) : (
-      <div className="w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-        <X className="w-3 h-3 text-red-600 dark:text-red-400" />
+      <div className="w-5 h-5 rounded-full bg-destructive/15 flex items-center justify-center flex-shrink-0">
+        <X className="w-3 h-3 text-destructive" strokeWidth={3} />
       </div>
     )
   }

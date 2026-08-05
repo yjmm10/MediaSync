@@ -225,6 +225,14 @@ export class ZhihuAdapter extends PipelineAdapter {
   private transformContent(content: string): string {
     let result = content
 
+    // 0. 引用块内的列表转圆点（知乎 blockquote 不支持 ul/ol，圆点代替）
+    result = result.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_m, inner: string) => {
+      const converted = inner
+        .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_lm: string, liInner: string) => `• ${liInner.trim()}<br>`)
+        .replace(/<\/?(ul|ol)[^>]*>/gi, '')
+      return `<blockquote>${converted}</blockquote>`
+    })
+
     // 1. 转换表格格式 - 知乎 Draft.js 编辑器需要特定格式
     result = this.transformTables(result)
 

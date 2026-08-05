@@ -130,7 +130,7 @@ export function ImportPage() {
           ) : (
             <button
               onClick={handleSelectFolder}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-sm font-medium transition-colors"
+              className="btn-brand w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium"
             >
               <FolderOpen className="w-4 h-4" />
               <span>选择 Markdown 所在文件夹</span>

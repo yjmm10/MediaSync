@@ -1,3 +1,5 @@
+import type { PlatformCategory } from '@/lib/platform-categories'
+
 export interface Platform {
   id: string
   name: string
@@ -5,6 +7,8 @@ export interface Platform {
   homepage?: string
   isAuthenticated: boolean
   username?: string
+  /** UI 分组用；缺省时按 id 查映射表 */
+  category?: PlatformCategory
 }
 
 export interface Article {

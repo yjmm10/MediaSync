@@ -81,23 +81,32 @@ export function AboutPage() {
         <h1 className="font-semibold">关于</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
         {/* Brand */}
-        <section className="px-5 pt-5 pb-4 text-center border-b border-border/60">
-          <img
-            src="/assets/icon-128.png"
-            alt=""
-            className="w-14 h-14 mx-auto mb-2.5 rounded-xl"
+        <section className="relative px-5 pt-6 pb-5 text-center border-b border-border/60 overflow-hidden">
+          {/* 背景柔光 */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 -top-10 h-32 bg-gradient-to-b from-primary/[0.08] to-transparent"
           />
-          <div className="flex items-center justify-center gap-2">
-            <h2 className="text-lg font-semibold tracking-tight">同步派</h2>
-            <span className="text-[11px] tabular-nums text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-              v{version}
-            </span>
+          <div className="relative">
+            <div className="mx-auto mb-3 w-16 h-16 rounded-2xl p-[2px] bg-gradient-to-br from-primary to-primary-strong shadow-[0_8px_20px_-6px_rgba(22,163,74,0.45)]">
+              <img
+                src="/assets/icon-128.png"
+                alt=""
+                className="w-full h-full rounded-[14px]"
+              />
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <h2 className="text-lg font-semibold tracking-tight text-brand-gradient">同步派</h2>
+              <span className="text-[11px] tabular-nums text-primary bg-primary/10 px-1.5 py-0.5 rounded-full font-medium">
+                v{version}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-[280px] mx-auto">
+              开源免费的多平台文章同步工具，把一篇内容分发到知乎、掘金、头条等平台。
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-[280px] mx-auto">
-            开源免费的多平台文章同步工具，把一篇内容分发到知乎、掘金、头条等平台。
-          </p>
         </section>
 
         {/* Highlights */}
@@ -105,8 +114,8 @@ export function AboutPage() {
           <ul className="space-y-2.5">
             {HIGHLIGHTS.map(({ icon: Icon, title, desc }) => (
               <li key={title} className="flex items-start gap-2.5">
-                <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-muted">
-                  <Icon className="w-3.5 h-3.5 text-foreground/80" />
+                <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Icon className="w-3.5 h-3.5" />
                 </span>
                 <div className="min-w-0 pt-0.5">
                   <p className="text-sm font-medium leading-none">{title}</p>
@@ -126,7 +135,7 @@ export function AboutPage() {
                 key={label}
                 type="button"
                 onClick={() => openExternal(href)}
-                className="group flex items-start gap-2 rounded-lg border px-2.5 py-2 hover:bg-muted/70 transition-colors text-left w-full"
+                className="card-interactive group flex items-start gap-2 px-2.5 py-2 text-left w-full"
               >
                 <Icon
                   className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${'iconClass' in rest ? rest.iconClass : 'text-foreground/70'}`}

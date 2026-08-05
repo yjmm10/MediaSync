@@ -1,6 +1,6 @@
 {
   "name": "@mediasync/extension",
-  "version": "2.1.22",
+  "version": "3.0.1",
   "private": true,
   "description": "同步派（MediaSync）— 多平台文章一键同步 Chrome 扩展",
   "type": "module",

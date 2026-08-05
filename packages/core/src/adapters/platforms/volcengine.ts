@@ -7,6 +7,7 @@
  * ImageX：get-token → ApplyImageUpload → TOS PUT → CommitImageUpload → get-url
  */
 import { PipelineAdapter, type PublishContext } from '../pipeline'
+import { normalizeBlockquoteLineBreaks } from '../../lib/markdown-blockquote'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
 import type { PublishSchema } from '../publish-schema'
@@ -543,12 +544,14 @@ export class VolcengineAdapter extends PipelineAdapter {
     }
   }
 
-  /** 2. 内容规整：剥离本地 data URI（本版本暂不支持本地图片） */
+  /** 2. 内容规整：剥离本地 data URI + 引用块换行 */
   protected async normalizeContent(ctx: PublishContext): Promise<void> {
     await super.normalizeContent(ctx)
-    ctx.content.markdown = (ctx.content.markdown || '')
+    let markdown = (ctx.content.markdown || '')
       .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
       .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
+    markdown = normalizeBlockquoteLineBreaks(markdown)
+    ctx.content.markdown = markdown
   }
 
   /** 3. 上传图片：withVolcSession 保护下走 SharedImageCache 去重；软失败保留原 URL */

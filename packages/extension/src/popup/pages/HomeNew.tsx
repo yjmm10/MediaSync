@@ -8,6 +8,7 @@ import { MainHeader } from '../components/MainHeader'
 import { cn } from '@/lib/utils'
 import { trackPageView } from '../../lib/analytics'
 import { createLogger } from '../../lib/logger'
+import { getPlatformCategory } from '@/lib/platform-categories'
 import { getCachedUpdateInfo, dismissUpdate, type UpdateCheckResult } from '../../lib/version-check'
 import { loadMarkdownFromFiles } from '../../lib/local-markdown'
 import { pushLocalMdCache } from '../../lib/local-md-cache'
@@ -97,6 +98,7 @@ export function HomeNew() {
             id: p.id, name: p.name, icon: p.icon,
             isAuthenticated: p.isAuthenticated, username: p.username,
             homepage: p.homepage,
+            category: p.category || getPlatformCategory(p.id),
           })))
         }
       } catch {}
@@ -217,6 +219,7 @@ export function HomeNew() {
         id: p.id, name: p.name, icon: p.icon,
         isAuthenticated: p.isAuthenticated, username: p.username,
         homepage: p.homepage,
+        category: p.category || getPlatformCategory(p.id),
       }))
       setAllPlatforms(mapped)
       await loadPlatforms()
@@ -472,19 +475,22 @@ export function HomeNew() {
       {/* 状态栏：指示来源 / 实时检测 / 错误 */}
       <div
         className={cn(
-          'flex-shrink-0 flex items-center gap-1.5 px-3 py-1 border-b text-[11px] leading-4',
+          'flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-[11px] leading-4 border-b',
           statusTone === 'warn' && 'bg-amber-50 text-amber-800 border-amber-200/80',
-          statusTone === 'busy' && 'bg-blue-50 text-blue-700 border-blue-200/80',
-          statusTone === 'normal' && 'bg-muted/40 text-muted-foreground',
+          statusTone === 'busy' && 'bg-primary/[0.06] text-primary border-primary/15',
+          statusTone === 'normal' && 'bg-muted/40 text-muted-foreground border-border',
         )}
       >
         {statusTone === 'busy' && <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />}
+        {statusTone === 'normal' && (
+          <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', realtimeEffective ? 'bg-primary' : 'bg-muted-foreground/40')} />
+        )}
         <span className="truncate flex-1 min-w-0" title={statusLine}>{statusLine}</span>
         {extractError && (
           <button
             type="button"
             onClick={() => clearExtractError()}
-            className="flex-shrink-0 p-0.5 rounded hover:bg-black/5"
+            className="flex-shrink-0 p-0.5 rounded hover:bg-black/5 transition-colors"
             title="关闭提示"
           >
             <X className="w-3 h-3" />
@@ -495,18 +501,20 @@ export function HomeNew() {
       {/* Version update banner */}
       {updateInfo?.hasUpdate && updateInfo.info && (
         <div className="px-4 pt-3">
-          <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 text-sm">
+          <div className="relative overflow-hidden rounded-lg border border-primary/20 bg-gradient-to-br from-primary/[0.06] to-primary/[0.02] p-3 text-sm">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-                <Download className="w-4 h-4" />
-                <span>新版本 v{updateInfo.info.version} 可用</span>
+              <div className="flex items-center gap-2 text-primary">
+                <span className="grid place-items-center w-5 h-5 rounded-md bg-primary/15">
+                  <Download className="w-3.5 h-3.5" />
+                </span>
+                <span className="font-medium">新版本 v{updateInfo.info.version} 可用</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
                 <a
                   href={updateInfo.info.downloadUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                  className="text-xs font-medium text-primary hover:underline"
                 >
                   下载
                 </a>
@@ -518,22 +526,22 @@ export function HomeNew() {
                       setUpdateInfo(null)
                     }
                   }}
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
                   title="忽略此版本"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
             {updateInfo.info.releaseNotes && (
-              <p className="text-xs text-muted-foreground mt-1">{updateInfo.info.releaseNotes}</p>
+              <p className="text-xs text-muted-foreground mt-1.5">{updateInfo.info.releaseNotes}</p>
             )}
           </div>
         </div>
       )}
 
-      {/* 获取文章：检测当前页 / 导入本地 Markdown */}
-      <div className="px-4 py-2 flex-shrink-0 border-b">
+      {/* 获取文章：无稿为主舞台；有稿降级为紧凑次要行 */}
+      <div className={cn('px-4 flex-shrink-0 border-b border-border/70', article ? 'py-1.5' : 'py-2.5')}>
         <input
           ref={importFolderRef}
           type="file"
@@ -542,52 +550,75 @@ export function HomeNew() {
           onChange={handleImportFolderChange}
           {...({ webkitdirectory: '', directory: '' } as any)}
         />
-        <div className="flex items-stretch gap-2">
-          <button
-            type="button"
-            onClick={handleForceDetect}
-            disabled={detecting || status === 'syncing' || importing}
-            className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2 py-2 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-60"
-            title={
-              status === 'syncing'
-                ? '同步进行中，无法检测'
-                : '检测当前浏览器标签页的文章'
-            }
-          >
-            <RefreshCw className={cn('w-3.5 h-3.5', detecting && 'animate-spin')} />
-            {detecting ? '检测中…' : '检测当前页'}
-          </button>
-          <button
-            type="button"
-            onClick={handleImportMarkdown}
-            disabled={status === 'syncing' || importing}
-            className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2 py-2 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-60"
-            title="选择本地 Markdown 所在文件夹"
-          >
-            {importing ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <FolderOpen className="w-3.5 h-3.5" />
-            )}
-            {importing
-              ? importProgress && importProgress.total > 0
-                ? `导入中 ${importProgress.done}/${importProgress.total}`
-                : '导入中…'
-              : '导入 Markdown'}
-          </button>
-        </div>
+        {article ? (
+          <div className="flex items-center justify-center gap-1 text-[11px]">
+            <button
+              type="button"
+              onClick={handleForceDetect}
+              disabled={detecting || status === 'syncing' || importing}
+              className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              title="检测当前浏览器标签页的文章"
+            >
+              {detecting ? '检测中…' : '换源·检测'}
+            </button>
+            <span className="text-border">|</span>
+            <button
+              type="button"
+              onClick={handleImportMarkdown}
+              disabled={status === 'syncing' || importing}
+              className="px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              title="选择本地 Markdown 所在文件夹"
+            >
+              {importing ? '导入中…' : '导入'}
+            </button>
+            <span className="text-border">|</span>
+            <button
+              type="button"
+              onClick={() => setShowPreview(true)}
+              className="inline-flex items-center gap-0.5 px-2 py-1 rounded-md text-primary hover:bg-primary/10 transition-colors"
+            >
+              <Eye className="w-3 h-3" />
+              预览
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-stretch gap-2">
+            <button
+              type="button"
+              onClick={handleForceDetect}
+              disabled={detecting || status === 'syncing' || importing}
+              className="btn-secondary flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium"
+              title={
+                status === 'syncing'
+                  ? '同步进行中，无法检测'
+                  : '检测当前浏览器标签页的文章'
+              }
+            >
+              <RefreshCw className={cn('w-3.5 h-3.5', detecting && 'animate-spin')} />
+              {detecting ? '检测中…' : '检测当前页'}
+            </button>
+            <button
+              type="button"
+              onClick={handleImportMarkdown}
+              disabled={status === 'syncing' || importing}
+              className="btn-secondary flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium"
+              title="选择本地 Markdown 所在文件夹"
+            >
+              {importing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <FolderOpen className="w-3.5 h-3.5" />
+              )}
+              {importing
+                ? importProgress && importProgress.total > 0
+                  ? `导入中 ${importProgress.done}/${importProgress.total}`
+                  : '导入中…'
+                : '导入 Markdown'}
+            </button>
+          </div>
+        )}
         {importError && (
           <p className="mt-1.5 text-[11px] text-destructive text-center">{importError}</p>
-        )}
-        {article && (
-          <button
-            type="button"
-            onClick={() => setShowPreview(true)}
-            className="mt-1.5 w-full flex items-center justify-center gap-1 text-[11px] text-primary hover:underline"
-          >
-            <Eye className="w-3 h-3" />
-            预览当前文章
-          </button>
         )}
       </div>
 

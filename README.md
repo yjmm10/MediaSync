@@ -338,6 +338,15 @@ pnpm build
 
 ## 更新日志
 
+### v3.0.0 (2026-08-05) — 重构大版本
+
+> 适配器架构重构（`refactor/adapter-architecture`）首个稳定基线，**35+ 平台功能不变**，内部抽象与前端设计系统升级。
+
+- 🏗️ 适配器三正交维度骨架（鉴权 / 配置 / 发布解耦），20+ 平台迁移至 PipelineAdapter
+- 🎨 前端设计系统重建：扩展与官网统一品牌色 green-600，新增 `btn-brand` / `card-soft` 等 utility class
+- 🎨 平台列表选中态、进度条、计数徽章、文章识别卡精致化；About 品牌区重建
+- 📝 新增前端设计规范 `docs/ui-style-guide.md` 与版本号规范 `docs/versioning.md`
+
 ### v2.1.22 (2026-08-05)
 
 - 🔧 InfoQ：多行引用按行拆段，修复引用内换行丢失

@@ -28,13 +28,13 @@ export function SyncDialog({
   onReset,
   onCancel,
   onEditArticle,
-  onClose,
   onContinueSync,
   onDismissError,
   className,
 }: SyncDialogProps) {
   const selectedSet = new Set(selectedPlatforms)
   const failedCount = results.filter(r => !r.success).length
+  const authenticatedCount = platforms.filter(p => p.isAuthenticated).length
 
   const isIdle = status === 'idle' || status === 'loading'
   const isSyncing = status === 'syncing'
@@ -64,18 +64,15 @@ export function SyncDialog({
     <div className={cn('flex flex-col h-full min-h-0', className)}>
       {/* Scrollable content — single continuous layout */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {/* Promo banner — idle, show before article when no article */}
+        {/* Promo banner — only when no article */}
         {isIdle && !article && <PromoBanner />}
 
-        {/* Article card — compact during sync/complete */}
         <ArticleCard
           article={article}
           compact={isSyncing || isCompleted}
+          density={isIdle && article ? 'strip' : 'full'}
           onEdit={isIdle ? onEditArticle : undefined}
         />
-
-        {/* Promo banner — idle, show after article when article exists */}
-        {isIdle && article && <PromoBanner />}
 
         {/* Unified platform list — 仅检测/导入得到文章后展示 */}
         {platforms.length > 0 && article && (
@@ -95,15 +92,18 @@ export function SyncDialog({
       </div>
 
       {/* Footer */}
-      <div className="flex-shrink-0 border-t p-4 space-y-2">
+      <div className="flex-shrink-0 border-t border-border/70 bg-background/80 backdrop-blur-sm p-4 space-y-2">
         {error && (
-          <div className="rounded-lg p-3 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 flex items-start gap-2">
+          <div className="flex items-start gap-2 rounded-lg p-2.5 text-sm text-destructive bg-destructive/[0.06] border border-destructive/20">
+            <span className="grid place-items-center w-4 h-4 rounded-full bg-destructive/15 flex-shrink-0 mt-0.5">
+              <span className="block w-1 h-1 rounded-full bg-destructive" />
+            </span>
             <p className="flex-1 min-w-0 break-words">{error}</p>
             {onDismissError && (
               <button
                 type="button"
                 onClick={onDismissError}
-                className="flex-shrink-0 text-xs text-red-500/80 hover:text-red-700 dark:hover:text-red-300"
+                className="flex-shrink-0 text-xs text-destructive/70 hover:text-destructive transition-colors"
                 aria-label="关闭错误提示"
               >
                 关闭
@@ -111,12 +111,17 @@ export function SyncDialog({
             )}
           </div>
         )}
+        {isIdle && article && (
+          <p className="text-[11px] text-muted-foreground tabular-nums px-0.5">
+            已选 {selectedPlatforms.length} · 已登录 {authenticatedCount}
+          </p>
+        )}
         {isCompleted ? (
           <div className="flex gap-2">
             {failedCount > 0 && (
               <button
                 onClick={onRetryFailed}
-                className="flex-1 py-2.5 text-sm bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors"
+                className="flex-1 py-2.5 text-sm rounded-lg bg-primary/10 text-primary hover:bg-primary/15 active:translate-y-px transition-all font-medium"
               >
                 重试失败项 ({failedCount})
               </button>
@@ -124,7 +129,7 @@ export function SyncDialog({
             {onContinueSync && (
               <button
                 onClick={onContinueSync}
-                className="flex-1 py-2.5 text-sm bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors"
+                className="flex-1 py-2.5 text-sm rounded-lg bg-primary/10 text-primary hover:bg-primary/15 active:translate-y-px transition-all font-medium"
               >
                 继续同步其他平台
               </button>
@@ -132,10 +137,10 @@ export function SyncDialog({
             <button
               onClick={onReset}
               className={cn(
-                'py-2.5 rounded-lg font-medium transition-colors',
+                'py-2.5 rounded-lg font-medium transition-all active:translate-y-px',
                 failedCount > 0 || onContinueSync
-                  ? 'flex-1 bg-muted text-foreground hover:bg-muted/80'
-                  : 'w-full bg-primary text-primary-foreground hover:bg-primary/90'
+                  ? 'btn-brand flex-1'
+                  : 'btn-brand w-full'
               )}
             >
               完成
@@ -144,7 +149,7 @@ export function SyncDialog({
         ) : isSyncing ? (
           <button
             onClick={onCancel || onReset}
-            className="w-full py-2.5 rounded-lg font-medium bg-muted text-foreground hover:bg-muted/80 transition-colors"
+            className="btn-secondary w-full py-2.5 rounded-lg font-medium"
           >
             取消
           </button>
@@ -154,10 +159,8 @@ export function SyncDialog({
             onClick={onStartSync}
             disabled={!article || selectedPlatforms.length === 0}
             className={cn(
-              'w-full py-2.5 rounded-lg font-medium transition-colors',
-              !article || selectedPlatforms.length === 0
-                ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              'btn-brand w-full py-2.5 rounded-lg font-medium',
+              (!article || selectedPlatforms.length === 0) && 'opacity-90'
             )}
           >
             {!article

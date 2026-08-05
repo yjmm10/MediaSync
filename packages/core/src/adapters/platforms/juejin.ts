@@ -12,6 +12,7 @@
  *   - submit 外层由管道自动包一次（getHeaderRules 返回 HEADER_RULES，覆盖 getCsrfToken + create draft）
  */
 import { PipelineAdapter, type PublishContext } from '../pipeline'
+import { normalizeBlockquoteLineBreaks } from '../../lib/markdown-blockquote'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
 import type { PublishSchema } from '../publish-schema'
@@ -184,6 +185,12 @@ export class JuejinAdapter extends PipelineAdapter {
   // - authorize：CompositeAuthStrategy 级联 authStrategies（SwApiAuthStrategy）
   // - normalizeContent：从 platformContents[juejin] 取 markdown
   // - resolveReferences：空（P1 不拉远程分类/标签列表）
+
+  /** 2. 内容规整：引用块内非列表行加 \ 强制换行（掘金渲染需要） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.markdown = normalizeBlockquoteLineBreaks(ctx.content.markdown)
+  }
 
   /**
    * 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重 + processImages

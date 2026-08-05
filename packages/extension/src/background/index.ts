@@ -13,6 +13,7 @@ import * as wordpressAdapter from '../adapters/cms/wordpress'
 import * as metaweblogAdapter from '../adapters/cms/metaweblog'
 import { startMcpClient, stopMcpClient, getMcpStatus, mcpClient } from '../mcp/client'
 import { createLogger } from '../lib/logger'
+import { getPlatformCategory } from '../lib/platform-categories'
 import {
   upsertHistoryItem,
   mergeHistoryItem,
@@ -182,10 +183,11 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       const forceRefresh = message.payload?.forceRefresh ?? false
       const dslPlatforms = await checkAllPlatformsAuth(forceRefresh)
 
-      // 为 DSL 平台添加 sourceType
+      // 为 DSL 平台添加 sourceType + UI 分类
       const dslWithType = dslPlatforms.map((p: any) => ({
         ...p,
         sourceType: 'dsl' as const,
+        category: getPlatformCategory(p.id),
       }))
 
       // 同时加载 CMS 账户
@@ -202,6 +204,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
           username: a.username,
           sourceType: 'cms' as const,
           cmsType: a.type,
+          category: getPlatformCategory(a.id),
         }))
 
       const allPlatforms = [...dslWithType, ...cmsPlatforms]
@@ -1231,10 +1234,11 @@ chrome.runtime.onInstalled.addListener(async details => {
     const currentVersion = chrome.runtime.getManifest().version
 
     // 重要版本升级时显示更新日志
-    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4']
+    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0']
     if (
       showChangelogVersions.includes(currentVersion) ||
-      (previousVersion.startsWith('1.') && currentVersion.startsWith('2.'))
+      (previousVersion.startsWith('1.') && currentVersion.startsWith('2.')) ||
+      (previousVersion.startsWith('2.') && currentVersion.startsWith('3.'))
     ) {
       chrome.tabs.create({
         url: 'https://yjmm10.github.io/MediaSync/#changelog',

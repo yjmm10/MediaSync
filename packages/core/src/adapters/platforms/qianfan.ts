@@ -448,15 +448,15 @@ export function markdownToQianfanNodes(markdown: string): QianfanNode[] {
         quoteLines.push(lines[i].replace(/^>\s?/, ''))
         i++
       }
+      // 千帆不支持 blockquote：降级为段落 + 引用前缀（▎）
       const paras = quoteLines
         .join('\n')
         .split(/\n{2,}/)
         .map((p) => p.replace(/\n/g, ' ').trim())
         .filter(Boolean)
-      content.push({
-        type: 'blockquote',
-        children: (paras.length ? paras : ['']).map((p) => paragraphWith(parseInline(p))),
-      })
+      for (const p of (paras.length ? paras : [''])) {
+        content.push(paragraphWith(parseInline(`▎ ${p}`)))
+      }
       continue
     }
 

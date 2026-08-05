@@ -338,7 +338,7 @@ export class TencentCloudAdapter extends PipelineAdapter {
     }
   }
 
-  /** 2. 内容规整：确保 markdown 非空 + 剥离本地 data URI */
+  /** 2. 内容规整：确保 markdown 非空 + 剥离本地 data URI + 末尾空行（修复结尾引用第一行不生效） */
   protected async normalizeContent(ctx: PublishContext): Promise<void> {
     await super.normalizeContent(ctx)
     const markdown = (ctx.content.markdown || '').trim()
@@ -346,6 +346,10 @@ export class TencentCloudAdapter extends PipelineAdapter {
       throw new Error('文章内容为空（未得到 Markdown），请重试同步')
     }
     ctx.content.markdown = stripDataImages(markdown)
+    // 结尾单独引用块会导致第一行不生效：末尾补两个换行，避免紧贴 <!--/markdown-->
+    if (/(^|\n)\s*>/.test(ctx.content.markdown)) {
+      ctx.content.markdown = ctx.content.markdown.replace(/\s*$/, '\n\n')
+    }
   }
 
   /** 3. 上传图片：withCommunitySession 保护下走 SharedImageCache 去重 + processImages */

@@ -4,26 +4,31 @@
 
 @layer base {
   :root {
+    /* 中性色：偏中性的 slate，避免过冷蓝调 */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 222 47% 11%;
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --primary: 142.1 76.2% 36.3%;
-    --primary-foreground: 355.7 100% 97.3%;
+    --border: 220 20% 92%;
+    --input: 220 20% 92%;
+
+    /* 主色：与官网 site/index.html 对齐（green-600 #16a34a 系） */
+    --primary: 142 72% 36%;
+    --primary-strong: 142 76% 30%;
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 138 76% 96%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
+    --accent: 142 70% 95%;
+    --accent-foreground: 142 70% 28%;
+    --destructive: 0 78% 56%;
     --destructive-foreground: 210 40% 98%;
-    --ring: 142.1 76.2% 36.3%;
-    --radius: 0.5rem;
+    --ring: 152 62% 40%;
+    --radius: 0.625rem;
   }
 }
 
@@ -31,10 +36,15 @@
   * {
     @apply border-border;
   }
+  html, body, #root {
+    height: 100%;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     width: 380px;
     min-height: 500px;
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
   }
   /* 侧边栏模式：撑满浏览器侧边栏（由 src/sidepanel/index.html 的 body.side-panel 触发） */
   body.side-panel {
@@ -49,4 +59,119 @@
     height: 100%;
     min-height: 100%;
   }
+}
+
+@layer components {
+  /* 品牌主按钮：渐变 + 柔和阴影，用于核心 CTA */
+  .btn-brand {
+    @apply relative overflow-hidden bg-gradient-to-b from-primary to-primary-strong
+           text-primary-foreground shadow-[0_1px_2px_rgba(20,40,30,0.10),0_4px_12px_-2px_rgba(22,163,74,0.30)]
+           transition-all duration-150
+           hover:shadow-[0_1px_2px_rgba(20,40,30,0.12),0_6px_16px_-2px_rgba(22,163,74,0.40)]
+           hover:-translate-y-px
+           active:translate-y-0 active:translate-y-0
+           disabled:from-muted-foreground/30 disabled:to-muted-foreground/30
+           disabled:shadow-none disabled:translate-y-0 disabled:text-muted-foreground;
+  }
+  /* 高光：鼠标悬停时划过按钮顶部 */
+  .btn-brand::before {
+    content: "";
+    @apply pointer-events-none absolute inset-x-0 top-0 h-1/2
+           bg-gradient-to-b from-white/15 to-transparent opacity-0 transition-opacity duration-150;
+  }
+  .btn-brand:not(:disabled):hover::before {
+    @apply opacity-100;
+  }
+
+  /* 次级按钮：白底 + 精致描边 + 微阴影 */
+  .btn-secondary {
+    @apply bg-background border border-border text-foreground
+           shadow-[0_1px_2px_rgba(15,23,42,0.04)]
+           transition-all duration-150
+           hover:bg-muted hover:border-border/80 hover:shadow-[0_2px_4px_rgba(15,23,42,0.06)]
+           active:translate-y-px
+           disabled:opacity-60 disabled:shadow-none disabled:translate-y-0;
+  }
+
+  /* 卡片层次：subtle shadow + 更柔和的边框 */
+  .card-soft {
+    @apply bg-card border border-border/70 rounded-lg
+           shadow-[0_1px_2px_rgba(15,23,42,0.04)];
+  }
+  .card-interactive {
+    @apply card-soft transition-all duration-150
+           hover:shadow-[0_2px_8px_-2px_rgba(15,23,42,0.08)]
+           hover:border-border;
+  }
+
+  /* 平台分组入场：短位移，不拖慢首屏反馈 */
+  .platform-group-enter {
+    animation: platform-group-in 150ms ease-out both;
+  }
+}
+
+@keyframes platform-group-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .platform-group-enter {
+    animation: none;
+  }
+}
+
+@layer utilities {
+  /* 文本渐变：用于品牌字 */
+  .text-brand-gradient {
+    @apply bg-gradient-to-br from-primary to-primary-strong bg-clip-text text-transparent;
+  }
+  /* 滚动条美化 */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.4);
+  }
+}
+
+/* 全局滚动条：所有可滚动容器默认更细更柔和 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(220 20% 88%) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(220 20% 90%);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(220 14% 82%);
+  background-clip: content-box;
 }
