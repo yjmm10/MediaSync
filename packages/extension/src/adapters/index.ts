@@ -3,11 +3,14 @@
  */
 import {
   adapterRegistry,
+  mergeParams,
   type PlatformAdapter,
   type PlatformMeta,
   type Article,
+  type PublishParams,
   type SyncResult,
 } from '@mediasync/core'
+import { getSavedParams } from '../lib/platform-settings'
 import { createExtensionRuntime } from '../runtime/extension'
 import { createLogger } from '../lib/logger'
 import {
@@ -484,7 +487,7 @@ export interface SyncCallbacks {
 export async function syncToPlatform(
   platformId: string,
   article: Article,
-  options?: { draftOnly?: boolean },
+  options?: { draftOnly?: boolean; params?: PublishParams },
   onImageProgress?: ImageProgressCallback
 ): Promise<SyncResult> {
   const adapter = await getAdapter(platformId)
@@ -510,10 +513,16 @@ export async function syncToPlatform(
       }
     }
 
+    // P3: 合并发布参数（适配器 publishDefaults ⊕ 用户保存 ⊕ 本次覆盖）
+    const profile = adapterRegistry.getProfile(platformId)
+    const saved = await getSavedParams(platformId).catch(() => undefined)
+    const params = mergeParams(profile?.publishDefaults, saved, options?.params)
+
     // 默认只保存草稿，带超时保护
     return await withTimeout(
       adapter.publish(platformArticle, {
         draftOnly: options?.draftOnly ?? true,
+        params,
         onImageProgress: onImageProgress
           ? (current: number, total: number) => onImageProgress(platformId, current, total)
           : undefined,

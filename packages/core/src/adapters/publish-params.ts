@@ -87,3 +87,32 @@ export interface PublishRequest {
   /** 对话框顶部一次性模式默认，不持久化为全局配置 */
   defaultMode?: PublishMode
 }
+
+/**
+ * 合并多源 PublishParams（高优先级覆盖低优先级）
+ *
+ * 优先级（高 → 低）：override（本次覆盖）> saved（用户保存）> defaults（适配器声明）
+ * extra 字段深合并（微信图文专属字段叠加，避免覆盖丢失）。
+ *
+ * undefined 值不覆盖（允许上层"未设置"下传到下层）。
+ */
+export function mergeParams(
+  defaults?: PublishParams,
+  saved?: PublishParams,
+  override?: PublishParams,
+): PublishParams {
+  const hasExtra = defaults?.extra || saved?.extra || override?.extra
+  const merged: PublishParams = {
+    ...defaults,
+    ...saved,
+    ...override,
+  }
+  if (hasExtra) {
+    merged.extra = {
+      ...(defaults?.extra ?? {}),
+      ...(saved?.extra ?? {}),
+      ...(override?.extra ?? {}),
+    }
+  }
+  return merged
+}
