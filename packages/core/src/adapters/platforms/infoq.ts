@@ -243,21 +243,18 @@ export function markdownToInfoqDoc(markdown: string): InfoqNode {
       continue
     }
 
-    // 引用
+    // 引用：每行一个 paragraph，保留空 > 行
     if (/^>\s?/.test(line)) {
       const quoteLines: string[] = []
       while (i < lines.length && /^>\s?/.test(lines[i])) {
         quoteLines.push(lines[i].replace(/^>\s?/, ''))
         i++
       }
-      const paras = quoteLines
-        .join('\n')
-        .split(/\n{2,}/)
-        .map((p) => p.replace(/\n/g, ' ').trim())
-        .filter(Boolean)
       content.push({
         type: 'blockquote',
-        content: (paras.length ? paras : ['']).map((p) => paragraphWith(parseInline(p))),
+        content: (quoteLines.length ? quoteLines : ['']).map((p) =>
+          paragraphWith(parseInline(p))
+        ),
       })
       continue
     }
@@ -557,16 +554,64 @@ export class InfoqAdapter extends CodeAdapter {
       return { url: src }
     }
 
+    // data:/blob: 只能走 base64；https 先 urls，失败再下载后 base64
+    if (/^data:/i.test(src) || /^blob:/i.test(src)) {
+      const url = await this.uploadViaBase64(src)
+      return { url }
+    }
+
+    if (/^https?:\/\//i.test(src)) {
+      try {
+        const url = await this.uploadViaUrls(src)
+        return { url }
+      } catch (error) {
+        logger.debug('upload/urls failed, fallback to base64:', error)
+      }
+      const url = await this.uploadViaBase64(src)
+      return { url }
+    }
+
+    const url = await this.uploadViaBase64(src)
+    return { url }
+  }
+
+  /** 公网 URL 转存（服务端拉图） */
+  private async uploadViaUrls(src: string): Promise<string> {
     const data = await this.apiPost<Array<{ src?: string; result?: string }>>(
       `${BASE}/api/v1/upload/urls`,
       { urls: [src] }
     )
-
     const result = data?.[0]?.result
     if (!result) {
       throw new Error('图片转存失败')
     }
-    return { url: result }
+    return result
+  }
+
+  /** 本地下载后 base64 上传（支持 data URI / 防盗链外链） */
+  private async uploadViaBase64(src: string): Promise<string> {
+    const imgRes = await this.runtime.fetch(src, { credentials: 'omit' })
+    if (!imgRes.ok) {
+      throw new Error(`下载图片失败: ${imgRes.status}`)
+    }
+    const blob = await imgRes.blob()
+    const mime = blob.type || 'image/png'
+    const buffer = await blob.arrayBuffer()
+    const bytes = new Uint8Array(buffer)
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]!)
+    }
+    const b64 = btoa(binary)
+    const file = `data:${mime};base64,${b64}`
+
+    const data = await this.apiPost<{ url?: string }>(`${BASE}/api/v1/upload/base64`, {
+      file,
+    })
+    if (!data?.url) {
+      throw new Error('图片转存失败')
+    }
+    return data.url
   }
 
   private async fetchUser(): Promise<InfoqUserData | null> {

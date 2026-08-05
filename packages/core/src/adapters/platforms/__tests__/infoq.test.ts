@@ -122,6 +122,25 @@ describe('markdownToInfoqDoc', () => {
     expect(html).toContain('<td>c</td>')
   })
 
+  it('converts multi-line blockquote to separate paragraphs', () => {
+    const doc = markdownToInfoqDoc('> 第一行\n> 第二行')
+    const node = doc.content?.[0]
+    expect(node?.type).toBe('blockquote')
+    expect(node?.content?.length).toBe(2)
+    expect(node?.content?.[0].content?.[0]).toEqual({ type: 'text', text: '第一行' })
+    expect(node?.content?.[1].content?.[0]).toEqual({ type: 'text', text: '第二行' })
+  })
+
+  it('keeps empty quote line as empty paragraph', () => {
+    const doc = markdownToInfoqDoc('> a\n>\n> b')
+    const node = doc.content?.[0]
+    expect(node?.type).toBe('blockquote')
+    expect(node?.content?.length).toBe(3)
+    expect(node?.content?.[0].content?.[0]).toEqual({ type: 'text', text: 'a' })
+    expect(node?.content?.[1].content?.length ?? 0).toBe(0)
+    expect(node?.content?.[2].content?.[0]).toEqual({ type: 'text', text: 'b' })
+  })
+
   it('converts image to image node', () => {
     const doc = markdownToInfoqDoc('![图](https://example.com/a.png)')
     expect(doc.content?.[0]).toMatchObject({
