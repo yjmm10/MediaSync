@@ -14,9 +14,10 @@
  *
  * 结构已对照真实网络请求校准（含文字段落 + upload/token 响应）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Meipian')
@@ -189,7 +190,7 @@ function buildMeipianBlocks(html: string): MeipianBlock[] {
   return filtered
 }
 
-export class MeipianAdapter extends CodeAdapter {
+export class MeipianAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'meipian',
     name: '美篇',
@@ -202,6 +203,23 @@ export class MeipianAdapter extends CodeAdapter {
     outputFormat: 'html' as const,
     processCodeBlocks: true,
     compactHtml: true,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual'] },
+      {
+        kind: 'visibility',
+        key: 'visibility',
+        label: '可见性',
+        options: [
+          { value: 'public', label: '公开' },
+          { value: 'private', label: '仅自己可见' },
+        ],
+      },
+      { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
+    ],
   }
 
   private readonly HEADER_RULES: HeaderRule[] = [
@@ -350,101 +368,124 @@ export class MeipianAdapter extends CodeAdapter {
     return this.parseUserInfo(res)
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting publish...')
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        const token = await this.resolveToken()
-        const user =
-          (await this.fetchUserInfo(token)) ||
-          this.cachedUser ||
-          (await this.readPageSession()).user
-        if (!user?.id) {
-          throw new Error('无法获取美篇用户信息，请重新登录')
-        }
-        this.cachedUser = user
+  // ============ 管道钩子 ============
 
-        let html = (article.html || '').trim()
-        if (!html) {
-          throw new Error('文章内容为空')
-        }
+  /** 1. 鉴权：resolveToken + fetchUserInfo（确保 cachedUser 已获取） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const token = await this.resolveToken()
+      const user =
+        (await this.fetchUserInfo(token)) ||
+        this.cachedUser ||
+        (await this.readPageSession()).user
+      if (!user?.id) {
+        throw new Error('无法获取美篇用户信息，请重新登录')
+      }
+      this.cachedUser = user
+    })
+  }
 
-        // 统一单引号 src，便于 processImages 提取
-        html = html.replace(/<img\b([^>]*?)\bsrc\s*=\s*'([^']*)'/gi, '<img$1src="$2"')
-
-        html = await this.processImages(
-          html,
-          (src) => this.uploadImageByUrl(src),
-          {
-            skipPatterns: MEIPIAN_CDN_SKIP,
-            onProgress: options?.onImageProgress,
-          }
-        )
-
-        const contents = buildMeipianBlocks(html)
-        const title = (article.title || '').trim() || '无标题'
-        const draftOnly = options?.draftOnly ?? true
-
-        // 封面：外链图先转存；无封面时用正文第一张图
-        let coverUrl = article.cover || ''
-        if (coverUrl && !MEIPIAN_CDN_SKIP.some((p) => coverUrl.includes(p))) {
-          try {
-            const up = await this.uploadImageByUrl(coverUrl)
-            coverUrl = up.url
-          } catch (error) {
-            logger.warn('cover re-upload failed, use original:', error)
-          }
-        }
-        if (!coverUrl) {
-          coverUrl = contents.find((b) => b.img_url)?.img_url || ''
-        }
-
-        const payload = {
-          article: {
-            cover_img_url: coverUrl,
-            cover_crop: '',
-            theme: 0,
-            origin_status: 0,
-            // 1=公开。美篇无独立草稿箱，privacy=3 会变成「仅作者可见/私密」，故统一公开
-            privacy: 1,
-            state: 0,
-            has_reward: 2,
-            enable_comment: 1,
-            create_time: Math.floor(Date.now() / 1000),
-            visit_count: 0,
-            text_pos: 2,
-            title,
-            user_id: user.id,
-            music_url: '',
-            music_id: 0,
-            music_desc: '',
-            music_source: 1,
-            rich_text_title: '',
-          },
-          contents,
-          censor_token: {
-            ua_token: '',
-            web_umid_token: '',
-            sm_token: '',
-            yd_token: '',
-          },
-          sensors_properties: {
-            entrance: 'article_pc',
-          },
-        }
-
-        const maskId = await this.createArticle(token, payload)
-        return this.createResult(true, {
-          postId: maskId,
-          postUrl: `https://www.meipian.cn/${maskId}`,
-          draftOnly,
-        })
-      })
-    } catch (error) {
-      return this.createResult(false, { error: (error as Error).message })
-    } finally {
-      await this.releaseEphemeralTabs()
+  /** 2. 内容规整：统一单引号 src，便于 processImages 提取 */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    if (!(ctx.content.html || '').trim()) {
+      throw new Error('文章内容为空')
     }
+    ctx.content.html = ctx.content.html.replace(
+      /<img\b([^>]*?)\bsrc\s*=\s*'([^']*)'/gi,
+      '<img$1src="$2"',
+    )
+  }
+
+  /** 3. 上传图片 + 封面（外链转存或正文首图） */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: MEIPIAN_CDN_SKIP,
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+
+      // 封面：外链图先转存；无封面时用正文第一张图
+      let coverUrl = ctx.article.cover || ''
+      if (coverUrl && !MEIPIAN_CDN_SKIP.some((p) => coverUrl.includes(p))) {
+        try {
+          const up = await this.uploadImageByUrl(coverUrl)
+          coverUrl = up.url
+        } catch (error) {
+          logger.warn('cover re-upload failed, use original:', error)
+        }
+      }
+      if (!coverUrl) {
+        const contents = buildMeipianBlocks(ctx.content.html)
+        coverUrl = contents.find((b) => b.img_url)?.img_url || ''
+      }
+      ctx.refs.coverUrl = coverUrl
+    })
+  }
+
+  /** 5. 构建 createOrUpdate 请求体（buildMeipianBlocks + article + censor_token） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const contents = buildMeipianBlocks(ctx.content.html)
+    const title = (ctx.article.title || '').trim() || '无标题'
+    const coverUrl = (ctx.refs.coverUrl as string) ?? ''
+    ctx.payload = {
+      article: {
+        cover_img_url: coverUrl,
+        cover_crop: '',
+        theme: 0,
+        origin_status: 0,
+        // 1=公开。美篇无独立草稿箱，privacy=3 会变成「仅作者可见/私密」，故统一公开
+        privacy: 1,
+        state: 0,
+        has_reward: 2,
+        enable_comment: 1,
+        create_time: Math.floor(Date.now() / 1000),
+        visit_count: 0,
+        text_pos: 2,
+        title,
+        user_id: this.cachedUser?.id,
+        music_url: '',
+        music_id: 0,
+        music_desc: '',
+        music_source: 1,
+        rich_text_title: '',
+      },
+      contents,
+      censor_token: {
+        ua_token: '',
+        web_umid_token: '',
+        sm_token: '',
+        yd_token: '',
+      },
+      sensors_properties: {
+        entrance: 'article_pc',
+      },
+    }
+  }
+
+  /** 6. 提交：createArticle（SW 失败由内部页面回退） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const token = await this.resolveToken()
+    const maskId = await this.createArticle(token, ctx.payload as Record<string, unknown>)
+    return this.createResult(true, {
+      postId: maskId,
+      postUrl: `https://www.meipian.cn/${maskId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
   }
 
   /**

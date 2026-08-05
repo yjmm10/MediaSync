@@ -11,9 +11,10 @@
  *
  * 默认仅草稿；正式发布需用户在创作者中心手动完成。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Xiaohongshu')
@@ -446,7 +447,7 @@ function buildArticleDraftRow(opts: {
   }
 }
 
-export class XiaohongshuAdapter extends CodeAdapter {
+export class XiaohongshuAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'xiaohongshu',
     name: '小红书',
@@ -460,6 +461,22 @@ export class XiaohongshuAdapter extends CodeAdapter {
     processCodeBlocks: true,
     processLazyImages: true,
     removeEmptyElements: true,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual'] },
+      {
+        kind: 'visibility',
+        key: 'visibility',
+        label: '可见性',
+        options: [
+          { value: 'public', label: '公开' },
+          { value: 'private', label: '仅自己可见' },
+        ],
+      },
+    ],
   }
 
   private readonly HEADER_RULES: HeaderRule[] = [
@@ -517,60 +534,85 @@ export class XiaohongshuAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting publish (long-article draft)...')
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        const user = await this.resolveUser()
-        if (!user?.userId) {
-          throw new Error('请先登录小红书创作者中心')
-        }
+  // ============ 管道钩子 ============
 
-        let html = (article.html || '').trim()
-        if (!html) {
-          throw new Error('文章内容为空')
-        }
+  /** 1. 鉴权：resolveUser 确保登录 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const user = await this.resolveUser()
+      if (!user?.userId) {
+        throw new Error('请先登录小红书创作者中心')
+      }
+    })
+  }
 
-        this.imageMeta.clear()
-        html = await this.processImages(html, (src) => this.uploadImageByUrl(src), {
-          skipPatterns: ['xhscdn.com', 'xiaohongshu.com', 'ros-preview'],
-          onProgress: options?.onImageProgress,
-        })
-
-        let title = (article.title || '').trim() || '无标题'
-        if (title.length > TITLE_MAX) {
-          logger.warn(`标题超长 ${title.length}/${TITLE_MAX}，已截断`)
-          title = title.slice(0, TITLE_MAX)
-        }
-
-        let richJson = htmlToRichJson(html, this.imageMeta)
-        const charsBefore = countRichTextChars(richJson)
-        if (charsBefore > CONTENT_MAX) {
-          logger.warn(`正文超长 ${charsBefore}/${CONTENT_MAX}，已截断`)
-          richJson = truncateRichJson(richJson, CONTENT_MAX)
-        }
-
-        const draftId = makeDraftId()
-        const row = buildArticleDraftRow({
-          draftId,
-          uid: user.userId,
-          title,
-          richJson,
-        })
-
-        await this.writeArticleDraft(row)
-
-        return this.createResult(true, {
-          postId: draftId,
-          postUrl: POST_SUCCESS_URL,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      return this.createResult(false, { error: (error as Error).message })
-    } finally {
-      await this.releaseEphemeralTabs()
+  /** 2. 内容规整：确保非空 + 标题截断 */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    if (!(ctx.content.html || '').trim()) {
+      throw new Error('文章内容为空')
     }
+    let title = (ctx.article.title || '').trim() || '无标题'
+    if (title.length > TITLE_MAX) {
+      logger.warn(`标题超长 ${title.length}/${TITLE_MAX}，已截断`)
+      title = title.slice(0, TITLE_MAX)
+    }
+    ctx.refs.title = title
+  }
+
+  /** 3. 上传图片（清空 imageMeta 重新收集，供 htmlToRichJson 使用宽高） */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      this.imageMeta.clear()
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['xhscdn.com', 'xiaohongshu.com', 'ros-preview'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
+
+  /** 5. 构建 draft row（HTML → ProseMirror richJson + 截断） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const title = (ctx.refs.title as string) ?? ((ctx.article.title || '').trim() || '无标题')
+    let richJson = htmlToRichJson(ctx.content.html, this.imageMeta)
+    const charsBefore = countRichTextChars(richJson)
+    if (charsBefore > CONTENT_MAX) {
+      logger.warn(`正文超长 ${charsBefore}/${CONTENT_MAX}，已截断`)
+      richJson = truncateRichJson(richJson, CONTENT_MAX)
+    }
+    const draftId = makeDraftId()
+    const row = buildArticleDraftRow({
+      draftId,
+      uid: this.userInfo?.userId || '',
+      title,
+      richJson,
+    })
+    ctx.payload = { draftId, row }
+  }
+
+  /** 6. 提交：writeArticleDraft（写入 IndexedDB） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const payload = ctx.payload as { draftId: string; row: Record<string, unknown> }
+    await this.writeArticleDraft(payload.row)
+    return this.createResult(true, {
+      postId: payload.draftId,
+      postUrl: POST_SUCCESS_URL,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
   }
 
   private async resolveUser(): Promise<XhsUserInfo> {
