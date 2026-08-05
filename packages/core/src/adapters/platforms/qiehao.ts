@@ -1,17 +1,16 @@
 /**
- * 企鹅号（腾讯内容开放平台）适配器
+ * 企鹅号（腾讯内容开放平台）适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：initInfo 鉴权（SW + 页面回退）+ orginalupload 图床 +
+ * 列表转 ex-editor 嵌套格式 + omSave 草稿全部保留。
+ * checkAuth 重写（保留 refreshSession + refreshSessionViaPage + releaseEphemeralTabs 原逻辑）。
  *
  * 创作页：https://om.qq.com/main/creation/article
- * 内容管理：https://om.qq.com/main/management/articleManage（未发布 = 草稿）
- * 鉴权：GET /marticle/creation/initInfo（Cookie）；SW 失败时回退页面上下文
- * 图片：POST /image/orginalupload（multipart Filedata）
- * 草稿：POST /marticlepublish/omSave（JSON，不调用 omPublish）
- *
- * 端点与字段基于创作页实际网络请求与前端包实测。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Qiehao')
@@ -49,7 +48,7 @@ interface OmSaveData {
   articleId?: string
 }
 
-export class QiehaoAdapter extends CodeAdapter {
+export class QiehaoAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'qiehao',
     name: '企鹅号',
@@ -62,11 +61,21 @@ export class QiehaoAdapter extends CodeAdapter {
     outputFormat: 'html' as const,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
+    ],
+  }
+
   private mediaId: string | null = null
   private mediaName: string | null = null
   private avatar: string | null = null
 
-  private readonly HEADER_RULES: HeaderRule[] = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://om.qq.com/*',
       headers: {
@@ -84,6 +93,8 @@ export class QiehaoAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 SW + 页面回退原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -125,127 +136,150 @@ export class QiehaoAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting draft save...')
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        if (!this.mediaId) {
-          const ok = (await this.refreshSession()) || (await this.refreshSessionViaPage())
-          if (!ok || !this.mediaId) {
-            throw new Error(
-              '未登录企鹅号。请先在浏览器打开并登录 https://om.qq.com/main/creation/article'
-            )
-          }
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：refreshSession（SW）失败再 refreshSessionViaPage（页面回退） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      if (!this.mediaId) {
+        const ok = (await this.refreshSession()) || (await this.refreshSessionViaPage())
+        if (!ok || !this.mediaId) {
+          throw new Error(
+            '未登录企鹅号。请先在浏览器打开并登录 https://om.qq.com/main/creation/article'
+          )
         }
+      }
+    })
+  }
 
-        // 创作页标题：5–64 字；超长截断，过短报错
-        let title = (article.title || '').trim()
-        if (title.length < 5) {
-          throw new Error('企鹅号标题至少 5 个字')
-        }
-        if (title.length > 64) {
-          title = title.slice(0, 64)
-          logger.info('Title truncated to 64 chars')
-        }
+  /** 2. 内容规整：img src 统一双引号（processImages 只匹配双引号） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.html = ctx.content.html.replace(
+      /<img\b([^>]*?)\bsrc\s*=\s*'([^']*)'/gi,
+      '<img$1src="$2"',
+    )
+  }
 
-        let content = article.html || ''
-        content = content.replace(/<img\b([^>]*?)\bsrc\s*=\s*'([^']*)'/gi, '<img$1src="$2"')
-        content = await this.processImages(
-          content,
-          (src) => this.uploadImageByUrl(src),
-          {
-            skipPatterns: ['inews.gtimg.com', 'om.qq.com', 'image.om.qq.com', 'puui.qpic.cn'],
-            onProgress: options?.onImageProgress,
-          }
-        )
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['inews.gtimg.com', 'om.qq.com', 'image.om.qq.com', 'puui.qpic.cn'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
 
-        // 嵌套列表 → 兄弟结构，减轻二级缩进被 ex-editor 拆平
-        content = this.transformContent(content)
+  /** 5. 构建 omSave 请求体（标题校验 + 列表转 ex-editor 嵌套格式） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    // 创作页标题：5–64 字；超长截断，过短报错
+    let title = (ctx.article.title || '').trim()
+    if (title.length < 5) {
+      throw new Error('企鹅号标题至少 5 个字')
+    }
+    if (title.length > 64) {
+      title = title.slice(0, 64)
+      logger.info('Title truncated to 64 chars')
+    }
 
-        // 对齐创作页 editorCache / omSave 字段
-        const payload: Record<string, unknown> = {
-          title,
-          title2: '',
-          tag: '',
-          video: '',
-          cover_type: '1',
-          imgurl_ext: '[]',
-          category_id: '',
-          content: `${content}<div powered-by="ex-editor"></div>`,
-          orignal: 0,
-          user_original: 0,
-          music: '',
-          activity: '',
-          apply_olympic_flag: 0,
-          apply_push_flag: 0,
-          apply_reward_flag: 0,
-          reward_flag: 0,
-          survey_id: '',
-          survey_name: '',
-          imgurlsrc: null,
-          om_activity_id: '',
-          om_activity_name: '',
-          activityInfo: '',
-          commercialization_source: '',
-          caimaiInfo: '',
-          isHowto: '0',
-          howtoInfo: '',
-          daihuoInfo: '',
-          novel: '',
-          needpub: 1,
-          event_id: '',
-          event_name: '',
-          activity_scene_id: 0,
-          hotBreak: '',
-          self_declare: '',
-          resource_aigc_mark_info: '{}',
-          parent_article_id: '',
-          conclusion: '',
-          summary: '',
-          failedImage: 0,
-          adContentImgs: [],
-          mediaId: Number(this.mediaId) || this.mediaId,
-          // 前端部分路径会写 media=mediaId，一并带上避免归属异常
-          media: Number(this.mediaId) || this.mediaId,
-          type: 0,
-          articleId: '',
-        }
+    // 嵌套列表 → 兄弟结构，减轻二级缩进被 ex-editor 拆平
+    const content = this.transformContent(ctx.content.html)
 
-        const res = await this.postJson<OmResponse<OmSaveData>>(
-          `${ORIGIN}/marticlepublish/omSave?relogin=1`,
-          payload,
-          {
-            Accept: 'application/json, text/plain, */*',
-            'X-Requested-With': 'XMLHttpRequest',
-          }
-        )
-
-        const code = res.response?.code
-        if (code !== 0 && code !== '0') {
-          throw new Error(res.response?.msg || `存草稿失败: ${JSON.stringify(res)}`)
-        }
-
-        const articleId = res.data?.articleId
-        if (!articleId) {
-          throw new Error('存草稿成功但未返回 articleId')
-        }
-
-        // 未发布稿的 page.om.qq.com 预览链常不可用；回创作编辑页才能打开草稿
-        const postUrl = `${CREATION_URL}?articleId=${encodeURIComponent(articleId)}`
-        return this.createResult(true, {
-          postId: articleId,
-          postUrl,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
-    } finally {
-      await this.releaseEphemeralTabs()
+    ctx.payload = {
+      title,
+      title2: '',
+      tag: '',
+      video: '',
+      cover_type: '1',
+      imgurl_ext: '[]',
+      category_id: '',
+      content: `${content}<div powered-by="ex-editor"></div>`,
+      orignal: 0,
+      user_original: 0,
+      music: '',
+      activity: '',
+      apply_olympic_flag: 0,
+      apply_push_flag: 0,
+      apply_reward_flag: 0,
+      reward_flag: 0,
+      survey_id: '',
+      survey_name: '',
+      imgurlsrc: null,
+      om_activity_id: '',
+      om_activity_name: '',
+      activityInfo: '',
+      commercialization_source: '',
+      caimaiInfo: '',
+      isHowto: '0',
+      howtoInfo: '',
+      daihuoInfo: '',
+      novel: '',
+      needpub: 1,
+      event_id: '',
+      event_name: '',
+      activity_scene_id: 0,
+      hotBreak: '',
+      self_declare: '',
+      resource_aigc_mark_info: '{}',
+      parent_article_id: '',
+      conclusion: '',
+      summary: '',
+      failedImage: 0,
+      adContentImgs: [],
+      mediaId: Number(this.mediaId) || this.mediaId,
+      // 前端部分路径会写 media=mediaId，一并带上避免归属异常
+      media: Number(this.mediaId) || this.mediaId,
+      type: 0,
+      articleId: '',
     }
   }
+
+  /** 6. 提交：marticlepublish/omSave */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const res = await this.postJson<OmResponse<OmSaveData>>(
+      `${ORIGIN}/marticlepublish/omSave?relogin=1`,
+      ctx.payload as Record<string, unknown>,
+      {
+        Accept: 'application/json, text/plain, */*',
+        'X-Requested-With': 'XMLHttpRequest',
+      }
+    )
+
+    const code = res.response?.code
+    if (code !== 0 && code !== '0') {
+      throw new Error(res.response?.msg || `存草稿失败: ${JSON.stringify(res)}`)
+    }
+
+    const articleId = res.data?.articleId
+    if (!articleId) {
+      throw new Error('存草稿成功但未返回 articleId')
+    }
+
+    // 未发布稿的 page.om.qq.com 预览链常不可用；回创作编辑页才能打开草稿
+    const postUrl = `${CREATION_URL}?articleId=${encodeURIComponent(articleId)}`
+    return this.createResult(true, {
+      postId: articleId,
+      postUrl,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 列表转换 / 图片上传 / 鉴权（保持原样）============
 
   /**
    * 企鹅号内容变换：目前仅处理列表为 ex-editor 嵌套格式（公式/代码块不改）。

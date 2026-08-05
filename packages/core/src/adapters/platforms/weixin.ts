@@ -1,9 +1,14 @@
 /**
- * 微信公众号适配器
+ * 微信公众号适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移（首版保持现状，不声明 publishSchema、不激活配置）：
+ * 首页 HTML 解析鉴权 + 同源 rawHtml 跳过处理 + processLatex/stripExternalLinks +
+ * filetransfer 图床 + normalizeWeixinHtml + juice 内联 CSS + operate_appmsg create 全部保留。
+ * checkAuth 重写（保留 HTML 解析 + 设 weixinMeta 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
 import { createLogger } from '../../lib/logger'
 import juice from 'juice'
 import { normalizeWeixinHtml } from './weixin-html'
@@ -48,7 +53,7 @@ i, cite, em, var, address { font-style: italic; }
 b, strong { font-weight: bolder; }
 `
 
-export class WeixinAdapter extends CodeAdapter {
+export class WeixinAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'weixin',
     name: '微信公众号',
@@ -65,10 +70,12 @@ export class WeixinAdapter extends CodeAdapter {
     compactHtml: true,
   }
 
+  // 首版保持现状，不声明 publishSchema（P3 再做完整 Schema）
+
   private weixinMeta: WeixinMeta | null = null
 
   /** 微信公众号 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://mp.weixin.qq.com/cgi-bin/*',
       headers: {
@@ -78,6 +85,8 @@ export class WeixinAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 HTML 解析 + 设 weixinMeta 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -136,142 +145,182 @@ export class WeixinAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
+  // ============ 管道钩子 ============
 
-      if (!this.weixinMeta) {
-        const auth = await this.checkAuth()
-        if (!auth.isAuthenticated) {
-          throw new Error('请先登录微信公众号')
-        }
+  /** 1. 鉴权：确保 weixinMeta 已获取 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.weixinMeta) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录微信公众号')
       }
-
-      // 微信到微信：使用原始 HTML，跳过所有处理
-      let content = (article.source?.platform === 'weixin' && (article as any).rawHtml)
-        ? (article as any).rawHtml
-        : (article.html || '')
-
-      if (article.source?.platform === 'weixin') {
-        logger.info('Source is WeChat, using raw HTML, skipping content processing')
-      } else {
-        content = this.processLatex(content)
-        content = this.stripExternalLinks(content)
-        content = await this.processImages(
-          content,
-          (src) => this.uploadImageByUrl(src),
-          {
-            skipPatterns: ['mmbiz.qpic.cn', 'mmbiz.qlogo.cn'],
-            onProgress: options?.onImageProgress,
-          }
-        )
-        content = normalizeWeixinHtml(content)
-        content = this.processContent(content)
-      }
-
-      const formData = new URLSearchParams({
-        token: this.weixinMeta!.token,
-        lang: 'zh_CN',
-        f: 'json',
-        ajax: '1',
-        random: String(Math.random()),
-        AppMsgId: '',
-        count: '1',
-        data_seq: '0',
-        operate_from: 'Chrome',
-        isnew: '0',
-        ad_video_transition0: '',
-        can_reward0: '0',
-        related_video0: '',
-        is_video_recommend0: '-1',
-        title0: article.title,
-        author0: '',
-        writerid0: '0',
-        fileid0: '',
-        digest0: '',
-        auto_gen_digest0: '1',
-        content0: content,
-        sourceurl0: '',
-        need_open_comment0: '1',
-        only_fans_can_comment0: '0',
-        cdn_url0: '',
-        cdn_235_1_url0: '',
-        cdn_1_1_url0: '',
-        cdn_url_back0: '',
-        crop_list0: '',
-        music_id0: '',
-        video_id0: '',
-        voteid0: '',
-        voteismlt0: '',
-        supervoteid0: '',
-        cardid0: '',
-        cardquantity0: '',
-        cardlimit0: '',
-        vid_type0: '',
-        show_cover_pic0: '0',
-        shortvideofileid0: '',
-        copyright_type0: '0',
-        releasefirst0: '',
-        platform0: '',
-        reprint_permit_type0: '',
-        allow_reprint0: '',
-        allow_reprint_modify0: '',
-        original_article_type0: '',
-        ori_white_list0: '',
-        free_content0: '',
-        fee0: '0',
-        ad_id0: '',
-        guide_words0: '',
-        is_share_copyright0: '0',
-        share_copyright_url0: '',
-        source_article_type0: '',
-        reprint_recommend_title0: '',
-        reprint_recommend_content0: '',
-        share_page_type0: '0',
-        share_imageinfo0: '{"list":[]}',
-        share_video_id0: '',
-        dot0: '{}',
-        share_voice_id0: '',
-        insert_ad_mode0: '',
-        categories_list0: '[]',
-      })
-
-      const response = await this.runtime.fetch(
-        `https://mp.weixin.qq.com/cgi-bin/operate_appmsg?t=ajax-response&sub=create&type=77&token=${this.weixinMeta!.token}&lang=zh_CN`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: formData,
-        }
-      )
-
-      const res = await response.json() as {
-        appMsgId?: string
-        ret?: number
-        base_resp?: { ret: number; err_msg?: string }
-      }
-
-      logger.debug(' Save response:', res)
-
-      if (!res.appMsgId) {
-        const errMsg = this.formatError(res)
-        throw new Error(errMsg)
-      }
-
-      const draftUrl = `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=77&appmsgid=${res.appMsgId}&token=${this.weixinMeta!.token}&lang=zh_CN`
-
-      return this.createResult(true, {
-        postId: res.appMsgId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
+    }
   }
+
+  /**
+   * 2. 内容规整：
+   *    - 微信源：使用 rawHtml，跳过所有处理
+   *    - 非微信源：取默认内容 + processLatex + stripExternalLinks
+   */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    const rawHtml = (ctx.article as { rawHtml?: string }).rawHtml
+    if (ctx.article.source?.platform === 'weixin' && rawHtml) {
+      ctx.content.html = rawHtml
+      ctx.content.markdown = ''
+      logger.info('Source is WeChat, using raw HTML, skipping content processing')
+      return
+    }
+    await super.normalizeContent(ctx)
+    ctx.content.html = this.processLatex(ctx.content.html)
+    ctx.content.html = this.stripExternalLinks(ctx.content.html)
+  }
+
+  /** 3. 上传图片：微信源跳过；非微信源在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    if (ctx.article.source?.platform === 'weixin') {
+      return
+    }
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['mmbiz.qpic.cn', 'mmbiz.qlogo.cn'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
+
+  /** 5. 构建图文消息内容（非微信源：normalizeWeixinHtml + juice 内联 CSS） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    let content = ctx.content.html
+    if (ctx.article.source?.platform !== 'weixin') {
+      content = normalizeWeixinHtml(content)
+      content = this.processContent(content)
+    }
+    ctx.payload = { content, title: ctx.article.title }
+  }
+
+  /** 6. 提交：operate_appmsg t=ajax-response sub=create */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    if (!this.weixinMeta) {
+      throw new Error('未登录')
+    }
+    const payload = ctx.payload as { content: string; title: string }
+
+    const formData = new URLSearchParams({
+      token: this.weixinMeta.token,
+      lang: 'zh_CN',
+      f: 'json',
+      ajax: '1',
+      random: String(Math.random()),
+      AppMsgId: '',
+      count: '1',
+      data_seq: '0',
+      operate_from: 'Chrome',
+      isnew: '0',
+      ad_video_transition0: '',
+      can_reward0: '0',
+      related_video0: '',
+      is_video_recommend0: '-1',
+      title0: payload.title,
+      author0: '',
+      writerid0: '0',
+      fileid0: '',
+      digest0: '',
+      auto_gen_digest0: '1',
+      content0: payload.content,
+      sourceurl0: '',
+      need_open_comment0: '1',
+      only_fans_can_comment0: '0',
+      cdn_url0: '',
+      cdn_235_1_url0: '',
+      cdn_1_1_url0: '',
+      cdn_url_back0: '',
+      crop_list0: '',
+      music_id0: '',
+      video_id0: '',
+      voteid0: '',
+      voteismlt0: '',
+      supervoteid0: '',
+      cardid0: '',
+      cardquantity0: '',
+      cardlimit0: '',
+      vid_type0: '',
+      show_cover_pic0: '0',
+      shortvideofileid0: '',
+      copyright_type0: '0',
+      releasefirst0: '',
+      platform0: '',
+      reprint_permit_type0: '',
+      allow_reprint0: '',
+      allow_reprint_modify0: '',
+      original_article_type0: '',
+      ori_white_list0: '',
+      free_content0: '',
+      fee0: '0',
+      ad_id0: '',
+      guide_words0: '',
+      is_share_copyright0: '0',
+      share_copyright_url0: '',
+      source_article_type0: '',
+      reprint_recommend_title0: '',
+      reprint_recommend_content0: '',
+      share_page_type0: '0',
+      share_imageinfo0: '{"list":[]}',
+      share_video_id0: '',
+      dot0: '{}',
+      share_voice_id0: '',
+      insert_ad_mode0: '',
+      categories_list0: '[]',
+    })
+
+    const response = await this.runtime.fetch(
+      `https://mp.weixin.qq.com/cgi-bin/operate_appmsg?t=ajax-response&sub=create&type=77&token=${this.weixinMeta.token}&lang=zh_CN`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData,
+      }
+    )
+
+    const res = await response.json() as {
+      appMsgId?: string
+      ret?: number
+      base_resp?: { ret: number; err_msg?: string }
+    }
+
+    logger.debug(' Save response:', res)
+
+    if (!res.appMsgId) {
+      const errMsg = this.formatError(res)
+      throw new Error(errMsg)
+    }
+
+    const draftUrl = `https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=77&appmsgid=${res.appMsgId}&token=${this.weixinMeta.token}&lang=zh_CN`
+
+    return this.createResult(true, {
+      postId: res.appMsgId,
+      postUrl: draftUrl,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 图片上传 / 内容处理（保持原样）============
 
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {
     if (!this.weixinMeta) {

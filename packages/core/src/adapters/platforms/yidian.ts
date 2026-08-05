@@ -1,14 +1,16 @@
 /**
- * 一点号适配器
+ * 一点号适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：new-user-task-info 鉴权（SW + 页面回退）+ getImageFromUrl/upload 图床
+ * （SW + 页面回退）+ 弱编辑器兼容 + model/Article saveArticle 草稿全部保留。
+ * checkAuth 重写（保留 loadSessionViaFetch 原逻辑；publish 用 loadSession 含页面回退）。
  *
  * 现代 SPA 后台（#/Home）不再注入 window.mpuser / #__val_。
- * - 鉴权 / 发文 / 转存图片：优先 Service Worker fetch（Header 规则补 Origin/Referer）
- * - SW 失败时再落到页面上下文（pageFetchJson），并清理临时标签
- * - 正文：弱编辑器兼容（代码块 / 行内 code），保留标题列表与图片
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 import { prepareHtmlForYidian } from '../../lib/weak-editor-html'
 
@@ -66,7 +68,7 @@ export function parseYidianUploadResponse(text: string): string | null {
   return null
 }
 
-export class YidianAdapter extends CodeAdapter {
+export class YidianAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'yidian',
     name: '一点号',
@@ -84,12 +86,22 @@ export class YidianAdapter extends CodeAdapter {
     convertTablesToText: true,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
+    ],
+  }
+
   private readonly PAGE = {
     pattern: 'https://mp.yidianzixun.com/*',
     url: 'https://mp.yidianzixun.com/#/Home',
   }
 
-  private readonly HEADER_RULES: HeaderRule[] = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://mp.yidianzixun.com/*',
       headers: {
@@ -104,6 +116,8 @@ export class YidianAdapter extends CodeAdapter {
     Accept: 'application/json, text/javascript, */*; q=0.01',
     'X-Requested-With': 'XMLHttpRequest',
   }
+
+  // ============ checkAuth（重写，保留 loadSessionViaFetch 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -126,61 +140,77 @@ export class YidianAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting publish...')
+  // ============ 管道钩子 ============
 
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        const session = await this.loadSession()
-        if (!session?.mediaId) {
-          throw new Error(
-            '一点号未登录自媒体账号。请先在浏览器打开并登录 https://mp.yidianzixun.com 写作后台（仅打开官网不够）'
-          )
-        }
-
-        let content = article.html || ''
-        // 仅做弱编辑器兼容：代码块换行、行内 code→加粗、压缩源码空白；保留标题/列表/图片
-        content = prepareHtmlForYidian(content)
-        // processImages 只匹配双引号 src；统一成双引号以免漏传 data URI
-        content = content.replace(/<img\b([^>]*?)\bsrc\s*=\s*'([^']*)'/gi, '<img$1src="$2"')
-        content = await this.processImages(
-          content,
-          (src) => this.uploadImageByUrl(src),
-          {
-            skipPatterns: ['yidianzixun.com', 'yidian.com'],
-            onProgress: options?.onImageProgress,
-            // 一点号 getImageFromUrl 为服务端同步抓取外链图，单图偏慢；
-            // 串行会让 20 张外链图拖到 10 分钟以上，故启用并发
-            concurrency: 4,
-          }
-        )
-        // 一点号禁止正文残留 base64：会撑爆 post_covers
-        this.assertNoDataUriImages(content)
-
-        // 对齐 legacy：空封面数组，避免服务端把正文长图 URL 拼进 post_covers
-        const payload = this.buildArticlePayload(article.title, content)
-        const res = await this.saveArticle(payload)
-
-        if (!res.id) {
-          const reason = res.reason || res.message || JSON.stringify(res)
-          throw new Error(this.formatPublishError(res.errorCode, reason))
-        }
-
-        const postId = String(res.id)
-        return this.createResult(true, {
-          postId,
-          postUrl: `https://mp.yidianzixun.com/#/Writing/${postId}`,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
-    } finally {
-      await this.releaseEphemeralTabs()
+  /** 1. 鉴权：loadSession（SW 失败再页面回退），与原 publish 一致 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    const session = await this.loadSession()
+    if (!session?.mediaId) {
+      throw new Error(
+        '一点号未登录自媒体账号。请先在浏览器打开并登录 https://mp.yidianzixun.com 写作后台（仅打开官网不够）'
+      )
     }
   }
+
+  /** 2. 内容规整：弱编辑器兼容 + img src 统一双引号（processImages 只匹配双引号） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    let html = prepareHtmlForYidian(ctx.content.html || '')
+    html = html.replace(/<img\b([^>]*?)\bsrc\s*=\s*'([^']*)'/gi, '<img$1src="$2"')
+    ctx.content.html = html
+  }
+
+  /** 3. 上传图片：SW + 页面回退，SharedImageCache 去重；禁止残留 base64 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['yidianzixun.com', 'yidian.com'],
+        onProgress: ctx.onImageProgress,
+        // 一点号 getImageFromUrl 为服务端同步抓取外链图，单图偏慢；
+        // 串行会让 20 张外链图拖到 10 分钟以上，故启用并发
+        concurrency: 4,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+    // 一点号禁止正文残留 base64：会撑爆 post_covers
+    this.assertNoDataUriImages(ctx.content.html)
+  }
+
+  /** 5. 构建 Article payload（与 legacy YiDian.js 字段对齐，封面强制为空数组） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = this.buildArticlePayload(ctx.article.title, ctx.content.html)
+  }
+
+  /** 6. 提交：model/Article saveArticle（SW JSON POST → 失败再页面上下文） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const res = await this.saveArticle(ctx.payload as Record<string, unknown>)
+
+    if (!res.id) {
+      const reason = res.reason || res.message || JSON.stringify(res)
+      throw new Error(this.formatPublishError(res.errorCode, reason))
+    }
+
+    const postId = String(res.id)
+    return this.createResult(true, {
+      postId,
+      postUrl: `https://mp.yidianzixun.com/#/Writing/${postId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ session / 草稿 / 图片上传（保持原样）============
 
   /** 与 legacy YiDian.js 字段对齐，封面强制为空数组 */
   private buildArticlePayload(title: string, content: string): Record<string, unknown> {
@@ -494,7 +524,7 @@ export class YidianAdapter extends CodeAdapter {
           }
 
           const text = document.body?.innerText || ''
-          const nameMatch = text.match(/发布\s*\n?\s*([\w\u4e00-\u9fa5]{2,20})\s*\d/)
+          const nameMatch = text.match(/发布\s*\n?\s*([\w一-龥]{2,20})\s*\d/)
           return {
             mediaId: String(mediaId),
             username: nameMatch?.[1],

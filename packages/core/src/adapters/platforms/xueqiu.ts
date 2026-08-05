@@ -1,10 +1,15 @@
 /**
- * 雪球适配器
+ * 雪球适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：writeV2 页面 UOM_CURRENTUSER 解析鉴权 + Remarkable md→html 转换 +
+ * photo/upload 图床 + statuses/draft/save 草稿全部保留。
+ * checkAuth 重写（保留 HTML 解析 + 设 currentUser 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { Remarkable } from 'remarkable'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Xueqiu')
@@ -16,7 +21,7 @@ interface XueqiuUser {
   profile_image_url: string
 }
 
-export class XueqiuAdapter extends CodeAdapter {
+export class XueqiuAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'xueqiu',
     name: '雪球',
@@ -34,10 +39,26 @@ export class XueqiuAdapter extends CodeAdapter {
     processCodeBlocks: true,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      {
+        kind: 'visibility',
+        key: 'visibility',
+        label: '可见性',
+        options: [
+          { value: 'public', label: '公开' },
+          { value: 'private', label: '仅自己可见' },
+        ],
+      },
+    ],
+  }
+
   private currentUser: XueqiuUser | null = null
 
   /** 雪球 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://mp.xueqiu.com/xq/*',
       headers: {
@@ -47,6 +68,8 @@ export class XueqiuAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 HTML 解析 + 设 currentUser 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -96,124 +119,138 @@ export class XueqiuAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
+  // ============ 管道钩子 ============
 
-      // 1. 确保已登录
-      if (!this.currentUser) {
-        const auth = await this.checkAuth()
-        if (!auth.isAuthenticated) {
-          throw new Error('请先登录雪球')
-        }
+  /** 1. 鉴权：确保 currentUser 已获取 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.currentUser) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录雪球')
       }
+    }
+  }
 
-      // Use pre-processed markdown content directly
-      let markdown = article.markdown || ''
-
-      // Process images in markdown
-      markdown = await this.processImages(
-        markdown,
-        (src) => this.uploadImageByUrl(src),
-        {
-          skipPatterns: ['xueqiu.com', 'imedao.com'],
-          onProgress: options?.onImageProgress,
-        }
-      )
-
-      // Convert Markdown to simplified HTML (Xueqiu format)
-      const md = new Remarkable({
-        html: true,
-        breaks: true,
-      })
-
-      // 自定义渲染规则适配雪球格式
-      // 所有标题都转为 h4
-      md.renderer.rules.heading_open = () => '<h4>'
-      md.renderer.rules.heading_close = () => '</h4>'
-
-      // strong -> b
-      md.renderer.rules.strong_open = () => '<b>'
-      md.renderer.rules.strong_close = () => '</b>'
-
-      // em -> i
-      md.renderer.rules.em_open = () => '<i>'
-      md.renderer.rules.em_close = () => '</i>'
-
-      // 列表 - 移除列表包装，列表项内的 p 标签由 remarkable 自动处理
-      md.renderer.rules.bullet_list_open = () => ''
-      md.renderer.rules.bullet_list_close = () => ''
-      md.renderer.rules.ordered_list_open = () => ''
-      md.renderer.rules.ordered_list_close = () => ''
-      md.renderer.rules.list_item_open = () => ''
-      md.renderer.rules.list_item_close = () => ''
-
-      // 移除 hr
-      md.renderer.rules.hr = () => ''
-
-      // 图片添加 class
-      md.renderer.rules.image = (tokens: any[], idx: number) => {
-        const src = tokens[idx].src || ''
-        const alt = tokens[idx].alt || ''
-        return `<img src="${src}" alt="${alt}" class="ke_img">`
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
       }
-
-      let rendered = md.render(markdown)
-
-      // Clean up: remove empty p tags and excessive newlines
-      rendered = rendered
-        .replace(/<p>\s*<\/p>/g, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim()
-
-      const content = rendered
-
-      // 4. 保存草稿
-      const formData = new URLSearchParams({
-        text: content,
-        title: article.title,
-        cover_pic: '',
-        flags: 'false',
-        original_event: '',
-        status_id: '',
-        legal_user_visible: 'false',
-        is_private: 'false',
-      })
-
-      const response = await this.runtime.fetch(
-        'https://mp.xueqiu.com/xq/statuses/draft/save.json',
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: formData,
-        }
-      )
-
-      const res = await response.json() as {
-        id?: string | number
-        error_description?: string
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['xueqiu.com', 'imedao.com'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
       }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
 
-      logger.debug(' Save response:', res)
+  /** 5. 构建草稿请求体（Markdown → 雪球简化 HTML） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const rendered = this.renderMarkdown(ctx.content.markdown)
+    ctx.payload = {
+      text: rendered,
+      title: ctx.article.title,
+      cover_pic: '',
+      flags: 'false',
+      original_event: '',
+      status_id: '',
+      legal_user_visible: 'false',
+      is_private: 'false',
+    }
+  }
 
-      if (!res.id) {
-        throw new Error(res.error_description || '保存失败')
+  /** 6. 提交：statuses/draft/save */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const response = await this.runtime.fetch(
+      'https://mp.xueqiu.com/xq/statuses/draft/save.json',
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams(ctx.payload as Record<string, string>),
       }
+    )
 
-      const postId = res.id
-      const draftUrl = `https://mp.xueqiu.com/write/draft/${postId}`
+    const res = await response.json() as {
+      id?: string | number
+      error_description?: string
+    }
 
-      return this.createResult(true, {
-        postId: String(postId),
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
+    logger.debug(' Save response:', res)
+
+    if (!res.id) {
+      throw new Error(res.error_description || '保存失败')
+    }
+
+    const postId = res.id
+    return this.createResult(true, {
+      postId: String(postId),
+      postUrl: `https://mp.xueqiu.com/write/draft/${postId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ Markdown 渲染 / 图片上传（保持原样）============
+
+  /** Markdown → 雪球简化 HTML（标题→h4、strong→b、em→i、列表/	hr 去包装） */
+  private renderMarkdown(markdown: string): string {
+    const md = new Remarkable({
+      html: true,
+      breaks: true,
+    })
+
+    // 所有标题都转为 h4
+    md.renderer.rules.heading_open = () => '<h4>'
+    md.renderer.rules.heading_close = () => '</h4>'
+
+    // strong -> b
+    md.renderer.rules.strong_open = () => '<b>'
+    md.renderer.rules.strong_close = () => '</b>'
+
+    // em -> i
+    md.renderer.rules.em_open = () => '<i>'
+    md.renderer.rules.em_close = () => '</i>'
+
+    // 列表 - 移除列表包装
+    md.renderer.rules.bullet_list_open = () => ''
+    md.renderer.rules.bullet_list_close = () => ''
+    md.renderer.rules.ordered_list_open = () => ''
+    md.renderer.rules.ordered_list_close = () => ''
+    md.renderer.rules.list_item_open = () => ''
+    md.renderer.rules.list_item_close = () => ''
+
+    // 移除 hr
+    md.renderer.rules.hr = () => ''
+
+    // 图片添加 class
+    md.renderer.rules.image = (tokens: Array<{ src?: string; alt?: string }>, idx: number) => {
+      const src = tokens[idx].src || ''
+      const alt = tokens[idx].alt || ''
+      return `<img src="${src}" alt="${alt}" class="ke_img">`
+    }
+
+    let rendered = md.render(markdown)
+
+    // Clean up: remove empty p tags and excessive newlines
+    rendered = rendered
+      .replace(/<p>\s*<\/p>/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+
+    return rendered
   }
 
   /**

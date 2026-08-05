@@ -1,12 +1,14 @@
 /**
- * 网易号适配器（subscribe_v4，纯 API 草稿）
+ * 网易号适配器（PipelineAdapter 实现）
  *
- * 写作页：https://mp.163.com/subscribe_v4/index.html#/article-publish
- * 草稿：POST /wemedia/article/status/api/publishV2.do operation=saveDraft
+ * 行为等价迁移：navinfo.do 鉴权 + picupload 图床 + 弱编辑器兼容（代码块/标题降级）+
+ * publishV2.do saveDraft 草稿全部保留。
+ * checkAuth 重写（保留 withHeaderRules + checkAuthInner 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Netease')
@@ -81,7 +83,7 @@ function prepareHtmlForNetease(html: string): string {
   return result
 }
 
-export class NeteaseAdapter extends CodeAdapter {
+export class NeteaseAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'netease',
     name: '网易号',
@@ -95,9 +97,25 @@ export class NeteaseAdapter extends CodeAdapter {
     convertTablesToText: true,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      {
+        kind: 'originalType',
+        key: 'originalType',
+        label: '原创类型',
+        options: [
+          { value: 'original', label: '原创' },
+          { value: 'reprint', label: '转载' },
+        ],
+      },
+    ],
+  }
+
   private account: NeteaseAccount | null = null
 
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://mp.163.com/*',
       headers: {
@@ -107,6 +125,8 @@ export class NeteaseAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 withHeaderRules + checkAuthInner 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -132,49 +152,77 @@ export class NeteaseAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting publish...')
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        if (!this.account) {
-          const auth = await this.checkAuthInner()
-          if (!auth) {
-            throw new Error('请先登录网易号')
-          }
-        }
+  // ============ 管道钩子 ============
 
-        let content = article.html || ''
-        // 网易号会把 h1-h6 抽到文首；code 不支持 → 加粗；标题就地降级为加粗段落
-        content = prepareHtmlForNetease(content)
-        content = await this.processImages(
-          content,
-          (src) => this.uploadImageByUrl(src),
-          {
-            skipPatterns: ['163.com', '126.net'],
-            onProgress: options?.onImageProgress,
-          }
-        )
-
-        const draft = await this.saveDraft(
-          this.account!.wemediaId,
-          article.title,
-          content,
-          this.account!.realUserId
-        )
-
-        const postId = draft.docId
-        return this.createResult(true, {
-          postId,
-          postUrl: `https://mp.163.com/subscribe_v4/index.html#/article-publish/${postId}`,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
+  /** 1. 鉴权：确保 account 已获取 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.account) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录网易号')
+      }
     }
   }
+
+  /** 2. 内容规整：弱编辑器兼容（标题降级、代码块转 br 段落） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.html = prepareHtmlForNetease(ctx.content.html || '')
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['163.com', '126.net'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
+
+  /** 5. 构建草稿所需 title + content */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      content: ctx.content.html,
+    }
+  }
+
+  /** 6. 提交：publishV2.do saveDraft */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    if (!this.account) {
+      throw new Error('未登录')
+    }
+    const payload = ctx.payload as { title: string; content: string }
+    const draft = await this.saveDraft(
+      this.account.wemediaId,
+      payload.title,
+      payload.content,
+      this.account.realUserId,
+    )
+    const postId = draft.docId
+    return this.createResult(true, {
+      postId,
+      postUrl: `https://mp.163.com/subscribe_v4/index.html#/article-publish/${postId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 鉴权 / 草稿 / 图片上传（保持原样）============
 
   /** 在已有 header rules 上下文中刷新账号信息，避免嵌套 withHeaderRules */
   private async checkAuthInner(): Promise<boolean> {

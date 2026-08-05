@@ -1,52 +1,52 @@
 /**
- * 东方财富适配器
+ * 东方财富适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：ctoken/utoken cookie 鉴权 + deviceId 持久化 +
+ * createDraft + 图片上传（byLink/blob）+ updateDraft 两步草稿全部保留。
+ * checkAuth 重写（保留 fetchToken + getauthorinfo 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from "../code-adapter";
-import type {
-  Article,
-  AuthResult,
-  SyncResult,
-  PlatformMeta,
-} from "../../types";
-import type { PublishOptions } from "../types";
-import { createLogger } from "../../lib/logger";
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
+import { createLogger } from '../../lib/logger'
 
-const logger = createLogger("Eastmoney");
+const logger = createLogger('Eastmoney')
 
 interface UploadResponse {
-  code: number;
-  message: string;
+  code: number
+  message: string
   data?: {
-    url: string;
-    id: string;
-  };
+    url: string
+    id: string
+  }
 }
 
 interface DraftApiResponse {
-  RRquestSuccess: boolean;
-  RCode: number;
-  RMsg?: string;
-  RData: string;
+  RRquestSuccess: boolean
+  RCode: number
+  RMsg?: string
+  RData: string
 }
 
 interface DraftResult {
-  error_code?: number;
-  draft_id?: string;
-  me?: string;
+  error_code?: number
+  draft_id?: string
+  me?: string
 }
 
-export class EastmoneyAdapter extends CodeAdapter {
+export class EastmoneyAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
-    id: "eastmoney",
-    name: "东方财富",
-    icon: "https://mp.eastmoney.com/collect/pc_article/favicon.ico",
-    homepage: "https://mp.eastmoney.com",
-    capabilities: ["article", "draft", "image_upload", "cover"],
-  };
+    id: 'eastmoney',
+    name: '东方财富',
+    icon: 'https://mp.eastmoney.com/collect/pc_article/favicon.ico',
+    homepage: 'https://mp.eastmoney.com',
+    capabilities: ['article', 'draft', 'image_upload', 'cover'],
+  }
 
   /** 预处理配置 */
   readonly preprocessConfig = {
-    outputFormat: "html" as const,
+    outputFormat: 'html' as const,
     removeComments: true,
     removeSpecialTags: true,
     processCodeBlocks: true,
@@ -61,62 +61,81 @@ export class EastmoneyAdapter extends CodeAdapter {
     removeSrcset: true,
     removeSizes: true,
     compactHtml: true,
-  };
+  }
 
-  private ctoken: string = "";
-  private utoken: string = "";
-  private deviceId: string = "";
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      {
+        kind: 'originalType',
+        key: 'originalType',
+        label: '原创类型',
+        options: [
+          { value: 'original', label: '原创' },
+          { value: 'reprint', label: '转载' },
+        ],
+      },
+      { kind: 'category', key: 'category', label: '栏目', source: 'remote' },
+    ],
+  }
+
+  private ctoken: string = ''
+  private utoken: string = ''
+  private deviceId: string = ''
 
   /** 获取或生成持久化 deviceId（32位大写 hex） */
   private async getDeviceId(): Promise<string> {
-    if (this.deviceId) return this.deviceId;
-    const stored = await this.runtime.storage.get<string>("eastmoney_deviceId");
+    if (this.deviceId) return this.deviceId
+    const stored = await this.runtime.storage.get<string>('eastmoney_deviceId')
     if (stored) {
-      this.deviceId = stored;
-      return this.deviceId;
+      this.deviceId = stored
+      return this.deviceId
     }
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
     this.deviceId = Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
-      .join("");
-    await this.runtime.storage.set("eastmoney_deviceId", this.deviceId);
-    return this.deviceId;
+      .map((b) => b.toString(16).padStart(2, '0').toUpperCase())
+      .join('')
+    await this.runtime.storage.set('eastmoney_deviceId', this.deviceId)
+    return this.deviceId
   }
 
   /** API Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
-      urlFilter: "*://mp.eastmoney.com/*",
+      urlFilter: '*://mp.eastmoney.com/*',
       headers: {
-        Origin: "https://mp.eastmoney.com",
-        HOST: "emfront.eastmoney.com",
+        Origin: 'https://mp.eastmoney.com',
+        HOST: 'emfront.eastmoney.com',
       },
-      resourceTypes: ["xmlhttprequest"],
+      resourceTypes: ['xmlhttprequest'],
     },
-  ];
+  ]
+
+  // ============ checkAuth（重写，保留 fetchToken + getauthorinfo 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
-      await this.fetchToken();
+      await this.fetchToken()
 
       const response = await this.runtime.fetch(
         `https://caifuhaoapi.eastmoney.com/api/v2/getauthorinfo?platform=&ctoken=${this.ctoken}&utoken=${this.utoken}`,
         {
-          method: "GET",
-          credentials: "include",
-          headers: { "x-requested-with": "fetch" },
+          method: 'GET',
+          credentials: 'include',
+          headers: { 'x-requested-with': 'fetch' },
         },
-      );
+      )
 
       const data = (await response.json()) as {
-        Success: number;
+        Success: number
         Result?: {
-          accountId?: string;
-          accountName?: string;
-          portrait?: string;
-        };
-      };
+          accountId?: string
+          accountName?: string
+          portrait?: string
+        }
+      }
 
       if (data.Success === 1 && data.Result?.accountId) {
         return {
@@ -124,175 +143,198 @@ export class EastmoneyAdapter extends CodeAdapter {
           userId: data.Result.accountId,
           username: data.Result.accountName,
           avatar: data.Result.portrait,
-        };
+        }
       }
 
-      return { isAuthenticated: false };
+      return { isAuthenticated: false }
     } catch (error) {
-      logger.debug("checkAuth: not logged in -", error);
-      return { isAuthenticated: false, error: (error as Error).message };
+      logger.debug('checkAuth: not logged in -', error)
+      return { isAuthenticated: false, error: (error as Error).message }
     }
   }
+
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：确保 token 已获取（沿用 checkAuth） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.ctoken || !this.utoken) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录东方财富')
+      }
+    }
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      await this.fetchToken()
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['gbres.dfcfw.com'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
+
+  /** 5. 构建 updateDraft 所需 title + content */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      content: ctx.content.html,
+    }
+  }
+
+  /** 6. 提交：createDraft → updateDraft */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const payload = ctx.payload as { title: string; content: string }
+    const draftId = await this.createDraft(payload.title)
+    logger.debug('Draft created:', draftId)
+    await this.updateDraft(draftId, payload.title, payload.content)
+    logger.debug('Draft updated')
+
+    return this.createResult(true, {
+      postId: draftId,
+      postUrl: `https://mp.eastmoney.com/collect/pc_article/index.html#/?id=${draftId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ token / 草稿 API / 图片上传（保持原样）============
 
   /** 从 cookie 读取 token */
   private async fetchToken(): Promise<void> {
+    if (this.ctoken && this.utoken) return
     if (!this.runtime.getCookie) {
-      throw new Error("Cookie API 不可用，请先登录东方财富");
+      throw new Error('Cookie API 不可用，请先登录东方财富')
     }
 
-    const ctoken = await this.runtime.getCookie(".eastmoney.com", "ct");
-    const utoken = await this.runtime.getCookie(".eastmoney.com", "ut");
+    const ctoken = await this.runtime.getCookie('.eastmoney.com', 'ct')
+    const utoken = await this.runtime.getCookie('.eastmoney.com', 'ut')
 
     if (!ctoken || !utoken) {
-      throw new Error("未检测到登录信息，请先登录东方财富");
+      throw new Error('未检测到登录信息，请先登录东方财富')
     }
 
-    this.ctoken = ctoken;
-    this.utoken = utoken;
-  }
-
-  async publish(
-    article: Article,
-    options?: PublishOptions,
-  ): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      await this.fetchToken();
-      logger.info("Starting publish to eastmoney...");
-
-      // 1. 创建空草稿，获取 draft_id
-      const draftId = await this.createDraft(article.title);
-      logger.debug("Draft created:", draftId);
-
-      // 2. 处理图片（基于预处理后的 HTML）
-      const content = await this.processImages(
-        article.html || "",
-        (src) => this.uploadImageByUrl(src),
-        {
-          skipPatterns: ["gbres.dfcfw.com"],
-          onProgress: options?.onImageProgress,
-        },
-      );
-
-      // 3. 更新草稿内容
-      await this.updateDraft(draftId, article.title, content);
-      logger.debug("Draft updated");
-
-      const draftUrl = `https://mp.eastmoney.com/collect/pc_article/index.html#/?id=${draftId}`;
-
-      return this.createResult(true, {
-        postId: draftId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      });
-    }).catch((error) =>
-      this.createResult(false, {
-        error: (error as Error).message,
-      }),
-    );
+    this.ctoken = ctoken
+    this.utoken = utoken
   }
 
   /** 构造 API 参数 */
   private async buildParm(params: {
-    draftid?: string;
-    title: string;
-    text: string;
+    draftid?: string
+    title: string
+    text: string
   }): Promise<object[]> {
-    const deviceid = await this.getDeviceId();
+    const deviceid = await this.getDeviceId()
     return [
-      { ip: "$IP$" },
+      { ip: '$IP$' },
       { deviceid },
-      { version: "100" },
-      { plat: "web" },
-      { product: "CFH" },
+      { version: '100' },
+      { plat: 'web' },
+      { product: 'CFH' },
       { ctoken: this.ctoken },
       { utoken: this.utoken },
-      { draftid: params.draftid ?? "" },
-      { drafttype: "0" },
-      { type: "0" },
+      { draftid: params.draftid ?? '' },
+      { drafttype: '0' },
+      { type: '0' },
       { title: encodeURIComponent(params.title) },
       { text: encodeURIComponent(params.text) },
-      { columns: "2" },
-      { cover: "" },
-      { issimplevideo: "0" },
-      { videos: "" },
-      { vods: "" },
-      { isoriginal: "0" },
-      { tgProduct: "" },
-      { spcolumns: "" },
-      { textsource: "0" },
-      { replyauthority: "" },
-      { modules: encodeURIComponent("[]") },
-    ];
+      { columns: '2' },
+      { cover: '' },
+      { issimplevideo: '0' },
+      { videos: '' },
+      { vods: '' },
+      { isoriginal: '0' },
+      { tgProduct: '' },
+      { spcolumns: '' },
+      { textsource: '0' },
+      { replyauthority: '' },
+      { modules: encodeURIComponent('[]') },
+    ]
   }
 
   /** 调用草稿 API */
   private async callDraftApi(parm: object[], draftId?: string): Promise<DraftResult> {
     const pageUrl = draftId
       ? `https://mp.eastmoney.com/collect/pc_article/index.html#/?id=${draftId}`
-      : "https://mp.eastmoney.com/collect/pc_article/index.html#/";
+      : 'https://mp.eastmoney.com/collect/pc_article/index.html#/'
 
     const body = JSON.stringify({
       pageUrl,
-      path: "draft/api/Article/SaveDraft",
+      path: 'draft/api/Article/SaveDraft',
       parm: JSON.stringify(parm),
-    });
+    })
 
     const response = await this.runtime.fetch(
-      "https://emfront.eastmoney.com/apifront/Tran/GetData?platform=",
+      'https://emfront.eastmoney.com/apifront/Tran/GetData?platform=',
       {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body,
       },
-    );
+    )
 
-    const responseText = await response.text();
+    const responseText = await response.text()
     logger.debug(
-      "Draft API response:",
+      'Draft API response:',
       response.status,
       responseText.substring(0, 200),
-    );
+    )
 
     if (!response.ok) {
-      throw new Error(`草稿 API 请求失败: ${response.status}`);
+      throw new Error(`草稿 API 请求失败: ${response.status}`)
     }
 
-    let rawData: DraftApiResponse;
+    let rawData: DraftApiResponse
     try {
-      rawData = JSON.parse(responseText);
+      rawData = JSON.parse(responseText)
     } catch {
-      throw new Error("草稿 API 响应不是有效 JSON");
+      throw new Error('草稿 API 响应不是有效 JSON')
     }
 
     if (!rawData.RRquestSuccess || rawData.RCode !== 200) {
-      throw new Error(`草稿 API 错误: ${rawData.RMsg || "未知错误"}`);
+      throw new Error(`草稿 API 错误: ${rawData.RMsg || '未知错误'}`)
     }
 
-    let innerData: DraftResult;
+    let innerData: DraftResult
     try {
-      innerData = JSON.parse(rawData.RData);
+      innerData = JSON.parse(rawData.RData)
     } catch {
-      throw new Error("无法解析草稿响应数据");
+      throw new Error('无法解析草稿响应数据')
     }
 
     if (innerData.error_code !== 0) {
-      throw new Error(`草稿业务错误: ${innerData.me || "未知错误"}`);
+      throw new Error(`草稿业务错误: ${innerData.me || '未知错误'}`)
     }
 
-    return innerData;
+    return innerData
   }
 
   private async createDraft(title: string): Promise<string> {
     const parm = await this.buildParm({
       title,
       text: '<div class="xeditor_content cfh_web"></div>',
-    });
-    const result = await this.callDraftApi(parm);
+    })
+    const result = await this.callDraftApi(parm)
     if (!result.draft_id) {
-      throw new Error("创建草稿失败: 响应缺少 draft_id");
+      throw new Error('创建草稿失败: 响应缺少 draft_id')
     }
-    return result.draft_id;
+    return result.draft_id
   }
 
   private async updateDraft(
@@ -304,70 +346,70 @@ export class EastmoneyAdapter extends CodeAdapter {
       draftid: draftId,
       title,
       text: `<div class="xeditor_content cfh_web">${content}</div>`,
-    });
-    await this.callDraftApi(parm, draftId);
+    })
+    await this.callDraftApi(parm, draftId)
   }
 
   /** URL 上传图片 */
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {
     // data URI 使用二进制上传
-    if (src.startsWith("data:")) {
-      logger.debug("Detected data URI, using binary upload");
-      const blob = await this.dataUriToBlob(src);
-      return this.uploadImageBlob(blob);
+    if (src.startsWith('data:')) {
+      logger.debug('Detected data URI, using binary upload')
+      const blob = await this.dataUriToBlob(src)
+      return this.uploadImageBlob(blob)
     }
 
     // 远程 URL 使用链接上传接口
     const response = await this.runtime.fetch(
-      "https://gbapi.eastmoney.com/iimage/image/byLink?platform=",
+      'https://gbapi.eastmoney.com/iimage/image/byLink?platform=',
       {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          noinlist: "1",
+          noinlist: '1',
           linkUrl: src,
           ctoken: this.ctoken,
           utoken: this.utoken,
         }),
       },
-    );
+    )
 
-    const res = (await response.json()) as UploadResponse;
+    const res = (await response.json()) as UploadResponse
     if (res.code === 200 && res.data?.url) {
-      return { url: res.data.url };
+      return { url: res.data.url }
     }
     throw new Error(
-      `图片上传失败: ${res.message || "未知错误"} (code: ${res.code})`,
-    );
+      `图片上传失败: ${res.message || '未知错误'} (code: ${res.code})`,
+    )
   }
 
   /** 上传图片 Blob */
   private async uploadImageBlob(file: Blob): Promise<ImageUploadResult> {
-    const ext = file.type.split("/")[1] || "png";
-    const filename = `${Date.now()}.${ext}`;
+    const ext = file.type.split('/')[1] || 'png'
+    const filename = `${Date.now()}.${ext}`
 
-    const formData = new FormData();
-    formData.append("file", file, filename);
-    formData.append("noinlist", "1");
-    formData.append("utoken", this.utoken);
-    formData.append("ctoken", this.ctoken);
+    const formData = new FormData()
+    formData.append('file', file, filename)
+    formData.append('noinlist', '1')
+    formData.append('utoken', this.utoken)
+    formData.append('ctoken', this.ctoken)
 
     const response = await this.runtime.fetch(
-      "https://gbapi.eastmoney.com/iimage/image?platform=",
+      'https://gbapi.eastmoney.com/iimage/image?platform=',
       {
-        method: "POST",
-        credentials: "include",
+        method: 'POST',
+        credentials: 'include',
         body: formData,
       },
-    );
+    )
 
-    const res = (await response.json()) as UploadResponse;
+    const res = (await response.json()) as UploadResponse
     if (res.code === 200 && res.data?.url) {
-      return { url: res.data.url };
+      return { url: res.data.url }
     }
     throw new Error(
-      `图片上传失败: ${res.message || "未知错误"} (code: ${res.code})`,
-    );
+      `图片上传失败: ${res.message || '未知错误'} (code: ${res.code})`,
+    )
   }
 }

@@ -1,9 +1,14 @@
 /**
- * 大鱼号适配器
+ * 大鱼号适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：dashboard/index HTML 解析鉴权（globalConfig）+ ns.dayu 图床 +
+ * 弱编辑器兼容（代码块/行内 code 降级）+ save-draft 草稿全部保留。
+ * checkAuth 重写（保留 withHeaderRules + refreshMetaInner 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('DaYu')
@@ -71,7 +76,7 @@ function prepareHtmlForDayu(html: string): string {
   return result
 }
 
-export class DaYuAdapter extends CodeAdapter {
+export class DaYuAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'dayu',
     name: '大鱼号',
@@ -84,9 +89,25 @@ export class DaYuAdapter extends CodeAdapter {
     outputFormat: 'html' as const,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      {
+        kind: 'originalType',
+        key: 'originalType',
+        label: '原创类型',
+        options: [
+          { value: 'original', label: '原创' },
+          { value: 'reprint', label: '转载' },
+        ],
+      },
+    ],
+  }
+
   private cacheMeta: DaYuMeta | null = null
 
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://mp.dayu.com/*',
       headers: {
@@ -104,6 +125,8 @@ export class DaYuAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 withHeaderRules + refreshMetaInner 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -128,72 +151,103 @@ export class DaYuAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting publish...')
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        if (!this.cacheMeta) {
-          const ok = await this.refreshMetaInner()
-          if (!ok) {
-            throw new Error('请先登录大鱼号')
-          }
-        }
+  // ============ 管道钩子 ============
 
-        let content = article.html || ''
-        content = prepareHtmlForDayu(content)
-        content = await this.processImages(
-          content,
-          (src) => this.uploadImageByUrl(src),
-          {
-            onProgress: options?.onImageProgress,
-          }
-        )
-
-        const formData = new URLSearchParams()
-        formData.append('title', article.title)
-        formData.append('content', content)
-        formData.append('author', this.cacheMeta!.title)
-        formData.append('article_type', '1')
-        formData.append('utoken', this.cacheMeta!.utoken)
-        formData.append('coverImg', '')
-        formData.append('cover_from', '')
-
-        const response = await this.runtime.fetch('https://mp.dayu.com/dashboard/save-draft', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            utoken: this.cacheMeta!.utoken,
-          },
-          body: formData,
-        })
-
-        const res = await response.json() as {
-          error?: string
-          data?: { _id: string }
-        }
-        logger.debug('Save response:', res)
-
-        if (res.error) {
-          throw new Error(res.error)
-        }
-        if (!res.data?._id) {
-          throw new Error('保存草稿失败')
-        }
-
-        const postId = res.data._id
-        return this.createResult(true, {
-          postId,
-          postUrl: `https://mp.dayu.com/dashboard/article/write?draft_id=${postId}`,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
+  /** 1. 鉴权：确保 cacheMeta 已获取 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.cacheMeta) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录大鱼号')
+      }
     }
   }
+
+  /** 2. 内容规整：弱编辑器兼容（代码块转 br 段落、行内 code 降级） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.html = prepareHtmlForDayu(ctx.content.html || '')
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
+
+  /** 5. 构建 save-draft 表单数据（P2 写死保持等价） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      content: ctx.content.html,
+      author: this.cacheMeta!.title,
+      article_type: '1',
+      utoken: this.cacheMeta!.utoken,
+      coverImg: '',
+      cover_from: '',
+    }
+  }
+
+  /** 6. 提交：dashboard/save-draft */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    if (!this.cacheMeta) {
+      throw new Error('未登录')
+    }
+    const formData = new URLSearchParams()
+    const payload = ctx.payload as Record<string, string>
+    for (const [k, v] of Object.entries(payload)) {
+      formData.append(k, v)
+    }
+
+    const response = await this.runtime.fetch('https://mp.dayu.com/dashboard/save-draft', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        utoken: this.cacheMeta.utoken,
+      },
+      body: formData,
+    })
+
+    const res = await response.json() as {
+      error?: string
+      data?: { _id: string }
+    }
+    logger.debug('Save response:', res)
+
+    if (res.error) {
+      throw new Error(res.error)
+    }
+    if (!res.data?._id) {
+      throw new Error('保存草稿失败')
+    }
+
+    const postId = res.data._id
+    return this.createResult(true, {
+      postId,
+      postUrl: `https://mp.dayu.com/dashboard/article/write?draft_id=${postId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 鉴权 / 图片上传（保持原样）============
 
   /** 在已有 header rules 上下文中刷新登录信息，避免嵌套 withHeaderRules */
   private async refreshMetaInner(): Promise<boolean> {

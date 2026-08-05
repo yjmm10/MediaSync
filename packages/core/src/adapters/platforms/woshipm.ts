@@ -1,14 +1,19 @@
 /**
- * 人人都是产品经理 (woshipm.com) 适配器
+ * 人人都是产品经理 (woshipm.com) 适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：writing 页面提取 jltoken/uid + profile 鉴权 + upyun 图床 +
+ * admin-ajax add_draft 草稿全部保留。
+ * checkAuth 重写（保留页面提取 + profile API 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Woshipm')
 
-export class WoshipmAdapter extends CodeAdapter {
+export class WoshipmAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'woshipm',
     name: '人人都是产品经理',
@@ -23,10 +28,19 @@ export class WoshipmAdapter extends CodeAdapter {
     removeEmptyLines: true,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+    ],
+  }
+
   private jltoken: string = ''
 
   /** 人人都是产品经理 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://woshipm.com/wp-admin/admin-ajax.php*',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -43,6 +57,8 @@ export class WoshipmAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留页面提取 + profile API 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -81,7 +97,7 @@ export class WoshipmAdapter extends CodeAdapter {
         }
       )
 
-      const data = await response.json() as {
+      const data = (await response.json()) as {
         CODE?: number
         RESULT?: {
           userInfoVo?: {
@@ -108,75 +124,97 @@ export class WoshipmAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
+  // ============ 管道钩子 ============
 
-      // 1. 使用预处理好的 HTML（Content Script 已处理代码块、图片、特殊标签等）
-      // 人人都是产品经理使用 HTML 格式
-      let content = article.html || ''
-
-      // 2. 处理图片
-      content = await this.processImages(
-        content,
-        (src) => this.uploadImageByUrl(src),
-        {
-          skipPatterns: ['woshipm.com', 'image.woshipm.com'],
-          onProgress: options?.onImageProgress,
-        }
-      )
-
-      // 4. 创建草稿
-      const createResponse = await this.runtime.fetch(
-        'https://www.woshipm.com/wp-admin/admin-ajax.php',
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          body: new URLSearchParams({
-            action: 'add_draft',
-            post_title: article.title,
-            post_content: content,
-          }),
-        }
-      )
-
-      // 检查响应状态和内容
-      const responseText = await createResponse.text()
-      logger.debug('Create draft response:', createResponse.status, responseText.substring(0, 300))
-
-      if (!createResponse.ok) {
-        throw new Error(`创建草稿失败: ${createResponse.status} - ${responseText}`)
+  /** 1. 鉴权：触发 checkAuth 获取 jltoken（图片上传需要） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.jltoken) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录人人都是产品经理')
       }
-
-      let createData: { post_id?: string | number; url?: string; success?: boolean; error?: string }
-      try {
-        createData = JSON.parse(responseText)
-      } catch {
-        throw new Error(`创建草稿失败: 响应不是有效 JSON - ${responseText.substring(0, 100)}`)
-      }
-
-      if (!createData.post_id) {
-        throw new Error(createData.error || '创建草稿失败: 无效响应')
-      }
-
-      const draftId = String(createData.post_id)
-      const draftUrl = createData.url || `https://www.woshipm.com/writing?pid=${draftId}`
-
-      logger.debug('Draft created:', draftId)
-
-      return this.createResult(true, {
-        postId: draftId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
+    }
   }
+
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['woshipm.com', 'image.woshipm.com'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
+
+  /** 5. 构建 add_draft 请求体（P2 写死保持等价） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      action: 'add_draft',
+      post_title: ctx.article.title,
+      post_content: ctx.content.html,
+    }
+  }
+
+  /** 6. 提交：admin-ajax.php add_draft */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const createResponse = await this.runtime.fetch(
+      'https://www.woshipm.com/wp-admin/admin-ajax.php',
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: new URLSearchParams(ctx.payload as Record<string, string>),
+      }
+    )
+
+    const responseText = await createResponse.text()
+    logger.debug('Create draft response:', createResponse.status, responseText.substring(0, 300))
+
+    if (!createResponse.ok) {
+      throw new Error(`创建草稿失败: ${createResponse.status} - ${responseText}`)
+    }
+
+    let createData: { post_id?: string | number; url?: string; success?: boolean; error?: string }
+    try {
+      createData = JSON.parse(responseText)
+    } catch {
+      throw new Error(`创建草稿失败: 响应不是有效 JSON - ${responseText.substring(0, 100)}`)
+    }
+
+    if (!createData.post_id) {
+      throw new Error(createData.error || '创建草稿失败: 无效响应')
+    }
+
+    const draftId = String(createData.post_id)
+    const draftUrl = createData.url || `https://www.woshipm.com/writing?pid=${draftId}`
+
+    logger.debug('Draft created:', draftId)
+
+    return this.createResult(true, {
+      postId: draftId,
+      postUrl: draftUrl,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 图片上传（保持原样）============
 
   /**
    * 通过 Blob 上传图片（覆盖基类方法）
@@ -233,7 +271,7 @@ export class WoshipmAdapter extends CodeAdapter {
       body: formData,
     })
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       data?: Array<{ url?: string }>
       error?: string
     }

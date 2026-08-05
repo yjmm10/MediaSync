@@ -1,9 +1,14 @@
 /**
- * 搜狐号适配器
+ * 搜狐号适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：account/list 鉴权（多子账号取第一个）+ sp-cm cookie +
+ * outerUpload 图床 + news/draft/v2 草稿全部保留。
+ * checkAuth 重写（保留 account/list + 设 accountInfo/spCm 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Sohu')
@@ -26,7 +31,7 @@ function generateDeviceId(): string {
   return result
 }
 
-export class SohuAdapter extends CodeAdapter {
+export class SohuAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'sohu',
     name: '搜狐号',
@@ -40,12 +45,28 @@ export class SohuAdapter extends CodeAdapter {
     outputFormat: 'html' as const,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'originalType', key: 'originalType', label: '原创声明',
+        needsOriginalLink: true,
+        options: [
+          { value: 'original', label: '原创' },
+          { value: 'reprint', label: '转载' },
+        ] },
+      { kind: 'topic', key: 'topicId', label: '话题', source: 'remote' },
+    ],
+  }
+
   private accountInfo: SohuAccountInfo | null = null
   private deviceId: string = generateDeviceId()
   private spCm: string = ''
 
   /** 搜狐号 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://mp.sohu.com/*',
       headers: {
@@ -55,6 +76,8 @@ export class SohuAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 account/list + 设 accountInfo/spCm 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -119,6 +142,112 @@ export class SohuAdapter extends CodeAdapter {
     }
   }
 
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：确保 accountInfo 已获取 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.accountInfo) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录搜狐号')
+      }
+    }
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['sohu.com'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
+
+  /** 5. 构建 draft/v2 请求体（P2 写死保持等价） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      brief: '',
+      content: ctx.content.html,
+      channelId: 24,
+      categoryId: -1,
+      id: 0,
+      userColumnId: 0,
+      columnNewsIds: [],
+      businessCode: 0,
+      declareOriginal: false,
+      cover: '',
+      topicIds: [],
+      isAd: 0,
+      userLabels: '[]',
+      reprint: false,
+      customTags: '',
+      infoResource: 0,
+      sourceUrl: '',
+      visibleToLoginedUsers: 0,
+      attrIds: [],
+      auto: true,
+      accountId: Number(this.accountInfo!.id),
+    }
+  }
+
+  /** 6. 提交：news/draft/v2 */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    if (!this.accountInfo) {
+      throw new Error('未登录')
+    }
+    const response = await this.runtime.fetch(
+      `https://mp.sohu.com/mpbp/bp/news/v4/news/draft/v2?accountId=${this.accountInfo.id}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'dv-id': this.deviceId,
+          'sp-cm': this.spCm,
+        },
+        body: JSON.stringify(ctx.payload),
+      }
+    )
+
+    const res = await response.json() as {
+      success: boolean
+      data?: string | number
+      msg?: string
+    }
+
+    logger.debug(' Save response:', res)
+
+    if (!res.success) {
+      throw new Error(res.msg || '保存失败')
+    }
+
+    const postId = res.data
+    return this.createResult(true, {
+      postId: String(postId),
+      postUrl: `https://mp.sohu.com/mpfe/v4/contentManagement/news/addarticle?spm=smpp.articlelist.0.0&contentStatus=2&id=${postId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ sp-cm / 图片上传（保持原样）============
+
   /**
    * 获取 sp-cm 值 (从 cookie 或生成)
    */
@@ -141,97 +270,6 @@ export class SohuAdapter extends CodeAdapter {
       this.spCm = `100-${Date.now()}-${generateDeviceId()}`
       logger.debug('Fallback sp-cm:', this.spCm)
     }
-  }
-
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
-
-      // 1. 确保已登录
-      if (!this.accountInfo) {
-        const auth = await this.checkAuth()
-        if (!auth.isAuthenticated) {
-          throw new Error('请先登录搜狐号')
-        }
-      }
-
-      // Use pre-processed HTML content directly
-      let content = article.html || ''
-
-      // Process images
-      content = await this.processImages(
-        content,
-        (src) => this.uploadImageByUrl(src),
-        {
-          skipPatterns: ['sohu.com'],
-          onProgress: options?.onImageProgress,
-        }
-      )
-
-      // 4. 保存草稿 (v2 API - JSON 格式)
-      const postData = {
-        title: article.title,
-        brief: '',
-        content: content,
-        channelId: 24,
-        categoryId: -1,
-        id: 0,
-        userColumnId: 0,
-        columnNewsIds: [],
-        businessCode: 0,
-        declareOriginal: false,
-        cover: '',
-        topicIds: [],
-        isAd: 0,
-        userLabels: '[]',
-        reprint: false,
-        customTags: '',
-        infoResource: 0,
-        sourceUrl: '',
-        visibleToLoginedUsers: 0,
-        attrIds: [],
-        auto: true,
-        accountId: Number(this.accountInfo!.id),
-      }
-
-      const response = await this.runtime.fetch(
-        `https://mp.sohu.com/mpbp/bp/news/v4/news/draft/v2?accountId=${this.accountInfo!.id}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-            'dv-id': this.deviceId,
-            'sp-cm': this.spCm,
-          },
-          body: JSON.stringify(postData),
-        }
-      )
-
-      const res = await response.json() as {
-        success: boolean
-        data?: string | number
-        msg?: string
-      }
-
-      logger.debug(' Save response:', res)
-
-      if (!res.success) {
-        throw new Error(res.msg || '保存失败')
-      }
-
-      const postId = res.data
-      const draftUrl = `https://mp.sohu.com/mpfe/v4/contentManagement/news/addarticle?spm=smmp.articlelist.0.0&contentStatus=2&id=${postId}`
-
-      return this.createResult(true, {
-        postId: String(postId),
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
   }
 
   /**
