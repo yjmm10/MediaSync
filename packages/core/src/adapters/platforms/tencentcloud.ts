@@ -7,9 +7,10 @@
  * - 外链图：POST /developer/api/tools/save-http-image（本版本支持）
  * - 本地图（data URI / COS）：本版本暂不支持，正文中会剥离
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('TencentCloud')
@@ -126,7 +127,7 @@ export function authFromCreatorHtml(
   return null
 }
 
-export class TencentCloudAdapter extends CodeAdapter {
+export class TencentCloudAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'tencentcloud',
     name: '腾讯云社区',
@@ -137,6 +138,18 @@ export class TencentCloudAdapter extends CodeAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'column', key: 'column', label: '专栏', source: 'remote' },
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+    ],
   }
 
   /** 收集社区相关 Cookie，供 DNR 注入（绕过 SW 丢 SameSite 会话） */
@@ -311,128 +324,132 @@ export class TencentCloudAdapter extends CodeAdapter {
     throw new Error(`不支持的图片地址: ${src.slice(0, 80)}`)
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    const now = Date.now()
-    try {
-      // 发布前仅用 HTML 确认登录；真正写草稿走抓包 API（不靠 pageFetchJson 做鉴权）
-      const authed =
-        (await this.detectAuthViaPageContext().catch(() => null)) ||
-        (await this.detectAuthViaCreatorPage().catch(() => null))
-      if (!authed) {
-        throw new Error(
-          '请先登录腾讯云开发者社区（打开 https://cloud.tencent.com/developer/creator）'
-        )
-      }
+  // ============ 管道钩子 ============
 
-      const markdown = (article.markdown || '').trim()
-      if (!markdown) {
-        throw new Error('文章内容为空（未得到 Markdown），请重试同步')
-      }
-
-      // 本地 data URI 不支持：先剥离；http(s) 外链经 save-http-image 转存
-      const withoutLocal = stripDataImages(markdown)
-      const processedMd = await this.withCommunitySession(() =>
-        this.processImages(
-          withoutLocal,
-          async (src) => {
-            try {
-              return await this.uploadImageByUrl(src)
-            } catch (error) {
-              const msg = (error as Error).message || String(error)
-              // 外链转存失败时保留原链，避免整篇失败
-              logger.warn('外链转存失败，保留原 URL:', src.slice(0, 80), msg)
-              return { url: src }
-            }
-          },
-          {
-            skipPatterns: SKIP_IMAGE_HOSTS,
-            onProgress: options?.onImageProgress,
-          }
-        )
+  /** 1. 鉴权：页面上下文 + SW 探测（对齐原 publish 的 detectAuth 级联） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    const authed =
+      (await this.detectAuthViaPageContext().catch(() => null)) ||
+      (await this.detectAuthViaCreatorPage().catch(() => null))
+    if (!authed) {
+      throw new Error(
+        '请先登录腾讯云开发者社区（打开 https://cloud.tencent.com/developer/creator）'
       )
-
-      const plainFull = buildPlainText(processedMd)
-      let plain = plainFull.slice(0, PLAIN_MAX)
-      const body: Record<string, unknown> = {
-        articleId: 0,
-        title: article.title,
-        content: wrapMarkdownContent(processedMd),
-        plain,
-        sourceType: 0,
-        classifyIds: [] as number[],
-        tagIds: [] as number[],
-        longtailTag: [] as string[],
-        columnIds: [] as number[],
-        openComment: 1,
-        closeTextLink: 0,
-        userSummary: '',
-        pic: '',
-        sourceDetail: {},
-        zoneName: '',
-        summary: plainFull.slice(0, 120),
-      }
-
-      let payloadLen = JSON.stringify(body).length
-      if (payloadLen > PAYLOAD_MAX && plain.length > 120) {
-        plain = plainFull.slice(0, 120)
-        body.plain = plain
-        payloadLen = JSON.stringify(body).length
-      }
-      if (payloadLen > PAYLOAD_MAX) {
-        throw new Error(
-          `草稿过大（约 ${Math.round(payloadLen / 1024)} KB），请减少正文或图片后重试`
-        )
-      }
-
-      // 抓包接口：SW + DNR 优先；失败后再页面重试（必须在 withCommunitySession 外，无 DNR）
-      let res: { draftId?: number }
-      try {
-        res = await this.withCommunitySession(() =>
-          this.postApi<{ draftId?: number }>('/article/addArticleDraft', body)
-        )
-      } catch (error) {
-        const msg = (error as Error).message || ''
-        if (/还未登录|未登录|HTTP 401|\b401\b/.test(msg)) {
-          logger.warn('addArticleDraft 鉴权失败，页面上下文重试:', msg)
-        } else {
-          logger.warn('addArticleDraft via SW failed, retry in page:', error)
-        }
-        try {
-          res = await this.postDraftViaPage(body)
-        } catch (pageError) {
-          const pageMsg = (pageError as Error).message || ''
-          if (/HTTP 401|\b401\b|还未登录|未登录|登录页 HTML/.test(pageMsg)) {
-            throw new Error(
-              '保存草稿失败：未登录（HTTP 401）。请在同一 Chrome 打开并登录云社区后重试'
-            )
-          }
-          throw pageError
-        }
-      }
-      if (!res?.draftId) {
-        throw new Error('保存草稿失败：未返回 draftId')
-      }
-
-      const draftId = String(res.draftId)
-      return {
-        platform: this.meta.id,
-        success: true,
-        postId: draftId,
-        postUrl: `${WRITE_NEW_URL}?draftId=${draftId}`,
-        draftOnly: true,
-        timestamp: now,
-      }
-    } catch (error) {
-      logger.error('publish failed:', error)
-      return {
-        platform: this.meta.id,
-        success: false,
-        error: (error as Error).message,
-        timestamp: now,
-      }
-    } finally {
-      await this.releaseEphemeralTabs()
     }
+  }
+
+  /** 2. 内容规整：确保 markdown 非空 + 剥离本地 data URI */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    const markdown = (ctx.content.markdown || '').trim()
+    if (!markdown) {
+      throw new Error('文章内容为空（未得到 Markdown），请重试同步')
+    }
+    ctx.content.markdown = stripDataImages(markdown)
+  }
+
+  /** 3. 上传图片：withCommunitySession 保护下走 SharedImageCache 去重 + processImages */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withCommunitySession(async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        try {
+          const result = await this.uploadImageByUrl(src)
+          ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+          return result
+        } catch (error) {
+          // 外链转存失败时保留原链，避免整篇失败
+          logger.warn('外链转存失败，保留原 URL:', src.slice(0, 80), (error as Error).message)
+          return { url: src }
+        }
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: SKIP_IMAGE_HOSTS,
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
+
+  /** 5. 构建 addArticleDraft 请求体（含 plain 截断与体积检查） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const plainFull = buildPlainText(ctx.content.markdown)
+    let plain = plainFull.slice(0, PLAIN_MAX)
+    const body: Record<string, unknown> = {
+      articleId: 0,
+      title: ctx.article.title,
+      content: wrapMarkdownContent(ctx.content.markdown),
+      plain,
+      sourceType: 0,
+      classifyIds: [] as number[],
+      tagIds: [] as number[],
+      longtailTag: [] as string[],
+      columnIds: [] as number[],
+      openComment: 1,
+      closeTextLink: 0,
+      userSummary: '',
+      pic: '',
+      sourceDetail: {},
+      zoneName: '',
+      summary: plainFull.slice(0, 120),
+    }
+
+    let payloadLen = JSON.stringify(body).length
+    if (payloadLen > PAYLOAD_MAX && plain.length > 120) {
+      plain = plainFull.slice(0, 120)
+      body.plain = plain
+      payloadLen = JSON.stringify(body).length
+    }
+    if (payloadLen > PAYLOAD_MAX) {
+      throw new Error(
+        `草稿过大（约 ${Math.round(payloadLen / 1024)} KB），请减少正文或图片后重试`
+      )
+    }
+    ctx.payload = body
+  }
+
+  /** 6. 提交：addArticleDraft（SW + withCommunitySession）失败再页面上下文 */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    let res: { draftId?: number }
+    try {
+      res = await this.withCommunitySession(() =>
+        this.postApi<{ draftId?: number }>('/article/addArticleDraft', ctx.payload as Record<string, unknown>)
+      )
+    } catch (error) {
+      const msg = (error as Error).message || ''
+      if (/还未登录|未登录|HTTP 401|\b401\b/.test(msg)) {
+        logger.warn('addArticleDraft 鉴权失败，页面上下文重试:', msg)
+      } else {
+        logger.warn('addArticleDraft via SW failed, retry in page:', error)
+      }
+      try {
+        res = await this.postDraftViaPage(ctx.payload as Record<string, unknown>)
+      } catch (pageError) {
+        const pageMsg = (pageError as Error).message || ''
+        if (/HTTP 401|\b401\b|还未登录|未登录|登录页 HTML/.test(pageMsg)) {
+          throw new Error(
+            '保存草稿失败：未登录（HTTP 401）。请在同一 Chrome 打开并登录云社区后重试'
+          )
+        }
+        throw pageError
+      }
+    }
+    if (!res?.draftId) {
+      throw new Error('保存草稿失败：未返回 draftId')
+    }
+    const draftId = String(res.draftId)
+    return this.createResult(true, {
+      postId: draftId,
+      postUrl: `${WRITE_NEW_URL}?draftId=${draftId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则：腾讯云用 withCommunitySession 动态构建（含 Cookie 注入），此处返回空 */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return []
   }
 
   private async postApi<T>(path: string, data: Record<string, unknown>): Promise<T> {

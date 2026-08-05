@@ -6,9 +6,10 @@
  * 外链图：本版本支持经 ImageX 转存；本地 data URI 暂不支持（会剥离）。
  * ImageX：get-token → ApplyImageUpload → TOS PUT → CommitImageUpload → get-url
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { signAWS4, crc32 } from '../../lib'
 import { createLogger } from '../../lib/logger'
 
@@ -90,7 +91,7 @@ interface DraftPublishResponse {
   err_msg?: string
 }
 
-export class VolcengineAdapter extends CodeAdapter {
+export class VolcengineAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'volcengine',
     name: '火山引擎',
@@ -102,6 +103,15 @@ export class VolcengineAdapter extends CodeAdapter {
   /** 预处理配置: 火山社区完整支持 Markdown（含 mermaid / 代码语言） */
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+    ],
   }
 
   private cachedImageXToken: ImageXToken | null = null
@@ -516,67 +526,94 @@ export class VolcengineAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting draft publish...')
+  // ============ 管道钩子 ============
 
-      // 本地 data URI 暂不支持：剥离；http(s) 外链经 ImageX 转存
-      let markdown = (article.markdown || '')
-        .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
-        .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
-
-      markdown = await this.withVolcSession(async () =>
-        this.processImages(
-          markdown,
-          async (src) => {
-            try {
-              return await this.uploadImageByUrl(src)
-            } catch (error) {
-              logger.warn('外链转存失败，保留原 URL:', src.slice(0, 80), error)
-              return { url: src }
-            }
-          },
-          {
-            skipPatterns: [
-              'developer.volcengine.com',
-              'volc-community',
-              'byteimg.com',
-              'tlddhu82om',
-            ],
-            onProgress: options?.onImageProgress,
-          }
-        )
+  /** 1. 鉴权：SW + 页面上下文级联 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    const authed =
+      (await this.detectAuthViaSw().catch(() => null)) ||
+      (await this.detectAuthViaPage().catch(() => null))
+    if (!authed) {
+      const cookieHeader = await this.collectCookieHeader().catch(() => '')
+      throw new Error(
+        this.hasLoginCookies(cookieHeader)
+          ? '会话 Cookie 存在但社区未识别，请打开并刷新 https://developer.volcengine.com/articles/draft 后重试'
+          : '未登录火山引擎开发者社区，请先打开并登录 https://developer.volcengine.com/articles/draft'
       )
-
-      const data = await this.saveDraft({
-        article_info: {
-          title: article.title,
-          content: markdown,
-          en_title: '',
-          en_content: '',
-        },
-      })
-
-      const draftId = this.draftIdFrom(data)
-      if (!draftId) {
-        throw new Error(data.err_msg || '保存草稿失败: 无效响应')
-      }
-
-      const draftUrl = `${BASE}/articles/draft/${draftId}`
-      logger.debug('Draft created:', draftId)
-
-      return this.createResult(true, {
-        postId: draftId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    } catch (error) {
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
-    } finally {
-      await this.releaseEphemeralTabs()
     }
+  }
+
+  /** 2. 内容规整：剥离本地 data URI（本版本暂不支持本地图片） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.markdown = (ctx.content.markdown || '')
+      .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
+      .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
+  }
+
+  /** 3. 上传图片：withVolcSession 保护下走 SharedImageCache 去重；软失败保留原 URL */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withVolcSession(async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        try {
+          const result = await this.uploadImageByUrl(src)
+          ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+          return result
+        } catch (error) {
+          logger.warn('外链转存失败，保留原 URL:', src.slice(0, 80), error)
+          return { url: src }
+        }
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: [
+          'developer.volcengine.com',
+          'volc-community',
+          'byteimg.com',
+          'tlddhu82om',
+        ],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
+
+  /** 5. 构建 draft/publish 请求体 */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      article_info: {
+        title: ctx.article.title,
+        content: ctx.content.markdown,
+        en_title: '',
+        en_content: '',
+      },
+    }
+  }
+
+  /** 6. 提交：saveDraft（SW + Cookie 注入失败再页面 storage 中转） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const data = await this.saveDraft(
+      ctx.payload as {
+        article_info: { title: string; content: string; en_title: string; en_content: string }
+      },
+    )
+    const draftId = this.draftIdFrom(data)
+    if (!draftId) {
+      throw new Error(data.err_msg || '保存草稿失败: 无效响应')
+    }
+    logger.debug('Draft created:', draftId)
+    return this.createResult(true, {
+      postId: draftId,
+      postUrl: `${BASE}/articles/draft/${draftId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则：火山用 withVolcSession 动态构建（含 Cookie 注入），此处返回空 */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return []
   }
 
   async uploadImage(file: Blob, _filename?: string): Promise<string> {

@@ -8,9 +8,10 @@
  * ⚠️ 本版本不支持图片：本地 data URI 会剥离；http(s) 外链也不中转图床。
  * （产品策略：当前仅千帆关闭外链图片中转，其余平台均支持。）
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Qianfan')
@@ -639,7 +640,7 @@ export function nodesToQianfanHtml(nodes: QianfanNode[]): string {
   return parts.join('\n')
 }
 
-export class QianfanAdapter extends CodeAdapter {
+export class QianfanAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'qianfan',
     name: '百度智能云千帆社区',
@@ -651,6 +652,16 @@ export class QianfanAdapter extends CodeAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分区/分类', source: 'remote' },
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+    ],
   }
 
   /** 收集百度云相关 Cookie，供 DNR 注入（绕过 SW 丢 SameSite 会话） */
@@ -853,68 +864,80 @@ export class QianfanAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting Qianfan draft sync...')
-      return await this.withCommunitySession(async () => {
-        const user = await this.fetchUser()
-        if (!user?.id) {
-          throw new Error('请先登录百度智能云/千帆社区')
-        }
+  // ============ 管道钩子 ============
 
-        const content = (article.markdown || '').trim()
-        if (!content) {
-          throw new Error('文章内容为空（未得到 Markdown），请重试同步')
-        }
+  /** 1. 鉴权：withCommunitySession 保护下调 fetchUser */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withCommunitySession(async () => {
+      const user = await this.fetchUser()
+      if (!user?.id) {
+        throw new Error('请先登录百度智能云/千帆社区')
+      }
+    })
+  }
 
-        // 本地/外链均不上传图床：去掉 data URI；http(s) 原样保留（不 processImages）
-        const processedMd = content
-          .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
-          .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
-
-        const nodes = markdownToQianfanNodes(processedMd)
-        const mdContent = JSON.stringify(nodes)
-        const htmlContent = nodesToQianfanHtml(nodes)
-        const summary = buildSummary(processedMd)
-
-        const csrf = await this.getCsrfToken()
-        const res = await this.apiPostJson<QianfanTopicCreateResult>(
-          `${API}/topic`,
-          {
-            title: (article.title || '').trim() || '未命名话题',
-            tagIds: '',
-            categoryId: 2,
-            subPartitionId: 1,
-            summary,
-            type: 'TEXT',
-            coverImageUrl: '',
-            mdContent,
-            htmlContent,
-            id: null,
-          },
-          csrf
-        )
-
-        const id = res.id
-        if (!id) {
-          throw new Error('保存草稿失败：未返回 ID')
-        }
-
-        const draftUrl = `${BASE}/qianfandev/topic/create?id=${id}`
-        logger.debug('Draft created:', id)
-
-        return this.createResult(true, {
-          postId: String(id),
-          postUrl: draftUrl,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      logger.error('publish failed:', error)
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
+  /** 2. 内容规整：确保 markdown 非空 + 剥离本地 data URI（千帆不上传图床） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    const content = (ctx.content.markdown || '').trim()
+    if (!content) {
+      throw new Error('文章内容为空（未得到 Markdown），请重试同步')
     }
+    ctx.content.markdown = content
+      .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
+      .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
+  }
+
+  /** 3. 上传图片：noop（千帆不上传图床，本地图已剥离，外链原样保留） */
+  protected async uploadImages(_ctx: PublishContext): Promise<void> {
+    // 千帆产品策略：不中转外链图片
+  }
+
+  /** 5. 构建 topic 请求体（Markdown → Slate JSON + 简易 HTML + 摘要） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const nodes = markdownToQianfanNodes(ctx.content.markdown)
+    const mdContent = JSON.stringify(nodes)
+    const htmlContent = nodesToQianfanHtml(nodes)
+    const summary = buildSummary(ctx.content.markdown)
+    ctx.payload = {
+      title: (ctx.article.title || '').trim() || '未命名话题',
+      tagIds: '',
+      categoryId: 2,
+      subPartitionId: 1,
+      summary,
+      type: 'TEXT',
+      coverImageUrl: '',
+      mdContent,
+      htmlContent,
+      id: null,
+    }
+  }
+
+  /** 6. 提交：withCommunitySession 保护下 apiPostJson topic */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const res = await this.withCommunitySession(async () => {
+      const csrf = await this.getCsrfToken()
+      return this.apiPostJson<QianfanTopicCreateResult>(
+        `${API}/topic`,
+        ctx.payload as Record<string, unknown>,
+        csrf
+      )
+    })
+    const id = res.id
+    if (!id) {
+      throw new Error('保存草稿失败：未返回 ID')
+    }
+    logger.debug('Draft created:', id)
+    return this.createResult(true, {
+      postId: String(id),
+      postUrl: `${BASE}/qianfandev/topic/create?id=${id}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则：千帆用 withCommunitySession 动态构建（含 Cookie 注入），此处返回空 */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return []
   }
 
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {

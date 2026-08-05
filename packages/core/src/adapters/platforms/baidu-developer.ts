@@ -10,9 +10,10 @@
  * 图片：POST /api/bce_developer/upload/image（FormData 字段 name）；外链与本地均支持。
  * Mermaid 不支持（原样保留代码块）；公式行内/块级均使用 $$...$$。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('BaiduDeveloper')
@@ -296,7 +297,7 @@ export function authFromBaiduDevUser(
   }
 }
 
-export class BaiduDeveloperAdapter extends CodeAdapter {
+export class BaiduDeveloperAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'baidu-developer',
     name: '百度开发者中心',
@@ -307,6 +308,15 @@ export class BaiduDeveloperAdapter extends CodeAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+    ],
   }
 
   /**
@@ -928,95 +938,95 @@ export class BaiduDeveloperAdapter extends CodeAdapter {
     })
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting Baidu Developer draft sync...')
-      return await this.withDeveloperSession(async () => {
-        const csrf = await this.getCsrfToken()
-        const userRes = await this.runtime.fetch(USER_URL, {
-          method: 'GET',
-          credentials: 'include',
-          headers: { Accept: 'application/json', csrftoken: csrf },
-        })
-        const userText = await userRes.text()
-        let userData: BaiduDevApiResponse<BaiduDevUser>
-        try {
-          userData = JSON.parse(userText) as BaiduDevApiResponse<BaiduDevUser>
-        } catch {
-          throw new Error('请先登录百度开发者中心')
-        }
-        if (!authFromBaiduDevUser(userData)) {
-          throw new Error('请先登录百度开发者中心')
-        }
+  // ============ 管道钩子 ============
 
-        let markdown = (article.markdown || '').trim()
-        if (!markdown) {
-          throw new Error('文章内容为空（未得到 Markdown），请重试同步')
-        }
+  /** 1. 鉴权：withDeveloperSession 保护下调 fetchUser 确认登录 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withDeveloperSession(async () => {
+      const user = await this.fetchUser().catch(() => null)
+      if (!user?.id) {
+        throw new Error('请先登录百度开发者中心')
+      }
+    })
+  }
 
-        markdown = await this.processImages(
-          markdown,
-          async (src) => {
-            try {
-              return await this.uploadImageByUrl(src)
-            } catch (error) {
-              logger.warn('图片转存失败，保留原 URL:', src.slice(0, 80), error)
-              return { url: src }
-            }
-          },
-          {
-            skipPatterns: SKIP_IMAGE_HOSTS,
-            onProgress: options?.onImageProgress,
-          }
-        )
-
-        const htmlContent = markdownToBaiduDeveloperHtml(markdown)
-        const title = (article.title || '').trim() || '未命名文章'
-
-        const response = await this.runtime.fetch(ARTICLE_URL, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json;charset=UTF-8',
-            Accept: 'application/json',
-            csrftoken: csrf,
-          },
-          body: JSON.stringify({
-            title,
-            id: '',
-            mdContent: markdown,
-            htmlContent,
-          }),
-        })
-        const text = await response.text()
-        let data: BaiduDevApiResponse<BaiduDevArticleResult>
-        try {
-          data = JSON.parse(text) as BaiduDevApiResponse<BaiduDevArticleResult>
-        } catch {
-          throw new Error(`保存草稿响应非 JSON: ${text.slice(0, 160)}`)
-        }
-        if (!data.success || !data.result?.id) {
-          throw new Error(this.extractError(data) || '保存草稿失败：未返回 ID')
-        }
-
-        const id = String(data.result.id)
-        const draftUrl = `${CREATE_URL}?id=${id}`
-        logger.debug('Draft created:', id)
-
-        return this.createResult(true, {
-          postId: id,
-          postUrl: draftUrl,
-          draftOnly: options?.draftOnly ?? true,
-        })
-      })
-    } catch (error) {
-      logger.error('publish failed:', error)
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
-    } finally {
-      await this.releaseEphemeralTabs()
+  /** 2. 内容规整：确保 markdown 非空 */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    if (!(ctx.content.markdown || '').trim()) {
+      throw new Error('文章内容为空（未得到 Markdown），请重试同步')
     }
+  }
+
+  /** 3. 上传图片：withDeveloperSession 保护下走 SharedImageCache 去重；软失败保留原 URL */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withDeveloperSession(async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        try {
+          const result = await this.uploadImageByUrl(src)
+          ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+          return result
+        } catch (error) {
+          logger.warn('图片转存失败，保留原 URL:', src.slice(0, 80), error)
+          return { url: src }
+        }
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: SKIP_IMAGE_HOSTS,
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
+
+  /** 5. 构建草稿请求体（mdContent + htmlContent） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const htmlContent = markdownToBaiduDeveloperHtml(ctx.content.markdown)
+    const title = (ctx.article.title || '').trim() || '未命名文章'
+    ctx.payload = { title, id: '', mdContent: ctx.content.markdown, htmlContent }
+  }
+
+  /** 6. 提交：withDeveloperSession 保护下 POST ARTICLE_URL */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const data = await this.withDeveloperSession(async () => {
+      const csrf = await this.getCsrfToken()
+      const response = await this.runtime.fetch(ARTICLE_URL, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json;charset=UTF-8',
+          Accept: 'application/json',
+          csrftoken: csrf,
+        },
+        body: JSON.stringify(ctx.payload),
+      })
+      const text = await response.text()
+      let res: BaiduDevApiResponse<BaiduDevArticleResult>
+      try {
+        res = JSON.parse(text) as BaiduDevApiResponse<BaiduDevArticleResult>
+      } catch {
+        throw new Error(`保存草稿响应非 JSON: ${text.slice(0, 160)}`)
+      }
+      if (!res.success || !res.result?.id) {
+        throw new Error(this.extractError(res) || '保存草稿失败：未返回 ID')
+      }
+      return res
+    })
+    const id = String(data.result!.id)
+    logger.debug('Draft created:', id)
+    return this.createResult(true, {
+      postId: id,
+      postUrl: `${CREATE_URL}?id=${id}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则：百度开发者用 withDeveloperSession 动态构建（含 Cookie 注入），此处返回空 */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return []
   }
 
   private extractError(data: BaiduDevApiResponse): string {

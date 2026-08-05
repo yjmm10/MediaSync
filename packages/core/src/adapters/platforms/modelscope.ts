@@ -8,9 +8,10 @@
  * 草稿：POST /api/v1/articles { ContentDraft }；成功后 /learn/edit/{Id}。
  * 创建需账号具备勋章；不支持 Mermaid / 公式（降级为普通代码块，平台不渲染）；本地 data URI 剥离。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Modelscope')
@@ -442,7 +443,7 @@ export function markdownToModelscopeJsonML(markdown: string): string {
   return JSON.stringify(root)
 }
 
-export class ModelscopeAdapter extends CodeAdapter {
+export class ModelscopeAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'modelscope',
     name: '魔搭研习社',
@@ -453,6 +454,15 @@ export class ModelscopeAdapter extends CodeAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+    ],
   }
 
   private readonly HEADER_RULES = [
@@ -799,53 +809,73 @@ export class ModelscopeAdapter extends CodeAdapter {
     throw new Error(pageMsg)
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting ModelScope draft publish...')
+  // ============ 管道钩子 ============
 
-      let markdown = (article.markdown || '')
-        .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
-        .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
-
-      markdown = await this.withHeaderRules(this.HEADER_RULES, async () =>
-        this.processImages(
-          markdown,
-          async (src) => {
-            try {
-              return await this.uploadImageByUrl(src)
-            } catch (error) {
-              logger.warn('外链转存失败，保留原 URL:', src.slice(0, 80), error)
-              return { url: src }
-            }
-          },
-          {
-            skipPatterns: ['resources.modelscope.cn', 'modelscope-resouces.oss'],
-            onProgress: options?.onImageProgress,
-          }
-        )
-      )
-
-      const contentDraft = markdownToModelscopeJsonML(markdown)
-      const data = await this.createDraft(contentDraft)
-      const id = this.articleIdFrom(data)
-      if (!id) {
-        throw new Error(data.Message || '创建草稿失败: 无效响应')
-      }
-
-      const draftUrl = `${BASE}/learn/edit/${id}`
-      logger.info('Draft created:', draftUrl)
-      return this.createResult(true, {
-        postId: id,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    } catch (error) {
-      logger.error('publish failed:', (error as Error).message)
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
-    } finally {
-      await this.releaseEphemeralTabs()
+  /** 1. 鉴权：SW + 页面上下文级联 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    const authed =
+      (await this.detectAuthViaSw().catch(() => null)) ||
+      (await this.detectAuthViaPage().catch(() => null))
+    if (!authed) {
+      throw new Error(`未登录魔搭社区，请先打开并登录 ${CREATE_URL}`)
     }
+  }
+
+  /** 2. 内容规整：剥离本地 data URI */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.markdown = (ctx.content.markdown || '')
+      .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
+      .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
+  }
+
+  /** 3. 上传图片：Header 规则保护下走 SharedImageCache 去重；软失败保留原 URL */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        try {
+          const result = await this.uploadImageByUrl(src)
+          ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+          return result
+        } catch (error) {
+          logger.warn('外链转存失败，保留原 URL:', src.slice(0, 80), error)
+          return { url: src }
+        }
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['resources.modelscope.cn', 'modelscope-resouces.oss'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
+
+  /** 5. 构建 ContentDraft（Markdown → Cangjie JsonML） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = markdownToModelscopeJsonML(ctx.content.markdown)
+  }
+
+  /** 6. 提交：createDraft（SW 失败再页面上下文 storage 中转） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const contentDraft = ctx.payload as string
+    const data = await this.createDraft(contentDraft)
+    const id = this.articleIdFrom(data)
+    if (!id) {
+      throw new Error(data.Message || '创建草稿失败: 无效响应')
+    }
+    logger.info('Draft created:', `${BASE}/learn/edit/${id}`)
+    return this.createResult(true, {
+      postId: id,
+      postUrl: `${BASE}/learn/edit/${id}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则：魔搭 createDraft/createDraftSw 自己包 withHeaderRules，此处返回空 */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return []
   }
 }

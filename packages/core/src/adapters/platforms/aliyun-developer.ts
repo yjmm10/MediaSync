@@ -7,9 +7,10 @@
  * 图片：getImageUploadUrl → OSS PUT → ucc.alicdn.com；整条链路失败则剥离图片回退纯文字。
  * 登录：优先 SW GET /developer/api/my/user/getUser，失败再页面上下文。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('AliyunDeveloper')
@@ -79,7 +80,7 @@ export function stripMarkdownImages(markdown: string): string {
     .replace(/<img\b[^>]*>/gi, '')
 }
 
-export class AliyunDeveloperAdapter extends CodeAdapter {
+export class AliyunDeveloperAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'aliyun-developer',
     name: '阿里云开发者社区',
@@ -90,6 +91,15 @@ export class AliyunDeveloperAdapter extends CodeAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+    ],
   }
 
   private readonly HEADER_RULES = [
@@ -404,73 +414,82 @@ export class AliyunDeveloperAdapter extends CodeAdapter {
     })
   }
 
-  private async prepareMarkdown(
-    markdown: string,
-    options?: PublishOptions
-  ): Promise<string> {
-    try {
-      return await this.withAliyunSession(() =>
-        this.processImages(
-          markdown,
-          async (src) => {
-            try {
-              return await this.uploadImageByUrl(src)
-            } catch (error) {
-              logger.warn('单张图片转存失败:', src.slice(0, 80), error)
-              if (src.startsWith('data:') || src.startsWith('blob:')) {
-                return { url: '' }
-              }
-              return { url: src }
-            }
-          },
-          {
-            skipPatterns: SKIP_IMAGE_HOSTS,
-            onProgress: options?.onImageProgress,
-          }
-        )
+  // prepareMarkdown 已移除：图片处理逻辑迁入 uploadImages 钩子（SharedImageCache 去重）
+
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：SW + 页面上下文级联 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    const authed =
+      (await this.detectAuthViaSw().catch(() => null)) ||
+      (await this.detectAuthViaPage().catch(() => null))
+    if (!authed) {
+      throw new Error(
+        '请先登录阿里云开发者社区（打开 https://developer.aliyun.com/article/new）'
       )
-    } catch (error) {
-      logger.warn('图片链路失败，回退纯文字:', error)
-      return stripMarkdownImages(markdown)
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
+  /** 2. 内容规整：确保 markdown 非空 */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    if (!(ctx.content.markdown || '').trim()) {
+      throw new Error('文章内容为空（未得到 Markdown），请重试同步')
+    }
+  }
+
+  /** 3. 上传图片：withAliyunSession 保护下走 SharedImageCache 去重；整体失败回退纯文字 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
     try {
-      const authed =
-        (await this.detectAuthViaSw().catch(() => null)) ||
-        (await this.detectAuthViaPage().catch(() => null))
-      if (!authed) {
-        throw new Error(
-          '请先登录阿里云开发者社区（打开 https://developer.aliyun.com/article/new）'
-        )
-      }
-
-      let markdown = (article.markdown || '').trim()
-      if (!markdown) {
-        throw new Error('文章内容为空（未得到 Markdown），请重试同步')
-      }
-
-      markdown = await this.prepareMarkdown(markdown, options)
-      // processImages 可能留下空的 ![]()
-      markdown = markdown.replace(/!\[[^\]]*\]\(\s*\)/g, '')
-
-      const title = (article.title || '').trim() || '未命名文章'
-      const body = buildPutDraftBody(title, markdown)
-      const aid = await this.putDraft(body)
-      const draftUrl = `${BASE}/article/new?edit=${aid}`
-
-      return this.createResult(true, {
-        postId: String(aid),
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
+      await this.withAliyunSession(async () => {
+        const upload = async (src: string): Promise<ImageUploadResult> => {
+          const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+          if (hit) return { url: hit }
+          try {
+            const result = await this.uploadImageByUrl(src)
+            ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+            return result
+          } catch (error) {
+            logger.warn('单张图片转存失败:', src.slice(0, 80), error)
+            if (src.startsWith('data:') || src.startsWith('blob:')) {
+              return { url: '' }
+            }
+            return { url: src }
+          }
+        }
+        const opts: ImageProcessOptions = {
+          skipPatterns: SKIP_IMAGE_HOSTS,
+          onProgress: ctx.onImageProgress,
+          concurrency: 3,
+        }
+        ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
       })
     } catch (error) {
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
-    } finally {
-      await this.releaseEphemeralTabs()
+      logger.warn('图片链路失败，回退纯文字:', error)
+      ctx.content.markdown = stripMarkdownImages(ctx.content.markdown)
     }
+    // processImages 可能留下空的 ![]()
+    ctx.content.markdown = ctx.content.markdown.replace(/!\[[^\]]*\]\(\s*\)/g, '')
+  }
+
+  /** 5. 构建 putDraft 请求体 */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const title = (ctx.article.title || '').trim() || '未命名文章'
+    ctx.payload = buildPutDraftBody(title, ctx.content.markdown)
+  }
+
+  /** 6. 提交：putDraft（SW 失败再页面回退） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const aid = await this.putDraft(ctx.payload as AliyunPutDraftBody)
+    return this.createResult(true, {
+      postId: String(aid),
+      postUrl: `${BASE}/article/new?edit=${aid}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则：阿里云用 withAliyunSession 动态构建（含 Cookie 注入），此处返回空 */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return []
   }
 }
