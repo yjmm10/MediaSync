@@ -7,9 +7,8 @@
  *
  * 使用 chrome.downloads API 直接触发下载，避免大文件传递问题
  */
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
-import { CodeAdapter } from '../code-adapter'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import { htmlToMarkdown } from '../../lib/turndown'
 import { createLogger } from '../../lib/logger'
 import { parseMarkdownImages } from '../../lib/markdown-images'
@@ -17,7 +16,7 @@ import JSZip from 'jszip'
 
 const logger = createLogger('ZipDownload')
 
-export class ZipDownloadAdapter extends CodeAdapter {
+export class ZipDownloadAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'zip-download',
     name: 'Markdown 压缩包',
@@ -36,69 +35,69 @@ export class ZipDownloadAdapter extends CodeAdapter {
     }
   }
 
-  /**
-   * 导出为 ZIP 压缩包
-   */
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    try {
-      const zip = new JSZip()
-      const imgFolder = zip.folder('images')!
+  // ============ 管道钩子 ============
 
-      // 获取 Markdown 内容
-      let markdown = article.markdown || htmlToMarkdown(article.html || '')
+  // authorize：本地导出无需鉴权（authStrategies 为空，基类 authorize 直接放行）
 
-      if (!markdown.trim()) {
-        return this.createResult(false, {
-          error: '文章内容为空',
-        })
-      }
-
-      // 添加标题
-      const title = article.title || '未命名文章'
-      if (!markdown.startsWith('# ')) {
-        markdown = `# ${title}\n\n${markdown}`
-      }
-
-      // 处理图片：下载并替换为相对路径
-      const { processedMarkdown, imageCount } = await this.processImagesForZip(
-        markdown,
-        imgFolder,
-        options?.onImageProgress
-      )
-
-      // 写入 Markdown 文件
-      zip.file('article.md', processedMarkdown)
-
-      // 生成 ZIP Blob
-      const blob = await zip.generateAsync({
-        type: 'blob',
-        compression: 'DEFLATE',
-        compressionOptions: { level: 6 },
-      })
-
-      // 使用 runtime.downloads 下载
-      const filename = this.sanitizeFilename(title) + '.zip'
-
-      if (!this.runtime.downloads) {
-        return this.createResult(false, {
-          error: '当前环境不支持下载功能',
-        })
-      }
-
-      const downloadId = await this.runtime.downloads.download(blob, filename, true)
-      logger.info(`Download started: ${filename}, id: ${downloadId}`)
-
-      return this.createResult(true, {
-        postId: String(downloadId),
-        postUrl: '', // 本地下载，无链接
-        message: `已下载 ${filename}（${imageCount} 张图片）`,
-      })
-    } catch (error) {
-      logger.error('ZIP download failed:', error)
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
+  /** 2. 内容规整：确保 markdown 非空（无 markdown 时从 html 转换） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    const markdown = ctx.content.markdown || htmlToMarkdown(ctx.content.html || '')
+    if (!markdown.trim()) {
+      throw new Error('文章内容为空')
     }
+    ctx.content.markdown = markdown
+  }
+
+  /** 3. 上传图片：noop（ZipDownload 下载图片到 zip，不上传图床） */
+  protected async uploadImages(_ctx: PublishContext): Promise<void> {
+    // 图片处理在 buildPayload 的 processImagesForZip 内
+  }
+
+  /** 5. 构建 ZIP（创建 zip + 下载图片到 images/ + 写 article.md） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const zip = new JSZip()
+    const imgFolder = zip.folder('images')!
+
+    let markdown = ctx.content.markdown || ''
+    const title = ctx.article.title || '未命名文章'
+    if (!markdown.startsWith('# ')) {
+      markdown = `# ${title}\n\n${markdown}`
+    }
+
+    const { processedMarkdown, imageCount } = await this.processImagesForZip(
+      markdown,
+      imgFolder,
+      ctx.onImageProgress,
+    )
+    zip.file('article.md', processedMarkdown)
+    ctx.payload = { zip, title, imageCount }
+  }
+
+  /** 6. 提交：generateAsync → downloads.download（本地导出，无平台 API） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const payload = ctx.payload as { zip: JSZip; title: string; imageCount: number }
+    const blob = await payload.zip.generateAsync({
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    })
+    const filename = this.sanitizeFilename(payload.title) + '.zip'
+    if (!this.runtime.downloads) {
+      throw new Error('当前环境不支持下载功能')
+    }
+    const downloadId = await this.runtime.downloads.download(blob, filename, true)
+    logger.info(`Download started: ${filename}, id: ${downloadId}`)
+    return this.createResult(true, {
+      postId: String(downloadId),
+      postUrl: '',
+      message: `已下载 ${filename}（${payload.imageCount} 张图片）`,
+    })
+  }
+
+  /** Header 规则：本地导出无 API 请求 */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return []
   }
 
   /**
