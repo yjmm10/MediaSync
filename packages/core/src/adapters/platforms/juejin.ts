@@ -217,17 +217,22 @@ export class JuejinAdapter extends PipelineAdapter {
     })
   }
 
-  /** 5. 构建草稿请求体（P1 写死保持等价；P2 读 ctx.params） */
+  /** 5. 构建草稿请求体（P3: 读 ctx.params；未配置时回退默认保持等价） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const { params } = ctx
+    const coverUrl =
+      params.cover && params.cover !== 'auto' && params.cover !== 'none'
+        ? params.cover
+        : ''
     ctx.payload = {
-      brief_content: '',
-      category_id: '0',
-      cover_image: '',
+      brief_content: params.summary ?? '',
+      category_id: params.category ?? '0',
+      cover_image: coverUrl,
       edit_type: 10,
       html_content: 'deprecated',
       link_url: '',
       mark_content: ctx.content.markdown,
-      tag_ids: [],
+      tag_ids: params.tags ?? [],
       title: ctx.article.title,
     }
   }

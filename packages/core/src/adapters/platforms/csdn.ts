@@ -205,28 +205,40 @@ export class CSDNAdapter extends PipelineAdapter {
 
   /** 5. 构建平台请求体（P1 写死保持等价；P2 注册代码 + UI 接入后读 ctx.params） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const { params } = ctx
+    const coverUrl =
+      params.cover && params.cover !== 'auto' && params.cover !== 'none'
+        ? params.cover
+        : ''
     ctx.payload = {
       title: ctx.article.title,
       markdowncontent: ctx.content.markdown,
       content: ctx.content.html,
       readType: 'public',
-      level: 0,
-      tags: '',
-      status: 2, // 草稿
-      categories: '',
-      type: 'original',
-      original_link: '',
+      level: this.visibilityToLevel(params.visibility),
+      tags: (params.tags ?? []).join(','),
+      status: params.mode === 'publish' ? 1 : 2, // 1=发布 2=草稿
+      categories: params.category ?? '',
+      type: params.originalType ?? 'original',
+      original_link: params.originalLink ?? '',
       authorized_status: false,
       not_auto_saved: '1',
       source: 'pc_mdeditor',
-      cover_images: [],
+      cover_images: coverUrl ? [coverUrl] : [],
       cover_type: 1,
       is_new: 1,
       vote_id: 0,
       resource_id: '',
-      pubStatus: 'draft',
-      creator_activity_id: '',
+      pubStatus: params.mode === 'publish' ? 'publish' : 'draft',
+      creator_activity_id: params.activityId ?? '',
     }
+  }
+
+  /** 可见性 → CSDN level（0=公开，1=粉丝可见，2=仅自己） */
+  private visibilityToLevel(visibility?: string): number {
+    if (visibility === 'private') return 2
+    if (visibility === 'followers') return 1
+    return 0
   }
 
   /** 6. 提交：签名 + saveArticle，返回草稿结果 */
