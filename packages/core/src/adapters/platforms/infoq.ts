@@ -550,8 +550,9 @@ export class InfoqAdapter extends PipelineAdapter {
 
   /** 5. 构建 pushFull 请求体（markdown → ProseMirror JSON + 摘要） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const { params } = ctx
     const doc = markdownToInfoqDoc(ctx.content.markdown)
-    const summary = buildSummary(ctx.content.markdown)
+    const summary = params.summary ?? buildSummary(ctx.content.markdown)
     ctx.payload = {
       cover: (ctx.refs.cover as string) ?? '',
       title: ctx.article.title,

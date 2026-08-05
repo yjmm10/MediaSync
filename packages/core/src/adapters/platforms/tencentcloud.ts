@@ -379,25 +379,30 @@ export class TencentCloudAdapter extends PipelineAdapter {
 
   /** 5. 构建 addArticleDraft 请求体（含 plain 截断与体积检查） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const { params } = ctx
     const plainFull = buildPlainText(ctx.content.markdown)
     let plain = plainFull.slice(0, PLAIN_MAX)
+    const coverUrl =
+      params.cover && params.cover !== 'auto' && params.cover !== 'none'
+        ? params.cover
+        : ''
     const body: Record<string, unknown> = {
       articleId: 0,
       title: ctx.article.title,
       content: wrapMarkdownContent(ctx.content.markdown),
       plain,
       sourceType: 0,
-      classifyIds: [] as number[],
-      tagIds: [] as number[],
-      longtailTag: [] as string[],
-      columnIds: [] as number[],
-      openComment: 1,
-      closeTextLink: 0,
-      userSummary: '',
-      pic: '',
+      classifyIds: params.category ? [Number(params.category)] : [],
+      tagIds: params.tags ? params.tags.map(Number) : [],
+      longtailTag: (params.extra?.keywords as string[]) ?? [],
+      columnIds: params.column ? [Number(params.column)] : [],
+      openComment: params.commentsEnabled === false ? 0 : 1,
+      closeTextLink: (params.extra?.closeTextLink as number) ?? 0,
+      userSummary: params.summary ?? '',
+      pic: coverUrl,
       sourceDetail: {},
       zoneName: '',
-      summary: plainFull.slice(0, 120),
+      summary: params.summary ?? plainFull.slice(0, 120),
     }
 
     let payloadLen = JSON.stringify(body).length

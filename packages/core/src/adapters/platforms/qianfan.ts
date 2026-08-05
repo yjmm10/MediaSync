@@ -895,18 +895,23 @@ export class QianfanAdapter extends PipelineAdapter {
 
   /** 5. 构建 topic 请求体（Markdown → Slate JSON + 简易 HTML + 摘要） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const { params } = ctx
     const nodes = markdownToQianfanNodes(ctx.content.markdown)
     const mdContent = JSON.stringify(nodes)
     const htmlContent = nodesToQianfanHtml(nodes)
-    const summary = buildSummary(ctx.content.markdown)
+    const summary = params.summary ?? buildSummary(ctx.content.markdown)
+    const coverUrl =
+      params.cover && params.cover !== 'auto' && params.cover !== 'none'
+        ? params.cover
+        : ''
     ctx.payload = {
       title: (ctx.article.title || '').trim() || '未命名话题',
-      tagIds: '',
-      categoryId: 2,
-      subPartitionId: 1,
+      tagIds: (params.tags ?? []).join(','),
+      categoryId: params.category ? Number(params.category) : 2,
+      subPartitionId: (params.extra?.subPartitionId as number) ?? 1,
       summary,
       type: 'TEXT',
-      coverImageUrl: '',
+      coverImageUrl: coverUrl,
       mdContent,
       htmlContent,
       id: null,

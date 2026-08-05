@@ -93,9 +93,10 @@ export class SegmentfaultAdapter extends PipelineAdapter {
 
   /** 5. 构建草稿请求体（P2 写死保持等价） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const { params } = ctx
     ctx.payload = {
       title: ctx.article.title,
-      tags: [],
+      tags: params.tags ?? [],
       text: ctx.content.markdown,
       object_id: '',
       type: 'article',
