@@ -1,9 +1,21 @@
 /**
- * 掘金适配器
+ * 掘金适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：CSRF Token + ImageX 图床 + article_draft/create 草稿流程全部保留。
+ *
+ * 鉴权策略化（展示新架构）：用 SwApiAuthStrategy 走 user/get，
+ * 由 PipelineAdapter 基类的 checkAuth / authorize 自动级联。
+ *
+ * Header 规则拆分（与原实现等价）：
+ *   原来 publish 用一次 withHeaderRules 包整体；迁移后拆为两次顺序包：
+ *   - uploadImages 钩子内包一次（ImageX 上传需要 Origin/Referer）
+ *   - submit 外层由管道自动包一次（getHeaderRules 返回 HEADER_RULES，覆盖 getCsrfToken + create draft）
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
+import { SwApiAuthStrategy } from '../auth-strategy'
 import { signAWS4, crc32 } from '../../lib'
 import { createLogger } from '../../lib/logger'
 
@@ -93,7 +105,7 @@ interface ImageXCommitUploadResponse {
   }
 }
 
-export class JuejinAdapter extends CodeAdapter {
+export class JuejinAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'juejin',
     name: '掘金',
@@ -107,13 +119,47 @@ export class JuejinAdapter extends CodeAdapter {
     outputFormat: 'markdown' as const,
   }
 
+  /**
+   * 配置 Schema（声明式，UI 据此渲染）
+   * 注意：P1 运行时 buildPayload 仍用写死值保持行为等价；
+   *      等注册代码（P2）与 UI 接入后，buildPayload 再读 ctx.params。
+   */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签', max: 3, suggestionsKey: 'juejin-tags' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+    ],
+  }
+
+  /** 鉴权策略：SW 直调 user/get（对齐 CLAUDE.md 优先级 1） */
+  protected readonly authStrategies = [
+    new SwApiAuthStrategy({
+      url: 'https://api.juejin.cn/user_api/v1/user/get',
+      parse: (json): AuthResult | null => {
+        const data = (json as {
+          data?: { user_id?: string; user_name?: string; avatar_large?: string }
+        }).data
+        if (data?.user_id) {
+          return {
+            isAuthenticated: true,
+            userId: data.user_id,
+            username: data.user_name,
+            avatar: data.avatar_large,
+          }
+        }
+        return { isAuthenticated: false }
+      },
+    }),
+  ]
+
   private cachedCsrfToken: string | null = null
   private cachedImageXToken: ImageXToken | null = null
   private imageXTokenExpiry: number = 0
   private uuid: string = generateUUID()
 
   /** 掘金 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://api.juejin.cn/*',
       headers: {
@@ -132,36 +178,110 @@ export class JuejinAdapter extends CodeAdapter {
     },
   ]
 
-  async checkAuth(): Promise<AuthResult> {
-    try {
-      const response = await this.runtime.fetch('https://api.juejin.cn/user_api/v1/user/get', {
-        method: 'GET',
-        credentials: 'include',
-      })
+  // ============ 管道钩子 ============
 
-      const data = await response.json() as {
-        data?: {
-          user_id?: string
-          user_name?: string
-          avatar_large?: string
-        }
+  // authorize / normalizeContent / resolveReferences 用基类默认：
+  // - authorize：CompositeAuthStrategy 级联 authStrategies（SwApiAuthStrategy）
+  // - normalizeContent：从 platformContents[juejin] 取 markdown
+  // - resolveReferences：空（P1 不拉远程分类/标签列表）
+
+  /**
+   * 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重 + processImages
+   *    保留原 skipPatterns（掘金图床免传）；掘金只用 markdown，html 不处理
+   */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
       }
-
-      if (data.data?.user_id) {
-        return {
-          isAuthenticated: true,
-          userId: data.data.user_id,
-          username: data.data.user_name,
-          avatar: data.data.avatar_large,
-        }
+      const opts: ImageProcessOptions = {
+        skipPatterns: [
+          'juejin.cn', 'p1-juejin', 'p3-juejin',
+          'p6-juejin', 'p9-juejin', 'byteimg.com',
+        ],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
       }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+    })
+  }
 
-      return { isAuthenticated: false }
-    } catch (error) {
-      logger.debug('checkAuth: not logged in -', error)
-      return { isAuthenticated: false, error: (error as Error).message }
+  /** 5. 构建草稿请求体（P1 写死保持等价；P2 读 ctx.params） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      brief_content: '',
+      category_id: '0',
+      cover_image: '',
+      edit_type: 10,
+      html_content: 'deprecated',
+      link_url: '',
+      mark_content: ctx.content.markdown,
+      tag_ids: [],
+      title: ctx.article.title,
     }
   }
+
+  /** 6. 提交：CSRF Token + article_draft/create，返回草稿结果 */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const csrfToken = await this.getCsrfToken()
+
+    const createResponse = await this.runtime.fetch(
+      'https://api.juejin.cn/content_api/v1/article_draft/create',
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-secsdk-csrf-token': csrfToken,
+        },
+        body: JSON.stringify(ctx.payload),
+      }
+    )
+
+    // 检查响应状态和内容
+    const responseText = await createResponse.text()
+    logger.debug('Create draft response:', createResponse.status, responseText.substring(0, 300))
+
+    if (!createResponse.ok) {
+      throw new Error(`创建草稿失败: ${createResponse.status} - ${responseText}`)
+    }
+
+    let createData: { data?: { id?: string }; err_msg?: string; err_no?: number }
+    try {
+      createData = JSON.parse(responseText)
+    } catch {
+      throw new Error(`创建草稿失败: 响应不是有效 JSON - ${responseText.substring(0, 100)}`)
+    }
+
+    // 检查业务错误
+    if (createData.err_no && createData.err_no !== 0) {
+      throw new Error(createData.err_msg || `创建草稿失败: 错误码 ${createData.err_no}`)
+    }
+
+    if (!createData.data?.id) {
+      throw new Error(createData.err_msg || '创建草稿失败: 无效响应')
+    }
+
+    const draftId = createData.data.id
+    logger.debug('Draft created:', draftId)
+
+    return this.createResult(true, {
+      postId: draftId,
+      postUrl: `https://juejin.cn/editor/drafts/${draftId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装，覆盖 getCsrfToken + create） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ CSRF / ImageX 图床（保持原样）============
 
   /**
    * 获取 CSRF Token (参考 DSL juejin.transform.ts)
@@ -196,93 +316,6 @@ export class JuejinAdapter extends CodeAdapter {
     this.cachedCsrfToken = parts[1]
     logger.debug('Got CSRF token:', this.cachedCsrfToken.substring(0, 10) + '...')
     return this.cachedCsrfToken
-  }
-
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
-
-      // 1. 获取 CSRF token
-      const csrfToken = await this.getCsrfToken()
-
-      // 2. 使用预处理好的 markdown（Content Script 已转换）
-      // 掘金使用 Markdown 格式
-      let markdown = article.markdown || ''
-
-      // 3. 处理图片（上传到掘金图床）
-      markdown = await this.processImages(
-        markdown,
-        (src) => this.uploadImageByUrl(src),
-        {
-          skipPatterns: [
-            'juejin.cn', 'p1-juejin', 'p3-juejin',
-            'p6-juejin', 'p9-juejin', 'byteimg.com'
-          ],
-          onProgress: options?.onImageProgress,
-        }
-      )
-
-      // 6. 创建草稿 (参数来自 DSL juejin.yaml + juejin.transform.ts prepareBody)
-      const createResponse = await this.runtime.fetch(
-        'https://api.juejin.cn/content_api/v1/article_draft/create',
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-secsdk-csrf-token': csrfToken,
-          },
-          body: JSON.stringify({
-            brief_content: '',
-            category_id: '0',
-            cover_image: '',
-            edit_type: 10,
-            html_content: 'deprecated',
-            link_url: '',
-            mark_content: markdown,
-            tag_ids: [],
-            title: article.title,
-          }),
-        }
-      )
-
-      // 检查响应状态和内容
-      const responseText = await createResponse.text()
-      logger.debug('Create draft response:', createResponse.status, responseText.substring(0, 300))
-
-      if (!createResponse.ok) {
-        throw new Error(`创建草稿失败: ${createResponse.status} - ${responseText}`)
-      }
-
-      let createData: { data?: { id?: string }; err_msg?: string; err_no?: number }
-      try {
-        createData = JSON.parse(responseText)
-      } catch {
-        throw new Error(`创建草稿失败: 响应不是有效 JSON - ${responseText.substring(0, 100)}`)
-      }
-
-      // 检查业务错误
-      if (createData.err_no && createData.err_no !== 0) {
-        throw new Error(createData.err_msg || `创建草稿失败: 错误码 ${createData.err_no}`)
-      }
-
-      if (!createData.data?.id) {
-        throw new Error(createData.err_msg || '创建草稿失败: 无效响应')
-      }
-
-      const draftId = createData.data.id
-      logger.debug('Draft created:', draftId)
-
-      const draftUrl = `https://juejin.cn/editor/drafts/${draftId}`
-
-      return this.createResult(true, {
-        postId: draftId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
   }
 
   /**

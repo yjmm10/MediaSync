@@ -1,9 +1,20 @@
 /**
- * CSDN 适配器
+ * CSDN 适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：原有签名鉴权、图片上传（OBS 直传）、saveArticle 草稿流程全部保留。
+ * 新增 publishSchema 声明（为 UI 准备），P1 运行时 buildPayload 仍用写死值，
+ * 等 P2 注册代码 + UI 接入后再让 buildPayload 读 ctx.params。
+ *
+ * Header 规则拆分（与原实现等价）：
+ *   原来用一次 withHeaderRules 包整个 publish；迁移后管道分层，拆为两次顺序包：
+ *   - uploadImages 钩子内包一次（imgservice + OBS 需要 Origin/Referer）
+ *   - submit 外层由管道自动包一次（getHeaderRules 返回 HEADER_RULES）
+ *   两次 add/clear 顺序执行，不嵌套，避免 clearHeaderRules 互相清空。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('CSDN')
@@ -14,7 +25,7 @@ interface CSDNUserInfo {
   avatarurl: string
 }
 
-export class CSDNAdapter extends CodeAdapter {
+export class CSDNAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'csdn',
     name: 'CSDN',
@@ -28,6 +39,39 @@ export class CSDNAdapter extends CodeAdapter {
     outputFormat: 'markdown' as const,
   }
 
+  /**
+   * 配置 Schema（声明式，UI 据此渲染）
+   * 注意：P1 运行时 buildPayload 仍用写死值保持行为等价；
+   *      等注册代码（P2）与 UI 接入后，buildPayload 再读 ctx.params。
+   */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'tags', key: 'tags', label: '标签', max: 5 },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      {
+        kind: 'originalType',
+        key: 'originalType',
+        label: '原创类型',
+        needsOriginalLink: true,
+        options: [
+          { value: 'original', label: '原创' },
+          { value: 'reprint', label: '转载' },
+          { value: 'translate', label: '翻译' },
+        ],
+      },
+      { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
+      {
+        kind: 'visibility',
+        key: 'visibility',
+        label: '可见性',
+        options: [
+          { value: 'public', label: '公开' },
+          { value: 'private', label: '仅自己可见' },
+        ],
+      },
+    ],
+  }
+
   private userInfo: CSDNUserInfo | null = null
 
   // CSDN API 签名密钥
@@ -35,7 +79,7 @@ export class CSDNAdapter extends CodeAdapter {
   private readonly API_SECRET = '9znpamsyl2c7cdrr9sas0le9vbc3r6ba'
 
   /** CSDN API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://bizapi.csdn.net/*',
       headers: {
@@ -70,6 +114,8 @@ export class CSDNAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（保持原有签名 API 逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -118,6 +164,113 @@ export class CSDNAdapter extends CodeAdapter {
       return { isAuthenticated: false, error: (error as Error).message }
     }
   }
+
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：确保 userInfo 已获取（沿用原有 checkAuth 签名 API） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.userInfo) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录 CSDN')
+      }
+    }
+  }
+
+  /**
+   * 3. 上传图片：在 Header 规则保护下走 SharedImageCache 去重 + processImages
+   *    保留原 skipPatterns 与 stripDataUriImages 清理（行为等价）
+   */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['csdnimg.cn', 'csdn.net'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.markdown = await this.processImages(ctx.content.markdown, upload, opts)
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+    // 上传失败残留的 data URI 不得写入草稿（体积过大）
+    ctx.content.markdown = stripDataUriImages(ctx.content.markdown)
+    ctx.content.html = stripDataUriImages(ctx.content.html)
+  }
+
+  /** 5. 构建平台请求体（P1 写死保持等价；P2 注册代码 + UI 接入后读 ctx.params） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      markdowncontent: ctx.content.markdown,
+      content: ctx.content.html,
+      readType: 'public',
+      level: 0,
+      tags: '',
+      status: 2, // 草稿
+      categories: '',
+      type: 'original',
+      original_link: '',
+      authorized_status: false,
+      not_auto_saved: '1',
+      source: 'pc_mdeditor',
+      cover_images: [],
+      cover_type: 1,
+      is_new: 1,
+      vote_id: 0,
+      resource_id: '',
+      pubStatus: 'draft',
+      creator_activity_id: '',
+    }
+  }
+
+  /** 6. 提交：签名 + saveArticle，返回草稿结果 */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const apiPath = '/blog-console-api/v3/mdeditor/saveArticle'
+    const headers = await this.signRequest(apiPath)
+
+    const response = await this.runtime.fetch(
+      `https://bizapi.csdn.net${apiPath}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        body: JSON.stringify(ctx.payload),
+      }
+    )
+
+    const res = await response.json() as {
+      code: number
+      message?: string
+      msg?: string
+      data?: { id: string }
+    }
+
+    logger.debug('Save response:', res)
+
+    if (res.code !== 200 || !res.data?.id) {
+      throw new Error(res.msg || res.message || '保存草稿失败')
+    }
+
+    const postId = res.data.id
+    return this.createResult(true, {
+      postId,
+      postUrl: `https://editor.csdn.net/md?articleId=${postId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 签名 / 图片上传（保持原样）============
 
   /**
    * 生成 UUID
@@ -189,105 +342,6 @@ export class CSDNAdapter extends CodeAdapter {
     return headers
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
-
-      // 1. 确保已登录
-      if (!this.userInfo) {
-        const auth = await this.checkAuth()
-        if (!auth.isAuthenticated) {
-          throw new Error('请先登录 CSDN')
-        }
-      }
-
-      // Use pre-processed markdown content directly
-      let markdown = article.markdown || ''
-      let htmlContent = article.html || ''
-
-      // 同源图只上传一次：markdown / html 都替换为图床链接（勿把 base64 直接提交）
-      const imageCache = new Map<string, Promise<ImageUploadResult>>()
-      const uploadCached = (src: string): Promise<ImageUploadResult> => {
-        let pending = imageCache.get(src)
-        if (!pending) {
-          pending = this.uploadImageByUrl(src)
-          imageCache.set(src, pending)
-        }
-        return pending
-      }
-      const imageOpts = {
-        skipPatterns: ['csdnimg.cn', 'csdn.net'],
-        onProgress: options?.onImageProgress,
-      }
-
-      markdown = await this.processImages(markdown, uploadCached, imageOpts)
-      htmlContent = await this.processImages(htmlContent, uploadCached, imageOpts)
-
-      // 上传失败残留的 data URI 不得写入草稿（体积过大）
-      markdown = stripDataUriImages(markdown)
-      htmlContent = stripDataUriImages(htmlContent)
-
-      // Generate signature and save article
-      const apiPath = '/blog-console-api/v3/mdeditor/saveArticle'
-      const headers = await this.signRequest(apiPath)
-
-      const response = await this.runtime.fetch(
-        `https://bizapi.csdn.net${apiPath}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers,
-          body: JSON.stringify({
-            title: article.title,
-            markdowncontent: markdown,
-            content: htmlContent,
-            readType: 'public',
-            level: 0,
-            tags: '',
-            status: 2, // 草稿
-            categories: '',
-            type: 'original',
-            original_link: '',
-            authorized_status: false,
-            not_auto_saved: '1',
-            source: 'pc_mdeditor',
-            cover_images: [],
-            cover_type: 1,
-            is_new: 1,
-            vote_id: 0,
-            resource_id: '',
-            pubStatus: 'draft',
-            creator_activity_id: '',
-          }),
-        }
-      )
-
-      const res = await response.json() as {
-        code: number
-        message?: string
-        msg?: string
-        data?: { id: string }
-      }
-
-      logger.debug('Save response:', res)
-
-      if (res.code !== 200 || !res.data?.id) {
-        throw new Error(res.msg || res.message || '保存草稿失败')
-      }
-
-      const postId = res.data.id
-      const draftUrl = `https://editor.csdn.net/md?articleId=${postId}`
-
-      return this.createResult(true, {
-        postId: postId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
-  }
-
   /**
    * 通过 Blob 上传图片（覆盖基类方法）
    * 需要设置动态请求头规则以支持 MCP / 中间层调用
@@ -302,7 +356,7 @@ export class CSDNAdapter extends CodeAdapter {
 
   /**
    * 通过 URL / data URI 上传图片
-   * Header rules 由 publish / uploadImage 外层负责（避免嵌套 withHeaderRules 清规则）
+   * Header rules 由 uploadImages / uploadImage 外层负责（避免嵌套 withHeaderRules 清规则）
    */
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {
     const blob = await resolveImageBlob(src, (url, init) => this.runtime.fetch(url, init))
