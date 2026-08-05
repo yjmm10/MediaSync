@@ -91,6 +91,7 @@ Chrome 网上应用店链接后续补充。可从 [最新 Release](https://githu
 | 开源中国 | oschina | 技术社区 | ✅ 完整 | — | 草稿 | ✅ |
 | SegmentFault | segmentfault | 技术社区 | ✅ 完整 | — | 草稿 | ✅ |
 | 博客园 | cnblogs | 技术社区 | ✅ 完整 | — | 草稿 | ✅ |
+| InfoQ 写作社区 | infoq | 技术社区 | 🟡 部分 | ✅ 外链/本地图转存（urls + base64）；表格/列表/引用/公式 | 草稿 | ✅ |
 | 搜狐焦点 | sohufocus | 房产 | 🟡 部分 | — | 草稿 | ❌ 暂未支持 |
 | X (Twitter) | x | 海外 | ⚪ 弱 | — | 草稿 | ❌ 暂未支持 |
 | Reddit | reddit | 海外 | ✅ 完整 | 固定个人 profile；**图片暂关闭**（仅文字） | 草稿 | ✅ 🆕 |
@@ -151,6 +152,7 @@ Chrome 网上应用店链接后续补充。可从 [最新 Release](https://githu
 | 开源中国 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | SegmentFault | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 博客园 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| InfoQ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 搜狐焦点 | ✅ | ✅ | ❌ | ⚠️ | ✅ | ⚠️ | ✅ | ✅ |
 | X (Twitter) | ✅ | ⚠️ | ❌ | ❌ | ❌ | ❌ | ⚠️ | ❌ |
 | 东方财富 | ✅ | ✅ | ❌ | ⚠️ | ✅ | ⚠️ | ✅ | ✅ |
@@ -335,6 +337,12 @@ pnpm build
 然后在 Chrome 中加载 `packages/extension/dist` 目录。
 
 ## 更新日志
+
+### v2.1.22 (2026-08-05)
+
+- 🔧 InfoQ：多行引用按行拆段，修复引用内换行丢失
+- 🔧 InfoQ：图片 `upload/urls` 失败或 data URI 时回退 `upload/base64`
+- 📝 文档补全 InfoQ 写作社区平台表
 
 ### v2.1.21 (2026-08-02)
 

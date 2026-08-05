@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.22 (2026-08-05)
+
+- 🔧 InfoQ：多行引用按行拆成多个 paragraph，修复引用内换行丢失
+- 🔧 InfoQ：图片转存 `upload/urls` 失败或 data URI 时回退 `upload/base64`（本地图 / 防盗链外链可同步）
+- 📝 文档补全 InfoQ 写作社区平台表与更新记录
+
 ## v2.1.21 (2026-08-02)
 
 - 🔧 CSDN：修复本地图片（data URI）上传后仍把超大 base64 写入草稿；按 MIME 解析扩展名，失败抛错并剥离残留 data URI
