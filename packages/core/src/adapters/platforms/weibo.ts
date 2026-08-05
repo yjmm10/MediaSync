@@ -1,9 +1,14 @@
 /**
- * 微博适配器
+ * 微博适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：编辑器页面 HTML 解析鉴权 + processWeiboImages（figure 包裹）+
+ * 异步图床上传 + draft create/save 两步草稿流程全部保留。
+ * checkAuth 重写（保留 getUserConfig HTML 解析 + 设 userConfig 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 import { parseMarkdownImages } from '../../lib/markdown-images'
 
@@ -15,7 +20,7 @@ interface WeiboUserConfig {
   avatar_large: string
 }
 
-export class WeiboAdapter extends CodeAdapter {
+export class WeiboAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'weibo',
     name: '微博',
@@ -29,10 +34,21 @@ export class WeiboAdapter extends CodeAdapter {
     outputFormat: 'html' as const,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'summary', key: 'summary', label: '摘要' },
+      { kind: 'schedule', key: 'scheduleAt', label: '定时发布', enabled: true },
+      { kind: 'reward', key: 'reward', label: '赞赏' },
+      { kind: 'paid', key: 'paid', label: '付费阅读' },
+    ],
+  }
+
   private userConfig: WeiboUserConfig | null = null
 
   /** 微博 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://card.weibo.com/*',
       headers: {
@@ -50,6 +66,8 @@ export class WeiboAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 getUserConfig 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -70,6 +88,148 @@ export class WeiboAdapter extends CodeAdapter {
       return { isAuthenticated: false, error: (error as Error).message }
     }
   }
+
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：在 Header 规则保护下获取 userConfig */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const config = await this.getUserConfig()
+      if (!config?.uid) {
+        throw new Error('请先登录微博')
+      }
+    })
+  }
+
+  /** 2. 内容规整：压缩标签间空白（与原 publish 一致） */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.html = (ctx.content.html || '').replace(/>\s+</g, '><')
+  }
+
+  /** 3. 上传图片：微博自定义 processWeiboImages（figure 包裹）+ 封面图 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      ctx.content.html = await this.processWeiboImages(ctx.content.html, ctx.onImageProgress)
+
+      // 封面图（与原 publish 一致：article.cover 上传到微博图床）
+      let coverUrl = ''
+      if (ctx.article.cover) {
+        try {
+          const coverResult = await this.uploadImageByUrl(ctx.article.cover)
+          coverUrl = coverResult.url
+        } catch (e) {
+          logger.warn('Failed to upload cover:', e)
+        }
+      }
+      ctx.refs.coverUrl = coverUrl
+    })
+  }
+
+  /** 5. 构建 save draft 请求体（P2 写死保持等价） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const coverUrl = (ctx.refs.coverUrl as string) ?? ''
+    ctx.payload = {
+      id: '', // submit 时填 postId
+      title: ctx.article.title,
+      subtitle: '',
+      type: '',
+      status: '0',
+      publish_at: '',
+      error_msg: '',
+      error_code: '0',
+      collection: '[]',
+      free_content: '',
+      content: ctx.content.html,
+      cover: coverUrl,
+      summary: '',
+      writer: '',
+      extra: 'null',
+      is_word: '0',
+      article_recommend: '[]',
+      follow_to_read: '1',
+      isreward: '1',
+      pay_setting: '{"ispay":0,"isvclub":0}',
+      source: '0',
+      action: '1',
+      content_type: '0',
+      save: '1',
+    }
+  }
+
+  /** 6. 提交：create draft → save draft */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const config = await this.getUserConfig()
+    if (!config?.uid) {
+      throw new Error('请先登录微博')
+    }
+
+    // 1. create draft
+    const createReqId = this.generateReqId()
+    const createResponse = await this.runtime.fetch(
+      `https://card.weibo.com/article/v5/aj/editor/draft/create?uid=${config.uid}&_rid=${createReqId}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'accept': 'application/json, text/plain, */*',
+          'SN-REQID': createReqId,
+        },
+        body: new URLSearchParams({}),
+      }
+    )
+    const createRes = await createResponse.json() as {
+      code: number
+      msg?: string
+      data?: { id: string }
+    }
+    if (createRes.code !== 100000 || !createRes.data?.id) {
+      throw new Error(createRes.msg || '创建草稿失败')
+    }
+    const postId = createRes.data.id
+    logger.debug('Created draft:', postId)
+
+    // 2. save draft
+    const payload = ctx.payload as Record<string, string>
+    payload.id = postId
+    const saveReqId = this.generateReqId()
+    const saveResponse = await this.runtime.fetch(
+      `https://card.weibo.com/article/v5/aj/editor/draft/save?uid=${config.uid}&id=${postId}&_rid=${saveReqId}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'accept': 'application/json, text/plain, */*',
+          'SN-REQID': saveReqId,
+        },
+        body: new URLSearchParams(payload),
+      }
+    )
+    const saveRes = await saveResponse.json() as {
+      code: string | number
+      msg?: string
+    }
+    logger.debug('Save response:', saveRes)
+    const code = String(saveRes.code)
+    if (code !== '100000') {
+      throw new Error(saveRes.msg || `保存失败 (错误码: ${code})`)
+    }
+
+    return this.createResult(true, {
+      postId,
+      postUrl: `https://card.weibo.com/article/v5/editor#/draft/${postId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ 用户配置 / 图床上传（保持原样）============
 
   /**
    * 获取用户配置 (从编辑器页面解析)
@@ -110,121 +270,6 @@ export class WeiboAdapter extends CodeAdapter {
       logger.error('Failed to parse config:', e)
       return null
     }
-  }
-
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
-
-      const config = await this.getUserConfig()
-      if (!config?.uid) {
-        throw new Error('请先登录微博')
-      }
-
-      // Use pre-processed HTML content directly
-      let content = article.html || ''
-
-      content = content.replace(/>\s+</g, '><')
-      content = await this.processWeiboImages(content, options?.onImageProgress)
-
-      const createReqId = this.generateReqId()
-      const createResponse = await this.runtime.fetch(
-        `https://card.weibo.com/article/v5/aj/editor/draft/create?uid=${config.uid}&_rid=${createReqId}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'accept': 'application/json, text/plain, */*',
-            'SN-REQID': createReqId,
-          },
-          body: new URLSearchParams({}),
-        }
-      )
-      const createRes = await createResponse.json() as {
-        code: number
-        msg?: string
-        data?: { id: string }
-      }
-
-      if (createRes.code !== 100000 || !createRes.data?.id) {
-        throw new Error(createRes.msg || '创建草稿失败')
-      }
-
-      const postId = createRes.data.id
-      logger.debug('Created draft:', postId)
-
-      let coverUrl = ''
-      if (article.cover) {
-        try {
-          const coverResult = await this.uploadImageByUrl(article.cover)
-          coverUrl = coverResult.url
-        } catch (e) {
-          logger.warn('Failed to upload cover:', e)
-        }
-      }
-
-      const saveReqId = this.generateReqId()
-      const saveResponse = await this.runtime.fetch(
-        `https://card.weibo.com/article/v5/aj/editor/draft/save?uid=${config.uid}&id=${postId}&_rid=${saveReqId}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'accept': 'application/json, text/plain, */*',
-            'SN-REQID': saveReqId,
-          },
-          body: new URLSearchParams({
-            id: postId,
-            title: article.title,
-            subtitle: '',
-            type: '',
-            status: '0',
-            publish_at: '',
-            error_msg: '',
-            error_code: '0',
-            collection: '[]',
-            free_content: '',
-            content: content,
-            cover: coverUrl,
-            summary: '',
-            writer: '',
-            extra: 'null',
-            is_word: '0',
-            article_recommend: '[]',
-            follow_to_read: '1',
-            isreward: '1',
-            pay_setting: '{"ispay":0,"isvclub":0}',
-            source: '0',
-            action: '1',
-            content_type: '0',
-            save: '1',
-          }),
-        }
-      )
-      const saveRes = await saveResponse.json() as {
-        code: string | number
-        msg?: string
-      }
-
-      logger.debug('Save response:', saveRes)
-
-      const code = String(saveRes.code)
-      if (code !== '100000') {
-        throw new Error(saveRes.msg || `保存失败 (错误码: ${code})`)
-      }
-
-      const draftUrl = `https://card.weibo.com/article/v5/editor#/draft/${postId}`
-
-      return this.createResult(true, {
-        postId: postId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
   }
 
   private generateReqId(): string {

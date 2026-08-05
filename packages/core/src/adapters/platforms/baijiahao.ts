@@ -1,9 +1,14 @@
 /**
- * 百家号适配器
+ * 百家号适配器（PipelineAdapter 实现）
+ *
+ * 行为等价迁移：appinfo 鉴权 + edit 页面提取 auth token + 代码块归一化 +
+ * picture/uploadproxy 图床 + pcui/article/save JSONP 草稿全部保留。
+ * checkAuth 重写（保留 appinfo + 设 userInfo 原逻辑）。
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Baijiahao')
@@ -14,7 +19,7 @@ interface BaijiahaoUserInfo {
   avatar: string
 }
 
-export class BaijiahaoAdapter extends CodeAdapter {
+export class BaijiahaoAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'baijiahao',
     name: '百家号',
@@ -28,11 +33,31 @@ export class BaijiahaoAdapter extends CodeAdapter {
     outputFormat: 'html' as const,
   }
 
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      {
+        kind: 'originalType',
+        key: 'originalType',
+        label: '原创类型',
+        needsOriginalLink: true,
+        options: [
+          { value: 'original', label: '原创' },
+          { value: 'reprint', label: '转载' },
+        ],
+      },
+      { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
+      { kind: 'topic', key: 'topicId', label: '话题', source: 'remote' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+    ],
+  }
+
   private userInfo: BaijiahaoUserInfo | null = null
   private authToken: string = ''
 
   /** 百家号 API 需要的 Header 规则 */
-  private readonly HEADER_RULES = [
+  private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
     {
       urlFilter: '*://baijiahao.baidu.com/*',
       headers: {
@@ -42,6 +67,8 @@ export class BaijiahaoAdapter extends CodeAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  // ============ checkAuth（重写，保留 appinfo + 设 userInfo 原逻辑）============
 
   async checkAuth(): Promise<AuthResult> {
     try {
@@ -70,6 +97,107 @@ export class BaijiahaoAdapter extends CodeAdapter {
     }
   }
 
+  // ============ 管道钩子 ============
+
+  /** 1. 鉴权：确保 userInfo 已获取 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.userInfo) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录百家号')
+      }
+    }
+  }
+
+  /** 2. 内容规整：取默认内容 + 代码块归一化 */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    ctx.content.html = this.transformContent(ctx.content.html || '')
+  }
+
+  /** 3. 上传图片：在 Header 规则保护下获取 auth token + SharedImageCache 去重上传 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      this.authToken = await this.fetchAuthToken()
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['baijiahao.baidu.com', 'bdstatic.com', 'bcebos.com'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+    })
+  }
+
+  /** 5. 构建 save 请求体（P2 写死保持等价） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    ctx.payload = {
+      title: ctx.article.title,
+      content: ctx.content.html,
+      feed_cat: '1',
+      len: String(ctx.content.html.length),
+      activity_list: JSON.stringify([{ id: 408, is_checked: 0 }]),
+      source_reprinted_allow: '0',
+      original_status: '0',
+      original_handler_status: '1',
+      isBeautify: 'false',
+      subtitle: '',
+      bjhtopic_id: '',
+      bjhtopic_info: '',
+      type: 'news',
+    }
+  }
+
+  /** 6. 提交：pcui/article/save（JSONP 响应解析） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const response = await this.runtime.fetch(
+      'https://baijiahao.baidu.com/pcui/article/save?callback=bjhdraft',
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'token': this.authToken,
+        },
+        body: new URLSearchParams(ctx.payload as Record<string, string>),
+      }
+    )
+
+    const text = await response.text()
+    const jsonStr = text.replace(/^bjhdraft\(/, '').replace(/\)$/, '')
+    const res = JSON.parse(jsonStr) as {
+      errno: number
+      errmsg: string
+      ret?: { article_id: string }
+    }
+
+    logger.debug('Save response:', res)
+
+    if (res.errmsg !== 'success' || !res.ret?.article_id) {
+      throw new Error(res.errmsg || '保存草稿失败')
+    }
+
+    const postId = res.ret.article_id
+    return this.createResult(true, {
+      postId,
+      postUrl: `https://baijiahao.baidu.com/builder/rc/edit?type=news&article_id=${postId}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  // ============ auth token / 内容转换 / 图片上传（保持原样）============
+
   private async fetchAuthToken(): Promise<string> {
     const response = await this.runtime.fetch('https://baijiahao.baidu.com/builder/rc/edit', {
       credentials: 'include',
@@ -84,85 +212,6 @@ export class BaijiahaoAdapter extends CodeAdapter {
     const token = match[1]
     logger.debug('Auth token obtained')
     return token
-  }
-
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
-
-      if (!this.userInfo) {
-        const auth = await this.checkAuth()
-        if (!auth.isAuthenticated) {
-          throw new Error('请先登录百家号')
-        }
-      }
-
-      this.authToken = await this.fetchAuthToken()
-
-      // Use pre-processed HTML content; normalize code blocks for BJH editor
-      let content = this.transformContent(article.html || '')
-
-      content = await this.processImages(
-        content,
-        (src) => this.uploadImageByUrl(src),
-        {
-          skipPatterns: ['baijiahao.baidu.com', 'bdstatic.com', 'bcebos.com'],
-          onProgress: options?.onImageProgress,
-        }
-      )
-
-      const response = await this.runtime.fetch(
-        'https://baijiahao.baidu.com/pcui/article/save?callback=bjhdraft',
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'token': this.authToken,
-          },
-          body: new URLSearchParams({
-            title: article.title,
-            content: content,
-            feed_cat: '1',
-            len: String(content.length),
-            activity_list: JSON.stringify([{ id: 408, is_checked: 0 }]),
-            source_reprinted_allow: '0',
-            original_status: '0',
-            original_handler_status: '1',
-            isBeautify: 'false',
-            subtitle: '',
-            bjhtopic_id: '',
-            bjhtopic_info: '',
-            type: 'news',
-          }),
-        }
-      )
-
-      const text = await response.text()
-      const jsonStr = text.replace(/^bjhdraft\(/, '').replace(/\)$/, '')
-      const res = JSON.parse(jsonStr) as {
-        errno: number
-        errmsg: string
-        ret?: { article_id: string }
-      }
-
-      logger.debug('Save response:', res)
-
-      if (res.errmsg !== 'success' || !res.ret?.article_id) {
-        throw new Error(res.errmsg || '保存草稿失败')
-      }
-
-      const postId = res.ret.article_id
-      const draftUrl = `https://baijiahao.baidu.com/builder/rc/edit?type=news&article_id=${postId}`
-
-      return this.createResult(true, {
-        postId: postId,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
   }
 
   /**
