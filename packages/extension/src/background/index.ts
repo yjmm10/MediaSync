@@ -1234,7 +1234,7 @@ chrome.runtime.onInstalled.addListener(async details => {
     const currentVersion = chrome.runtime.getManifest().version
 
     // 重要版本升级时显示更新日志
-    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0']
+    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0', '3.0.1', '3.1.0']
     if (
       showChangelogVersions.includes(currentVersion) ||
       (previousVersion.startsWith('1.') && currentVersion.startsWith('2.')) ||
