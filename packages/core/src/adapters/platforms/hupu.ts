@@ -6,9 +6,10 @@
  * 传图：本机 Blob → kaleido credentials → OSS PUT → uploadStatus
  */
 import md5Lib from 'js-md5'
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Hupu')
@@ -190,7 +191,7 @@ function buildJsonV3(html: string): TipTapNode {
   return { type: 'doc', content: paragraphs }
 }
 
-export class HupuAdapter extends CodeAdapter {
+export class HupuAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'hupu',
     name: '虎扑',
@@ -202,6 +203,14 @@ export class HupuAdapter extends CodeAdapter {
   readonly preprocessConfig = {
     outputFormat: 'html' as const,
     processCodeBlocks: true,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死 DEFAULT_TOPIC_ID 保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'node', key: 'node', label: '板块', source: 'static', required: true,
+        options: [{ value: 'default', label: '步行街主干道' }] },
+    ],
   }
 
   private readonly HEADER_RULES: HeaderRule[] = [
@@ -264,84 +273,47 @@ export class HupuAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, _options?: PublishOptions): Promise<SyncResult> {
-    try {
-      logger.info('Starting publish...')
-      return await this.withHeaderRules(this.HEADER_RULES, async () => {
-        const ok = await this.checkAuthInner()
-        if (!ok) {
-          throw new Error('请先登录虎扑')
-        }
+  // ============ 管道钩子 ============
 
-        let content = article.html || ''
-        content = await this.processImages(
-          content,
-          (src) => this.uploadImageByUrl(src),
-          {
-            skipPatterns: ['hoopchina.com', 'hupu.com'],
-            onProgress: _options?.onImageProgress,
-          }
-        )
-        content = wrapHupuImages(content)
-
-        const title = normalizeTitle(article.title || '')
-        const body = await this.buildPayload(title, content)
-
-        const response = await this.runtime.fetch(CREATE_URL, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(body),
-        })
-        const res = (await response.json()) as HupuApiResponse
-        logger.debug('createThread response:', res)
-
-        if (Number(res.code) !== 1) {
-          throw new Error(res.msg || res.message || '发帖失败')
-        }
-
-        const tid =
-          typeof res.data === 'object' && res.data && 'tid' in res.data
-            ? res.data.tid
-            : undefined
-        if (tid == null || tid === '') {
-          throw new Error('发帖成功但未返回帖子 ID')
-        }
-
-        return this.createResult(true, {
-          postId: String(tid),
-          postUrl: `https://bbs.hupu.com/${tid}.html`,
-          draftOnly: false,
-        })
-      })
-    } catch (error) {
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
-    }
-  }
-
-  private async checkAuthInner(): Promise<boolean> {
-    const response = await this.runtime.fetch(AUTH_PROBE_URL, {
-      method: 'GET',
-      credentials: 'include',
+  /** 1. 鉴权：确保登录（checkAuthInner） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const ok = await this.checkAuthInner()
+      if (!ok) {
+        throw new Error('请先登录虎扑')
+      }
     })
-    if (!response.ok) {
-      return false
-    }
-    const res = (await response.json()) as HupuApiResponse
-    return Number(res.code) === 1
   }
 
-  private async buildPayload(title: string, html: string): Promise<Record<string, unknown>> {
-    const content = ensureContentHtml(html)
+  /** 3. 上传图片 + slate-image 包裹 */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      const upload = async (src: string): Promise<ImageUploadResult> => {
+        const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
+        if (hit) return { url: hit }
+        const result = await this.uploadImageByUrl(src)
+        ctx.imageCache.setUploadedUrl(this.meta.id, src, result.url)
+        return result
+      }
+      const opts: ImageProcessOptions = {
+        skipPatterns: ['hoopchina.com', 'hupu.com'],
+        onProgress: ctx.onImageProgress,
+        concurrency: 3,
+      }
+      ctx.content.html = await this.processImages(ctx.content.html, upload, opts)
+      ctx.content.html = wrapHupuImages(ctx.content.html)
+    })
+  }
+
+  /** 5. 构建 createThread 请求体（标题校验 + TipTap doc + imgList + shumeiId） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const title = normalizeTitle(ctx.article.title || '')
+    const content = ensureContentHtml(ctx.content.html)
     const jsonV3 = buildJsonV3(content)
     const imgList = collectImgList(content)
     const shumeiId = await this.resolveShumeiId()
 
-    return {
+    ctx.payload = {
       title,
       content,
       format: JSON.stringify({
@@ -359,6 +331,57 @@ export class HupuAdapter extends CodeAdapter {
       containsAi: 0,
     }
   }
+
+  /** 6. 提交：createThread（社区型直接发帖，draftOnly=false） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const response = await this.runtime.fetch(CREATE_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(ctx.payload),
+    })
+    const res = (await response.json()) as HupuApiResponse
+    logger.debug('createThread response:', res)
+
+    if (Number(res.code) !== 1) {
+      throw new Error(res.msg || res.message || '发帖失败')
+    }
+
+    const tid =
+      typeof res.data === 'object' && res.data && 'tid' in res.data
+        ? res.data.tid
+        : undefined
+    if (tid == null || tid === '') {
+      throw new Error('发帖成功但未返回帖子 ID')
+    }
+
+    return this.createResult(true, {
+      postId: String(tid),
+      postUrl: `https://bbs.hupu.com/${tid}.html`,
+      draftOnly: false,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
+  }
+
+  private async checkAuthInner(): Promise<boolean> {
+    const response = await this.runtime.fetch(AUTH_PROBE_URL, {
+      method: 'GET',
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      return false
+    }
+    const res = (await response.json()) as HupuApiResponse
+    return Number(res.code) === 1
+  }
+
+  // buildThreadPayload 已内联到 buildPayload 钩子（避免与基类抽象方法同名）
 
   private async resolveShumeiId(): Promise<string> {
     try {

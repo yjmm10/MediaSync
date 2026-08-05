@@ -1,10 +1,11 @@
 /**
  * 豆瓣适配器
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import type { DoubanImageData } from '../../lib'
-import type { PublishOptions } from '../types'
 import { markdownToDraft } from '../../lib'
 import { createLogger } from '../../lib/logger'
 
@@ -21,7 +22,7 @@ interface DoubanPostParams {
   }
 }
 
-export class DoubanAdapter extends CodeAdapter {
+export class DoubanAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'douban',
     name: '豆瓣',
@@ -33,6 +34,23 @@ export class DoubanAdapter extends CodeAdapter {
   /** 预处理配置: 豆瓣使用 Markdown 格式 (转换为 Draft.js) */
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      {
+        kind: 'visibility',
+        key: 'visibility',
+        label: '可见性',
+        options: [
+          { value: 'public', label: '公开' },
+          { value: 'private', label: '仅自己可见' },
+        ],
+      },
+      { kind: 'originalType', key: 'originalType', label: '原创',
+        options: [{ value: 'original', label: '原创' }] },
+    ],
   }
 
   private username: string = ''
@@ -117,80 +135,95 @@ export class DoubanAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      logger.info('Starting publish...')
+  // ============ 管道钩子 ============
 
-      // 1. 确保已登录
-      if (!this.formData) {
-        const auth = await this.checkAuth()
-        if (!auth.isAuthenticated) {
-          throw new Error('请先登录豆瓣')
-        }
+  /** 1. 鉴权：确保 formData/postParams 已获取（沿用 checkAuth） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    if (!this.formData) {
+      const auth = await this.checkAuth()
+      if (!auth.isAuthenticated) {
+        throw new Error('请先登录豆瓣')
       }
+    }
+  }
 
-      // Use pre-processed markdown content directly
-      let content = article.markdown || ''
-
-      // Process images - collect full image data
+  /**
+   * 3. 上传图片：豆瓣需要完整 imageData 供 markdownToDraft 使用，
+   *    故用局部 imageDataMap 去重（与原 publish 一致），不走 SharedImageCache。
+   */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
       const imageDataMap = new Map<string, DoubanImageData>()
-      content = await this.processImages(
-        content,
-        async (src) => {
+      ctx.content.markdown = await this.processImages(
+        ctx.content.markdown,
+        async (src: string): Promise<ImageUploadResult> => {
           const result = await this.uploadImageWithFullData(src)
-          // 保存完整图片数据，用 newUrl 作为 key
           imageDataMap.set(result.url, result.imageData)
           return result
         },
         {
           skipPatterns: ['doubanio.com', 'douban.com'],
-          onProgress: options?.onImageProgress,
-        }
+          onProgress: ctx.onImageProgress,
+          concurrency: 3,
+        } as ImageProcessOptions,
       )
+      ctx.refs.imageDataMap = imageDataMap
+    })
+  }
 
-      // Markdown to Draft.js format (pass in image data)
-      const draftContent = markdownToDraft(content, imageDataMap)
+  /** 5. 构建 autosave 请求体（Markdown → Draft.js） */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const imageDataMap =
+      (ctx.refs.imageDataMap as Map<string, DoubanImageData>) ?? new Map()
+    const draftContent = markdownToDraft(ctx.content.markdown, imageDataMap)
+    ctx.payload = { draftContent }
+  }
 
-      // 6. 保存草稿
-      const response = await this.runtime.fetch(
-        'https://www.douban.com/j/note/autosave',
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            is_rich: '1',
-            note_id: this.formData!.note_id,
-            note_title: article.title,
-            note_text: draftContent,
-            introduction: '',
-            note_privacy: 'P',
-            cannot_reply: '',
-            author_tags: '',
-            accept_donation: '',
-            donation_notice: '',
-            is_original: '',
-            ck: this.formData!.ck,
-          }),
-        }
-      )
+  /** 6. 提交：note/autosave 草稿 */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    if (!this.formData) {
+      throw new Error('未获取上传凭证')
+    }
+    const payload = ctx.payload as { draftContent: string }
+    const response = await this.runtime.fetch(
+      'https://www.douban.com/j/note/autosave',
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          is_rich: '1',
+          note_id: this.formData.note_id,
+          note_title: ctx.article.title,
+          note_text: payload.draftContent,
+          introduction: '',
+          note_privacy: 'P',
+          cannot_reply: '',
+          author_tags: '',
+          accept_donation: '',
+          donation_notice: '',
+          is_original: '',
+          ck: this.formData.ck,
+        }),
+      }
+    )
 
-      const res = await response.json() as { url?: string; r?: number }
-      logger.debug('Save response:', res)
+    const res = (await response.json()) as { url?: string; r?: number }
+    logger.debug('Save response:', res)
 
-      // 豆瓣草稿只能在 /note/create 页面查看
-      const draftUrl = 'https://www.douban.com/note/create'
+    // 豆瓣草稿只能在 /note/create 页面查看
+    return this.createResult(true, {
+      postId: this.formData.note_id,
+      postUrl: 'https://www.douban.com/note/create',
+      draftOnly: true,
+    })
+  }
 
-      return this.createResult(true, {
-        postId: this.formData!.note_id,
-        postUrl: draftUrl,
-        draftOnly: options?.draftOnly ?? true,
-      })
-    }).catch((error) => this.createResult(false, {
-      error: (error as Error).message,
-    }))
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
   }
 
   /**

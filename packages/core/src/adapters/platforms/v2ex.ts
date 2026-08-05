@@ -7,9 +7,9 @@
  * 图片：暂不支持中转图片链接；本地 data URI / blob 直接剥离；http(s) 图链原样保留。
  * 暂不支持公式、Mermaid 代码块（Markdown 原样发出，平台侧不渲染）。
  */
-import { CodeAdapter } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
-import type { PublishOptions } from '../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('V2EX')
@@ -99,7 +99,7 @@ export function parseTopicUrlFromPublishResult(
   return null
 }
 
-export class V2exAdapter extends CodeAdapter {
+export class V2exAdapter extends PipelineAdapter {
   meta: PlatformMeta = {
     id: 'v2ex',
     name: 'V2EX',
@@ -110,6 +110,14 @@ export class V2exAdapter extends CodeAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍用 DEFAULT_NODE 写死保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'node', key: 'node', label: '节点', source: 'static', required: true,
+        options: [{ value: DEFAULT_NODE, label: DEFAULT_NODE }] },
+    ],
   }
 
   private readonly HEADER_RULES = [
@@ -296,71 +304,82 @@ export class V2exAdapter extends CodeAdapter {
     return { postId, postUrl: topicUrl }
   }
 
-  async publish(article: Article, _options?: PublishOptions): Promise<SyncResult> {
-    try {
-      const auth = await this.checkAuth()
-      if (!auth.isAuthenticated) {
-        throw new Error(auth.error || '未登录 V2EX')
-      }
+  // ============ 管道钩子 ============
 
-      const title = (article.title || '').trim()
-      if (!title) {
-        throw new Error('标题不能为空')
-      }
-
-      let markdown = article.markdown || ''
-
-      // 本地 data URI / blob 剥离；暂不中转外链图（http(s) 原样保留）
-      markdown = markdown
-        .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
-        .replace(/!\[[^\]]*\]\(blob:[^)]+\)/gi, '')
-        .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
-        .replace(/<img\b[^>]*\bsrc=["']blob:[^"']+["'][^>]*>/gi, '')
-
-      if (markdown.length > CONTENT_MAX) {
-        throw new Error(
-          `正文超过 V2EX 上限（${markdown.length} > ${CONTENT_MAX} 字符），请缩短后再同步`
-        )
-      }
-
-      const { html: writeHtml, finalUrl } = await this.fetchWriteHtml()
-      if (!parseAuthFromWriteHtml(writeHtml, finalUrl)) {
-        throw new Error('未登录 V2EX，请先打开并登录 https://www.v2ex.com')
-      }
-      const once = parseOnceFromWriteHtml(writeHtml)
-      if (!once) {
-        throw new Error('获取 once 失败，请刷新 https://www.v2ex.com/write 后重试')
-      }
-
-      const form = buildPublishForm(title, markdown, once, DEFAULT_NODE)
-
-      let published: { postId: string; postUrl: string }
-      try {
-        published = await this.publishTopic(form)
-      } catch (error) {
-        logger.warn('SW publish failed, fallback to page:', error)
-        // once 可能已失效，重新取
-        const again = await this.fetchWriteHtml()
-        const once2 = parseOnceFromWriteHtml(again.html)
-        if (!once2) throw error
-        published = await this.publishTopicViaPage(
-          buildPublishForm(title, markdown, once2, DEFAULT_NODE)
-        )
-      }
-
-      logger.info('Published topic:', published.postUrl)
-      return this.createResult(true, {
-        postId: published.postId,
-        postUrl: published.postUrl,
-        draftOnly: false,
-      })
-    } catch (error) {
-      logger.error('publish failed:', error)
-      return this.createResult(false, {
-        error: (error as Error).message,
-      })
-    } finally {
-      await this.releaseEphemeralTabs()
+  /** 1. 鉴权：沿用 checkAuth（SW + 页面探测） */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    const auth = await this.checkAuth()
+    if (!auth.isAuthenticated) {
+      throw new Error(auth.error || '未登录 V2EX')
     }
+  }
+
+  /** 2. 内容规整：标题校验 + 剥离本地 data/blob URI + 长度检查 */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    const title = (ctx.article.title || '').trim()
+    if (!title) {
+      throw new Error('标题不能为空')
+    }
+    let markdown = ctx.content.markdown || ''
+    markdown = markdown
+      .replace(/!\[[^\]]*\]\(data:[^)]+\)/gi, '')
+      .replace(/!\[[^\]]*\]\(blob:[^)]+\)/gi, '')
+      .replace(/<img\b[^>]*\bsrc=["']data:[^"']+["'][^>]*>/gi, '')
+      .replace(/<img\b[^>]*\bsrc=["']blob:[^"']+["'][^>]*>/gi, '')
+    if (markdown.length > CONTENT_MAX) {
+      throw new Error(
+        `正文超过 V2EX 上限（${markdown.length} > ${CONTENT_MAX} 字符），请缩短后再同步`
+      )
+    }
+    ctx.content.markdown = markdown
+  }
+
+  /** 3. 上传图片：noop（V2EX 不中转图片链接，http(s) 原样保留） */
+  protected async uploadImages(_ctx: PublishContext): Promise<void> {
+    // V2EX 产品策略：不中转图片
+  }
+
+  /** 5. 构建发布表单：fetchWriteHtml 获取 once + 组装 V2exPublishForm */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const { html: writeHtml, finalUrl } = await this.fetchWriteHtml()
+    if (!parseAuthFromWriteHtml(writeHtml, finalUrl)) {
+      throw new Error('未登录 V2EX，请先打开并登录 https://www.v2ex.com')
+    }
+    const once = parseOnceFromWriteHtml(writeHtml)
+    if (!once) {
+      throw new Error('获取 once 失败，请刷新 https://www.v2ex.com/write 后重试')
+    }
+    const title = (ctx.article.title || '').trim()
+    ctx.payload = buildPublishForm(title, ctx.content.markdown, once, DEFAULT_NODE)
+  }
+
+  /** 6. 提交：publishTopic（SW）失败再 publishTopicViaPage（社区型直接发帖，draftOnly=false） */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const form = ctx.payload as V2exPublishForm
+    let published: { postId: string; postUrl: string }
+    try {
+      published = await this.publishTopic(form)
+    } catch (error) {
+      logger.warn('SW publish failed, fallback to page:', error)
+      // once 可能已失效，重新取
+      const again = await this.fetchWriteHtml()
+      const once2 = parseOnceFromWriteHtml(again.html)
+      if (!once2) throw error
+      published = await this.publishTopicViaPage(
+        buildPublishForm(form.title, form.content, once2, DEFAULT_NODE)
+      )
+    }
+    logger.info('Published topic:', published.postUrl)
+    return this.createResult(true, {
+      postId: published.postId,
+      postUrl: published.postUrl,
+      draftOnly: false,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
   }
 }

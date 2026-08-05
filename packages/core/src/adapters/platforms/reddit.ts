@@ -10,8 +10,10 @@
  *
  * 默认目标：个人 profile（me.subreddit.name = t5_...）
  */
-import { CodeAdapter, type ImageUploadResult } from '../code-adapter'
-import type { Article, AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
+import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
+import type { ImageUploadResult } from '../code-adapter'
+import type { PublishSchema } from '../publish-schema'
 import type { PublishOptions } from '../types'
 import { createLogger } from '../../lib/logger'
 import { parseMarkdownImages } from '../../lib/markdown-images'
@@ -194,7 +196,7 @@ function textBlockToRichNodes(block: string): RichNode[] {
   return nodes
 }
 
-export class RedditAdapter extends CodeAdapter {
+export class RedditAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
     id: 'reddit',
     name: 'Reddit',
@@ -205,6 +207,13 @@ export class RedditAdapter extends CodeAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
+  }
+
+  /** 配置 Schema（声明式；P2 运行时仍写死 profile subreddit 保持等价） */
+  readonly publishSchema: PublishSchema = {
+    fields: [
+      { kind: 'node', key: 'node', label: 'Subreddit', source: 'remote', required: true },
+    ],
   }
 
   private cachedMe: RedditMeData | null = null
@@ -254,74 +263,87 @@ export class RedditAdapter extends CodeAdapter {
     }
   }
 
-  async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-    const now = Date.now()
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      this.uploadedMediaIds = []
+  // ============ 管道钩子 ============
 
+  /** 1. 鉴权：getMe + subredditId 校验 */
+  protected async authorize(_ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
       const me = await this.getMe()
       if (!me?.name) {
-        return {
-          platform: this.meta.id,
-          success: false,
-          error: `未登录 Reddit，请先在浏览器打开并登录 ${LOGIN_HINT}`,
-          timestamp: now,
-        }
+        throw new Error(`未登录 Reddit，请先在浏览器打开并登录 ${LOGIN_HINT}`)
       }
-
-      const subredditId = me.subreddit?.name
-      if (!subredditId) {
-        return {
-          platform: this.meta.id,
-          success: false,
-          error: '无法解析个人 profile subredditId（t5_）',
-          timestamp: now,
-        }
+      if (!me.subreddit?.name) {
+        throw new Error('无法解析个人 profile subredditId（t5_）')
       }
+    })
+  }
 
-      const title = normalizeTitle(article.title || '')
-      const content = (article.markdown || article.html || '').trim()
-      if (!content) {
-        return {
-          platform: this.meta.id,
-          success: false,
-          error: '文章内容为空',
-          timestamp: now,
-        }
-      }
+  /** 2. 内容规整：确保非空 */
+  protected async normalizeContent(ctx: PublishContext): Promise<void> {
+    await super.normalizeContent(ctx)
+    if (!((ctx.content.markdown || ctx.content.html || '').trim())) {
+      throw new Error('文章内容为空')
+    }
+  }
 
-      // markdown → richText document（图按位置上传为 mediaId）
-      const document = await this.buildRichTextDocument(content, options)
+  /** 3. 上传图片 + 构建 richText document + 等待 media 就绪（含图片上传，需 Header 规则） */
+  protected async uploadImages(ctx: PublishContext): Promise<void> {
+    await this.withHeaderRules(this.HEADER_RULES, async () => {
+      this.uploadedMediaIds = []
+      const content = (ctx.content.markdown || ctx.content.html || '').trim()
+      const document = await this.buildRichTextDocument(content, {
+        onImageProgress: ctx.onImageProgress,
+      })
+      ctx.refs.document = document
+
       const mediaIds = document
         .filter((n): n is { e: 'img'; id: string } => n.e === 'img' && !!n.id)
         .map((n) => n.id)
-
       if (mediaIds.length > 0) {
-        await this.waitMediaReady({ title, subredditId, mediaIds })
-        await this.delay(POST_READY_BUFFER_MS)
+        const me = await this.getMe()
+        const subredditId = me?.subreddit?.name
+        if (subredditId) {
+          await this.waitMediaReady({ title: ctx.article.title, subredditId, mediaIds })
+          await this.delay(POST_READY_BUFFER_MS)
+        }
       }
-      await this.prepareWriteSession()
+    })
+  }
 
-      const draft = await this.createRichTextDraft({
-        title,
-        subredditId,
-        document,
-      })
+  /** 5. 组装 CreateDraft 所需 { title, subredditId, document } */
+  protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const me = await this.getMe()
+    if (!me?.name) {
+      throw new Error(`未登录 Reddit`)
+    }
+    const subredditId = me.subreddit?.name
+    if (!subredditId) {
+      throw new Error('无法解析个人 profile subredditId（t5_）')
+    }
+    const document = (ctx.refs.document as RichNode[]) ?? []
+    ctx.payload = {
+      title: normalizeTitle(ctx.article.title || ''),
+      subredditId,
+      document,
+    }
+  }
 
-      return {
-        platform: this.meta.id,
-        success: true,
-        postId: draft.id,
-        postUrl: `${HOME}/user/${me.name}/submit/?draft=${draft.id}`,
-        draftOnly: true,
-        timestamp: now,
-      }
-    }).catch((error) => ({
-      platform: this.meta.id,
-      success: false,
-      error: (error as Error).message,
-      timestamp: now,
-    }))
+  /** 6. 提交：prepareWriteSession + createRichTextDraft */
+  protected async submit(ctx: PublishContext): Promise<SyncResult> {
+    const payload = ctx.payload as { title: string; subredditId: string; document: RichNode[] }
+    await this.prepareWriteSession()
+    const draft = await this.createRichTextDraft(payload)
+    const me = await this.getMe()
+    return this.createResult(true, {
+      postId: draft.id,
+      postUrl: `${HOME}/user/${me?.name || ''}/submit/?draft=${draft.id}`,
+      draftOnly: true,
+    })
+  }
+
+  /** Header 规则（submit 外层由管道自动 withHeaderRules 包装） */
+  protected getHeaderRules(): Array<Omit<HeaderRule, 'id'>> {
+    return this.HEADER_RULES
   }
 
   /**
