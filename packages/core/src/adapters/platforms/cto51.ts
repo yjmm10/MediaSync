@@ -166,21 +166,22 @@ export class Cto51Adapter extends PipelineAdapter {
   /** 5. 构建草稿请求体（P2 写死保持等价；is_old 由 asMarkdown 决定） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
     const asMarkdown = (ctx.refs.asMarkdown as boolean) ?? false
+    const { params } = ctx
     ctx.payload = {
       postData: {
         title: ctx.article.title,
         content: ctx.content.markdown,
         pid: '',
-        cate_id: '',
+        cate_id: params.category ?? '',
         custom_id: '0',
-        tag: '',
-        abstract: '',
-        banner_type: '0',
+        tag: (params.tags ?? []).join(','),
+        abstract: params.summary ?? '',
+        banner_type: '0', // 51CTO 封面由正文首图自动生成
         blog_type: '1',
         copy_code: '1',
-        is_hide: '0',
+        is_hide: params.visibility === 'private' ? '1' : '0',
         top_time: '0',
-        is_comment: '0',
+        is_comment: params.commentsEnabled ? '1' : '0',
         is_old: asMarkdown ? '0' : '2',
         blog_id: '',
         did: '',
@@ -190,7 +191,7 @@ export class Cto51Adapter extends PipelineAdapter {
         import_type: '-1',
         invite_code: '',
         raffle: '',
-        orig: '',
+        orig: params.originalType ?? '',
         _csrf: this.csrf || '',
       },
     }

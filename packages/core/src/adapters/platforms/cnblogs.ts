@@ -129,6 +129,12 @@ export class CnblogsAdapter extends PipelineAdapter {
 
   /** 5. 构建创建草稿请求体（P2 写死保持等价；P3 读 ctx.params） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
+    const { params } = ctx
+    const isPublish = params.mode === 'publish'
+    const coverUrl =
+      params.cover && params.cover !== 'auto' && params.cover !== 'none'
+        ? params.cover
+        : ''
     ctx.payload = {
       id: null,
       postType: 2, // 2 = 文章, 1 = 随笔
@@ -136,31 +142,31 @@ export class CnblogsAdapter extends PipelineAdapter {
       title: ctx.article.title,
       url: null,
       postBody: ctx.content.markdown,
-      categoryIds: null,
+      categoryIds: params.category ? [params.category] : null,
       categories: null,
-      collectionIds: [],
+      collectionIds: params.column ? [params.column] : [],
       inSiteCandidate: false,
       inSiteHome: false,
       siteCategoryId: null,
       blogTeamIds: null,
-      isPublished: false,
+      isPublished: isPublish,
       displayOnHomePage: false,
-      isAllowComments: true,
+      isAllowComments: params.commentsEnabled ?? true,
       includeInMainSyndication: false,
-      isPinned: false,
+      isPinned: (params.extra?.pinned as boolean) ?? false,
       showBodyWhenPinned: false,
       isOnlyForRegisterUser: false,
       isUpdateDateAdded: false,
       entryName: null,
-      description: null,
-      featuredImage: null,
-      tags: null,
+      description: params.summary ?? null,
+      featuredImage: coverUrl || null,
+      tags: params.tags ?? null,
       password: null,
-      publishAt: null,
+      publishAt: params.scheduleAt ? new Date(params.scheduleAt).toISOString() : null,
       datePublished: new Date().toISOString(),
       dateUpdated: null,
       isMarkdown: true,
-      isDraft: true,
+      isDraft: !isPublish,
       autoDesc: null,
       changePostType: false,
       blogId: 0,
