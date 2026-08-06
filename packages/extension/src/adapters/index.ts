@@ -12,7 +12,6 @@ import {
   type PublishSchema,
   type SyncResult,
 } from '@mediasync/core'
-import { getSavedParams } from '../lib/platform-settings'
 import { getTabAuthAutoDetect } from '../lib/tab-auth-auto-detect'
 import { createExtensionRuntime } from '../runtime/extension'
 import { createLogger } from '../lib/logger'
@@ -556,10 +555,9 @@ export async function syncToPlatform(
       }
     }
 
-    // P3: 合并发布参数（适配器 publishDefaults ⊕ 用户保存 ⊕ 本次覆盖）
+    // 发布参数：适配器 publishDefaults ⊕ 本次覆盖（不再读取用户平台配置缓存）
     const profile = adapterRegistry.getProfile(platformId)
-    const saved = await getSavedParams(platformId).catch(() => undefined)
-    const params = mergeParams(profile?.publishDefaults, saved, options?.params)
+    const params = mergeParams(profile?.publishDefaults, undefined, options?.params)
 
     // 默认只保存草稿，带超时保护
     return await withTimeout(
@@ -615,7 +613,7 @@ export async function syncToMultiplePlatforms(
   platformIds: string[],
   article: Article,
   callbacks?: SyncCallbacks,
-  source = 'popup' // 来源：popup, weixin, weixin-editor, mcp 等
+  source = 'popup', // 来源：popup, weixin, weixin-editor, mcp 等
 ): Promise<SyncResult[]> {
   // 创建新的取消控制器
   syncAbortController = new AbortController()

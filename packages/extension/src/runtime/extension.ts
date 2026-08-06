@@ -7,6 +7,20 @@ import type { Cookie, HeaderRule } from '@mediasync/core'
 // 默认请求超时：30 秒
 const DEFAULT_FETCH_TIMEOUT = 30 * 1000
 
+/** 鉴权标签组：串行入组，避免并发新建多个组 */
+const AUTH_GROUP_TITLE = '鉴权'
+let cachedAuthGroupId: number | null = null
+let authGroupQueue: Promise<void> = Promise.resolve()
+
+function enqueueAuthGroup(task: () => Promise<void>): Promise<void> {
+  const next = authGroupQueue.then(task, task)
+  authGroupQueue = next.then(
+    () => undefined,
+    () => undefined,
+  )
+  return next
+}
+
 export class ExtensionRuntime implements RuntimeInterface {
   readonly type = 'extension' as const
   // 使用时间戳+随机数避免规则 ID 冲突（扩展重载或并发场景）
@@ -295,19 +309,35 @@ export class ExtensionRuntime implements RuntimeInterface {
 
     async addToAuthGroup(tabId: number): Promise<void> {
       if (!chrome.tabs.group || !chrome.tabGroups) return
-      const AUTH_GROUP_TITLE = '鉴权'
-      try {
-        const groups = await chrome.tabGroups.query({ title: AUTH_GROUP_TITLE })
-        const existing = groups[0]
-        if (existing) {
-          await chrome.tabs.group({ tabIds: [tabId], groupId: existing.id })
-          return
+      // 串行入组：并发 checkAuth 时避免各自新建「鉴权」组或查不到刚创建的组
+      await enqueueAuthGroup(async () => {
+        try {
+          if (cachedAuthGroupId != null) {
+            try {
+              await chrome.tabs.group({ tabIds: [tabId], groupId: cachedAuthGroupId })
+              return
+            } catch {
+              cachedAuthGroupId = null
+            }
+          }
+          const groups = await chrome.tabGroups.query({ title: AUTH_GROUP_TITLE })
+          let existing: chrome.tabGroups.TabGroup | undefined = groups[0]
+          if (!existing) {
+            const all = await chrome.tabGroups.query({})
+            existing = all.find(g => g.title === AUTH_GROUP_TITLE)
+          }
+          if (existing) {
+            cachedAuthGroupId = existing.id
+            await chrome.tabs.group({ tabIds: [tabId], groupId: existing.id })
+            return
+          }
+          const groupId = await chrome.tabs.group({ tabIds: [tabId] })
+          await chrome.tabGroups.update(groupId, { title: AUTH_GROUP_TITLE, color: 'orange' })
+          cachedAuthGroupId = groupId
+        } catch {
+          // 标签组不可用或不支持时忽略
         }
-        const groupId = await chrome.tabs.group({ tabIds: [tabId] })
-        await chrome.tabGroups.update(groupId, { title: AUTH_GROUP_TITLE, color: 'orange' })
-      } catch {
-        // 标签组不可用或不支持时忽略
-      }
+      })
     },
   }
 

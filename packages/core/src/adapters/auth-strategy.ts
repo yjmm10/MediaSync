@@ -274,23 +274,25 @@ async function ensurePageTab(
 
   // 3. 后台新建
   const tab = await runtime.tabs.create(pageUrl, false)
+  ephemeralTabIds.add(tab.id)
+  // 创建后立刻入组，避免 waitForLoad 期间标签游离在组外
+  try {
+    await runtime.tabs.addToAuthGroup?.(tab.id)
+  } catch {
+    // 标签组可选，失败不影响鉴权
+  }
   try {
     await runtime.tabs.waitForLoad(tab.id)
     // 给 SPA 一点时间初始化
     await new Promise(resolve => setTimeout(resolve, 800))
   } catch (error) {
+    ephemeralTabIds.delete(tab.id)
     try {
       await runtime.tabs.remove(tab.id)
     } catch {
       // ignore
     }
     throw error
-  }
-  ephemeralTabIds.add(tab.id)
-  try {
-    await runtime.tabs.addToAuthGroup?.(tab.id)
-  } catch {
-    // 标签组可选，失败不影响鉴权
   }
   return tab.id
 }

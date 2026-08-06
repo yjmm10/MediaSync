@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plug, PlugZap } from 'lucide-react'
+import { Plug, PlugZap, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SubPageHeader } from '../components/SubPageHeader'
-import { PlatformConfigSection } from '../components/PlatformConfigSection'
 import { UserPlatformGroupsSection } from '../components/UserPlatformGroupsSection'
 import { trackFeatureDiscovery } from '../../lib/analytics'
 import { getAllPlatformMetas, getTabAuthPlatformIds, initAdapters } from '../../adapters'
@@ -108,10 +107,12 @@ function SettingRow({
 export function SettingsPage() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<SettingsTab>('general')
+  const [groupsOpen, setGroupsOpen] = useState(true)
   const [mcpStatus, setMcpStatus] = useState<McpStatus>({ enabled: false, connected: false })
   const [loading, setLoading] = useState(false)
   const [floatingButtonEnabled, setFloatingButtonEnabled] = useState(false)
-  const [realtimeDetect, setRealtimeDetect] = useState(true)
+  /** null = 尚未从 storage 读回，避免默认 true 造成「开→关」闪烁 */
+  const [realtimeDetect, setRealtimeDetect] = useState<boolean | null>(null)
   const [tabAuthAutoDetect, setTabAuthAutoDetectState] = useState(false)
   const [tabAuthNames, setTabAuthNames] = useState<string[]>([])
   const [localMdCacheLimit, setLocalMdCacheLimitState] = useState(DEFAULT_LOCAL_MD_CACHE_LIMIT)
@@ -229,6 +230,7 @@ export function SettingsPage() {
   }
 
   const toggleRealtimeDetect = () => {
+    if (realtimeDetect === null) return
     const next = !realtimeDetect
     setRealtimeDetect(next)
     chrome.storage.local.set({ realtimeDetect: next })
@@ -322,7 +324,11 @@ export function SettingsPage() {
               title="实时检测文章"
               desc="关闭后首页不会随切页自动检测；开启后可由顶栏雷达控制"
             >
-              <Toggle on={realtimeDetect} onClick={toggleRealtimeDetect} />
+              <Toggle
+                on={realtimeDetect === true}
+                onClick={toggleRealtimeDetect}
+                disabled={realtimeDetect === null}
+              />
             </SettingRow>
 
             <SettingRow
@@ -361,10 +367,21 @@ export function SettingsPage() {
         {tab === 'platform' && (
           <>
             <section className="space-y-2">
-              <h3 className="text-xs font-semibold text-muted-foreground px-0.5">自定义分组</h3>
-              <UserPlatformGroupsSection />
+              <button
+                type="button"
+                onClick={() => setGroupsOpen(o => !o)}
+                className="flex w-full items-center gap-1.5 px-0.5 text-left"
+              >
+                <h3 className="text-xs font-semibold text-muted-foreground flex-1">自定义分组</h3>
+                <ChevronDown
+                  className={cn(
+                    'w-3.5 h-3.5 text-muted-foreground transition-transform',
+                    groupsOpen && 'rotate-180',
+                  )}
+                />
+              </button>
+              {groupsOpen && <UserPlatformGroupsSection />}
             </section>
-            <PlatformConfigSection />
           </>
         )}
 

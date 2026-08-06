@@ -64,17 +64,17 @@ export function HomeNew() {
   const [showPreview, setShowPreview] = useState(false)
   const [previewTab, setPreviewTab] = useState<'render' | 'markdown'>('render')
   const previewArticleRef = useRef<HTMLDivElement>(null)
-  /** 设置总开关：关闭时有效实时检测必关 */
-  const [realtimeDetectSetting, setRealtimeDetectSetting] = useState(true)
+  /** 设置总开关：关闭时有效实时检测必关；null = 尚未读回 storage */
+  const [realtimeDetectSetting, setRealtimeDetectSetting] = useState<boolean | null>(null)
   /** 顶栏会话态：仅在设置开启时才可能为开 */
-  const [realtimeActive, setRealtimeActive] = useState(true)
+  const [realtimeActive, setRealtimeActive] = useState(false)
   const [detecting, setDetecting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const importFolderRef = useRef<HTMLInputElement>(null)
   /** 有效实时检测 = 设置开 ∧ 顶栏开 */
-  const realtimeEffective = realtimeDetectSetting && realtimeActive
+  const realtimeEffective = realtimeDetectSetting === true && realtimeActive
 
   // 预览浮层：mermaid / 图片补强
   useEffect(() => {
@@ -184,14 +184,14 @@ export function HomeNew() {
       if (state.status === 'syncing' || state.status === 'completed') return
       const src = state.article?.source
       if (src === 'import' || src === 'edited') return
-      if (!realtimeDetectSetting || !realtimeActive) return
+      if (realtimeDetectSetting !== true || !realtimeActive) return
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
         const state2 = useSyncStore.getState()
         if (state2.status === 'syncing' || state2.status === 'completed') return
         const src2 = state2.article?.source
         if (src2 === 'import' || src2 === 'edited') return
-        if (!realtimeDetectSetting || !realtimeActive) return
+        if (realtimeDetectSetting !== true || !realtimeActive) return
         loadArticle().catch(() => {})
       }, 500)
     }
@@ -409,7 +409,7 @@ export function HomeNew() {
   const handleForceDetect = async () => {
     if (status === 'syncing') return
     // 手动重检不依赖实时开关；实时开时顺带打开会话态
-    if (realtimeDetectSetting) setRealtimeActive(true)
+    if (realtimeDetectSetting === true) setRealtimeActive(true)
     // 完成态手动重检：清掉 sticky syncId，避免进度消息干扰
     if (status === 'completed' || useSyncStore.getState().currentSyncId) {
       useSyncStore.setState({ status: 'idle', currentSyncId: null, results: [] })
@@ -425,7 +425,7 @@ export function HomeNew() {
   }
 
   const handleToggleRealtime = () => {
-    if (!realtimeDetectSetting) return
+    if (realtimeDetectSetting !== true) return
     setRealtimeActive((v) => !v)
   }
 
@@ -451,7 +451,7 @@ export function HomeNew() {
     statusLine = extractError
     statusTone = 'warn'
   } else if (!article) {
-    statusLine = !realtimeDetectSetting
+    statusLine = realtimeDetectSetting === false
       ? '未检测到文章 · 实时已关，请点「检测当前页」'
       : `未检测到文章 · ${realtimeLabel}`
   } else if (article.source === 'import') {
@@ -467,7 +467,7 @@ export function HomeNew() {
       <MainHeader
         showRealtime
         realtimeEffective={realtimeEffective}
-        realtimeDetectSetting={realtimeDetectSetting}
+        realtimeDetectSetting={realtimeDetectSetting === true}
         onToggleRealtime={handleToggleRealtime}
         onLogoClick={handleLogoHome}
       />

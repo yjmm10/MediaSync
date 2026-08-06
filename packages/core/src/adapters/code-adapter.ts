@@ -540,23 +540,25 @@ export abstract class CodeAdapter implements PlatformAdapter {
     }
 
     const tab = await this.runtime.tabs.create(pageUrl, false)
+    this.ephemeralTabIds.add(tab.id)
+    // 创建后立刻入组，避免 waitForLoad 期间标签游离在组外
+    try {
+      await this.runtime.tabs.addToAuthGroup?.(tab.id)
+    } catch {
+      // 标签组可选，失败不影响鉴权
+    }
     try {
       await this.runtime.tabs.waitForLoad(tab.id)
       await this.delay(800)
     } catch (error) {
       // 加载失败或中途被关：清掉坏 id，抛出让上层重试
+      this.ephemeralTabIds.delete(tab.id)
       try {
         await this.runtime.tabs.remove(tab.id)
       } catch {
         // ignore
       }
       throw error
-    }
-    this.ephemeralTabIds.add(tab.id)
-    try {
-      await this.runtime.tabs.addToAuthGroup?.(tab.id)
-    } catch {
-      // 标签组可选，失败不影响鉴权
     }
     return tab.id
   }

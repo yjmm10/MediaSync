@@ -76,18 +76,20 @@ export function SyncDialog({
 
         {/* Unified platform list — 仅检测/导入得到文章后展示 */}
         {platforms.length > 0 && article && (
-          <PlatformList
-            platforms={platforms}
-            selected={selectedSet}
-            status={status}
-            results={results}
-            platformProgress={platformProgress}
-            selectedPlatforms={selectedPlatforms}
-            onToggle={onTogglePlatform}
-            onSelectAll={onSelectAll}
-            onDeselectAll={onDeselectAll}
-            onRecheckAuth={onRecheckAuth}
-          />
+          <>
+            <PlatformList
+              platforms={platforms}
+              selected={selectedSet}
+              status={status}
+              results={results}
+              platformProgress={platformProgress}
+              selectedPlatforms={selectedPlatforms}
+              onToggle={onTogglePlatform}
+              onSelectAll={onSelectAll}
+              onDeselectAll={onDeselectAll}
+              onRecheckAuth={onRecheckAuth}
+            />
+          </>
         )}
       </div>
 

@@ -19,14 +19,10 @@ import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './typ
 
 const PLATFORM_ORDER_KEY = 'platformOrder'
 
-type CategoryFilter = 'all' | PlatformCategory | `user:${string}`
+type CategoryFilter = 'all' | 'favorites' | PlatformCategory
 
-function isUserFilter(f: CategoryFilter): f is `user:${string}` {
-  return typeof f === 'string' && f.startsWith('user:')
-}
-
-function userFilterId(f: `user:${string}`): string {
-  return f.slice(5)
+function platformCat(p: Platform): PlatformCategory {
+  return p.category || getPlatformCategory(p.id)
 }
 
 /** 按自定义顺序排列平台；未记录在 order 中的保持相对顺序追加在后 */
@@ -38,22 +34,6 @@ function sortByOrder<T extends { id: string }>(list: T[], order: string[]): T[] 
   const rest = list.filter(p => !indexMap.has(p.id))
   pinned.sort((a, b) => (indexMap.get(a.id)!) - (indexMap.get(b.id)!))
   return [...pinned, ...rest]
-}
-
-function platformCat(p: Platform): PlatformCategory {
-  return p.category || getPlatformCategory(p.id)
-}
-
-function groupByCategory(list: Platform[], order: string[]): Array<{ category: PlatformCategory; platforms: Platform[] }> {
-  const groups: Array<{ category: PlatformCategory; platforms: Platform[] }> = []
-  for (const category of CATEGORY_ORDER) {
-    const items = sortByOrder(
-      list.filter(p => platformCat(p) === category),
-      order,
-    )
-    if (items.length > 0) groups.push({ category, platforms: items })
-  }
-  return groups
 }
 
 interface PlatformListProps {
@@ -88,7 +68,6 @@ export function PlatformList({
   const authenticatedPlatforms = platforms.filter(p => p.isAuthenticated)
   const unauthenticatedPlatforms = platforms.filter(p => !p.isAuthenticated)
   const selectedCount = selected.size
-  const selectedAuthCount = authenticatedPlatforms.filter(p => selected.has(p.id)).length
   const successCount = results.filter(r => r.success).length
   const failedCount = results.filter(r => !r.success).length
   const openableResults = results.filter(r => r.success && r.postUrl)
@@ -162,12 +141,39 @@ export function PlatformList({
     chrome.storage.local.set({ [PLATFORM_ORDER_KEY]: next })
   }
 
+  const orderedAuth = useMemo(() => {
+    let list = authenticatedPlatforms
+    if (categoryFilter === 'favorites') list = list.filter(p => favoritedIds.has(p.id))
+    else if (categoryFilter !== 'all') list = list.filter(p => platformCat(p) === categoryFilter)
+    return sortByOrder(list, platformOrder)
+  }, [authenticatedPlatforms, platformOrder, categoryFilter, favoritedIds])
+
+  const orderedUnauth = useMemo(() => {
+    let list = unauthenticatedPlatforms
+    if (categoryFilter === 'favorites') list = list.filter(p => favoritedIds.has(p.id))
+    else if (categoryFilter !== 'all') list = list.filter(p => platformCat(p) === categoryFilter)
+    return sortByOrder(list, platformOrder)
+  }, [unauthenticatedPlatforms, platformOrder, categoryFilter, favoritedIds])
+
+  const availableChips = useMemo(() => {
+    const present = new Set(platforms.map(platformCat))
+    return CATEGORY_ORDER.filter(c => present.has(c))
+  }, [platforms])
+
+  const showFavoritesChip = useMemo(
+    () => platforms.some(p => favoritedIds.has(p.id)),
+    [platforms, favoritedIds],
+  )
+
+  useEffect(() => {
+    if (categoryFilter === 'favorites' && !showFavoritesChip) setCategoryFilter('all')
+  }, [categoryFilter, showFavoritesChip])
+
   const handleReorder = (targetId: string) => {
     if (!dragId || dragId === targetId) return
     const dragP = authenticatedPlatforms.find(p => p.id === dragId)
     const targetP = authenticatedPlatforms.find(p => p.id === targetId)
     if (!dragP || !targetP) return
-    if (platformCat(dragP) !== platformCat(targetP)) return
     const ordered = sortByOrder(authenticatedPlatforms, platformOrder)
     const fromIdx = ordered.findIndex(p => p.id === dragId)
     const toIdx = ordered.findIndex(p => p.id === targetId)
@@ -179,72 +185,23 @@ export function PlatformList({
   }
   const canDrag = isIdle && viewMode === 'list'
 
-  const filteredAuth = useMemo(() => {
-    if (categoryFilter === 'all') return authenticatedPlatforms
-    if (isUserFilter(categoryFilter)) {
-      const gid = userFilterId(categoryFilter)
-      const group = userGroups.find(g => g.id === gid)
-      const ids = new Set(group?.platformIds ?? [])
-      return authenticatedPlatforms.filter(p => ids.has(p.id))
+  const selectedInViewCount = orderedAuth.filter(p => selected.has(p.id)).length
+  const handleSelectAllInView = () => {
+    if (categoryFilter === 'all') {
+      onSelectAll()
+      return
     }
-    return authenticatedPlatforms.filter(p => platformCat(p) === categoryFilter)
-  }, [authenticatedPlatforms, categoryFilter, userGroups])
-
-  const filteredUnauth = useMemo(() => {
-    if (categoryFilter === 'all') return unauthenticatedPlatforms
-    if (isUserFilter(categoryFilter)) {
-      const gid = userFilterId(categoryFilter)
-      const group = userGroups.find(g => g.id === gid)
-      const ids = new Set(group?.platformIds ?? [])
-      return unauthenticatedPlatforms.filter(p => ids.has(p.id))
+    for (const p of orderedAuth) {
+      if (!selected.has(p.id)) onToggle(p.id)
     }
-    return unauthenticatedPlatforms.filter(p => platformCat(p) === categoryFilter)
-  }, [unauthenticatedPlatforms, categoryFilter, userGroups])
-
-  const authGroups = useMemo(
-    () => (categoryFilter === 'all' || !isUserFilter(categoryFilter)
-      ? groupByCategory(filteredAuth, platformOrder)
-      : filteredAuth.length
-        ? [{ category: 'special' as PlatformCategory, platforms: sortByOrder(filteredAuth, platformOrder) }]
-        : []),
-    [filteredAuth, platformOrder, categoryFilter],
-  )
-  const unauthGroups = useMemo(
-    () => (categoryFilter === 'all' || !isUserFilter(categoryFilter)
-      ? groupByCategory(filteredUnauth, platformOrder)
-      : filteredUnauth.length
-        ? [{ category: 'special' as PlatformCategory, platforms: sortByOrder(filteredUnauth, platformOrder) }]
-        : []),
-    [filteredUnauth, platformOrder, categoryFilter],
-  )
-
-  /** 「全部」视图顶部：非空用户组（平台可与默认分类重复出现） */
-  const userGroupsForAllView = useMemo(() => {
-    if (categoryFilter !== 'all') return []
-    return userGroups
-      .map(g => ({
-        group: g,
-        platforms: sortByOrder(
-          platforms.filter(p => g.platformIds.includes(p.id)),
-          platformOrder,
-        ),
-      }))
-      .filter(x => x.platforms.length > 0)
-  }, [categoryFilter, userGroups, platforms, platformOrder])
-
-  const availableChips = useMemo(() => {
-    const present = new Set(platforms.map(platformCat))
-    return CATEGORY_ORDER.filter(c => present.has(c))
-  }, [platforms])
-
-  const userChips = useMemo(
-    () => userGroups.filter(g => g.platformIds.some(id => platforms.some(p => p.id === id))),
-    [userGroups, platforms],
-  )
-
-  const selectGroup = (groupPlatforms: Platform[]) => {
-    for (const p of groupPlatforms) {
-      if (p.isAuthenticated && !selected.has(p.id)) onToggle(p.id)
+  }
+  const handleDeselectAllInView = () => {
+    if (categoryFilter === 'all') {
+      onDeselectAll()
+      return
+    }
+    for (const p of orderedAuth) {
+      if (selected.has(p.id)) onToggle(p.id)
     }
   }
 
@@ -320,20 +277,20 @@ export function PlatformList({
               </span>
             </span>
             <div className="flex items-center gap-2">
-              {authenticatedPlatforms.length > 0 && (
+              {orderedAuth.length > 0 && (
                 <>
                   <button
                     type="button"
-                    onClick={onSelectAll}
-                    disabled={selectedAuthCount === authenticatedPlatforms.length}
+                    onClick={handleSelectAllInView}
+                    disabled={selectedInViewCount === orderedAuth.length}
                     className="text-xs text-primary hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-default"
                   >
                     全选
                   </button>
                   <button
                     type="button"
-                    onClick={onDeselectAll}
-                    disabled={selectedAuthCount === 0}
+                    onClick={handleDeselectAllInView}
+                    disabled={selectedInViewCount === 0}
                     className="text-xs text-primary hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-default"
                   >
                     取消全选
@@ -395,51 +352,53 @@ export function PlatformList({
         )}
       </div>
 
-      {isIdle && (availableChips.length > 1 || userChips.length > 0) && (
-        <div className="flex flex-wrap gap-1 px-0.5">
+      {isIdle && (availableChips.length > 1 || showFavoritesChip) && (
+        <div className="flex flex-wrap items-center gap-1 px-0.5">
           <button
             type="button"
             onClick={() => setCategoryFilter('all')}
             className={cn(
-              'px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
+              'px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors',
               categoryFilter === 'all'
-                ? 'bg-primary/15 text-primary'
+                ? 'bg-primary text-primary-foreground shadow-sm'
                 : 'bg-muted/60 text-muted-foreground hover:bg-muted',
             )}
           >
             全部
           </button>
-          {userChips.map(g => (
-            <button
-              key={g.id}
-              type="button"
-              onClick={() => setCategoryFilter(`user:${g.id}`)}
-              className={cn(
-                'inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors border',
-                categoryFilter === `user:${g.id}`
-                  ? 'bg-primary/15 text-primary border-primary/30'
-                  : 'bg-primary/5 text-primary/90 border-primary/15 hover:bg-primary/10',
-              )}
-            >
-              <Star className="w-2.5 h-2.5 fill-current" />
-              {g.name}
-            </button>
-          ))}
           {availableChips.map(c => (
             <button
               key={c}
               type="button"
               onClick={() => setCategoryFilter(c)}
               className={cn(
-                'px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors',
+                'px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors',
                 categoryFilter === c
-                  ? 'bg-primary/15 text-primary'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'bg-muted/60 text-muted-foreground hover:bg-muted',
               )}
             >
               {CATEGORY_LABELS[c]}
             </button>
           ))}
+          {showFavoritesChip && (
+            <>
+              <span className="mx-0.5 h-3 w-px bg-border flex-shrink-0" aria-hidden />
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('favorites')}
+                className={cn(
+                  'inline-flex items-center gap-0.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors',
+                  categoryFilter === 'favorites'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+                )}
+              >
+                <Star className={cn('w-2.5 h-2.5', categoryFilter === 'favorites' && 'fill-current')} />
+                收藏
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -454,74 +413,13 @@ export function PlatformList({
 
       {isIdle ? (
         <div className="space-y-3">
-          {userGroupsForAllView.map(({ group, platforms: groupPlatforms }, gi) => (
-            <div
-              key={group.id}
-              className="platform-group-enter space-y-0.5"
-              style={{ animationDelay: `${gi * 30}ms` }}
-            >
-              <div className="flex items-center gap-2 px-1 py-0.5">
-                <span className="w-0.5 h-3 rounded-full bg-primary flex-shrink-0" />
-                <Star className="w-3 h-3 text-primary fill-primary/40 flex-shrink-0" />
-                <span className="text-[11px] font-semibold text-foreground">{group.name}</span>
-                <span className="text-[10px] px-1 py-px rounded bg-primary/10 text-primary font-medium">
-                  自定义
-                </span>
-                <span className="text-[10px] tabular-nums text-muted-foreground">
-                  {groupPlatforms.length}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => selectGroup(groupPlatforms)}
-                  className="ml-auto text-[11px] text-primary hover:underline"
-                >
-                  本组全选
-                </button>
-              </div>
-              <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
-                {groupPlatforms.map(p => renderPlatformItem(p, group.id))}
-              </div>
-            </div>
-          ))}
-
-          {authGroups.length > 0 && (
-            <div className="space-y-2">
-              <div className="px-1 text-[11px] font-semibold text-muted-foreground tracking-wide">
-                已登录
-              </div>
-              {authGroups.map((group, gi) => (
-                <div
-                  key={isUserFilter(categoryFilter) ? `user-auth-${gi}` : group.category}
-                  className="platform-group-enter space-y-0.5"
-                  style={{ animationDelay: `${gi * 30}ms` }}
-                >
-                  {!isUserFilter(categoryFilter) && (
-                    <div className="flex items-center gap-2 px-1 py-0.5">
-                      <span className="w-0.5 h-3 rounded-full bg-muted-foreground/50 flex-shrink-0" />
-                      <span className="text-[11px] font-semibold text-foreground">
-                        {CATEGORY_LABELS[group.category]}
-                      </span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground">
-                        {group.platforms.length}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => selectGroup(group.platforms)}
-                        className="ml-auto text-[11px] text-primary hover:underline"
-                      >
-                        本组全选
-                      </button>
-                    </div>
-                  )}
-                  <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
-                    {group.platforms.map(p => renderPlatformItem(p, 'auth'))}
-                  </div>
-                </div>
-              ))}
+          {orderedAuth.length > 0 && (
+            <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
+              {orderedAuth.map(p => renderPlatformItem(p, 'auth'))}
             </div>
           )}
 
-          {filteredUnauth.length > 0 && (
+          {orderedUnauth.length > 0 && (
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 px-1 py-0.5">
                 <button
@@ -533,16 +431,16 @@ export function PlatformList({
                     ? <ChevronRight className="w-3 h-3 flex-shrink-0" />
                     : <ChevronDown className="w-3 h-3 flex-shrink-0" />}
                   未登录
-                  <span className="tabular-nums font-normal">· {filteredUnauth.length}</span>
+                  <span className="tabular-nums font-normal">· {orderedUnauth.length}</span>
                 </button>
                 {onRecheckAuth && (
                   <button
                     type="button"
                     title="逐个重新检测未登录平台"
-                    disabled={filteredUnauth.every(p => checkingIds.has(p.id))}
+                    disabled={orderedUnauth.every(p => checkingIds.has(p.id))}
                     onClick={() => {
                       if (unauthCollapsed) setUnauthCollapsed(false)
-                      for (const p of filteredUnauth) {
+                      for (const p of orderedUnauth) {
                         void handleRecheckAuth(p.id)
                       }
                     }}
@@ -551,35 +449,18 @@ export function PlatformList({
                     <RefreshCw
                       className={cn(
                         'w-3 h-3',
-                        filteredUnauth.some(p => checkingIds.has(p.id)) && 'animate-spin',
+                        orderedUnauth.some(p => checkingIds.has(p.id)) && 'animate-spin',
                       )}
                     />
                     全部检测
                   </button>
                 )}
               </div>
-              {!unauthCollapsed && unauthGroups.map((group, gi) => (
-                <div
-                  key={isUserFilter(categoryFilter) ? `user-unauth-${gi}` : group.category}
-                  className="platform-group-enter space-y-0.5"
-                  style={{ animationDelay: `${gi * 30}ms` }}
-                >
-                  {!isUserFilter(categoryFilter) && (
-                    <div className="flex items-center gap-2 px-1 py-0.5">
-                      <span className="w-0.5 h-3 rounded-full bg-muted-foreground/40 flex-shrink-0" />
-                      <span className="text-[11px] font-medium text-muted-foreground">
-                        {CATEGORY_LABELS[group.category]}
-                      </span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground/70">
-                        {group.platforms.length}
-                      </span>
-                    </div>
-                  )}
-                  <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
-                    {group.platforms.map(p => renderPlatformItem(p, 'unauth'))}
-                  </div>
+              {!unauthCollapsed && (
+                <div className={viewMode === 'grid' ? 'grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2' : 'space-y-0.5'}>
+                  {orderedUnauth.map(p => renderPlatformItem(p, 'unauth'))}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -824,111 +705,117 @@ function PlatformRow({
 
   return (
     <div
-      onClick={handleRowClick}
-      draggable={!!draggable && platform.isAuthenticated}
-      onDragStart={onDragStart}
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
-      title={
-        isCheckingAuth
-          ? `${platform.name} · 正在检测登录…`
-          : !platform.isAuthenticated
-            ? `${platform.name} · 点击检测登录状态`
-            : draggable
-              ? `${platform.name} · 可拖动排序`
-              : undefined
-      }
       className={cn(
-        'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-200',
-        isIdle && platform.isAuthenticated && 'cursor-pointer hover:bg-muted/70',
-        isIdle && !platform.isAuthenticated && 'cursor-pointer opacity-55 hover:opacity-100 hover:bg-muted/40',
+        'rounded-lg transition-all duration-200',
         isIdle && isSelected && 'bg-primary/[0.07] ring-1 ring-inset ring-primary/25',
         syncedIdle && 'opacity-50',
-        draggable && platform.isAuthenticated && 'cursor-grab active:cursor-grabbing',
         isDragging && 'opacity-40',
         isDragOver && 'ring-2 ring-primary/40',
         !syncedIdle && isDone && result?.success && 'bg-primary/[0.06] ring-1 ring-inset ring-primary/20',
         !syncedIdle && isDone && result && !result.success && 'bg-destructive/[0.05] ring-1 ring-inset ring-destructive/20',
       )}
     >
-      {/* 拖拽手柄（仅 idle 列表视图） */}
-      {draggable && platform.isAuthenticated && (
-        <GripVertical className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
-      )}
-
-      {/* Status indicator */}
-      {isCheckingAuth ? (
-        <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0" />
-      ) : (
-        <RowIndicator
-          isIdle={isIdle}
-          isSelected={isSelected}
-          isAuthenticated={platform.isAuthenticated}
-          isWaiting={isWaiting}
-          isInProgress={isInProgress}
-          result={result}
-          alreadySynced={alreadySynced}
-        />
-      )}
-
-      {/* Platform icon */}
-      <img
-        src={platform.icon}
-        alt={platform.name}
-        className="w-5 h-5 rounded flex-shrink-0"
-        onError={(e) => {
-          (e.target as HTMLImageElement).src = '/assets/icon-48.png'
-        }}
-      />
-
-      {/* Platform name */}
-      <span className="text-sm flex-1 truncate">{platform.name}</span>
-
-      {/* Right side info + 手动检测（仅未登录） */}
-      <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-        {isIdle && (
-          <button
-            type="button"
-            title={isFavorited ? '取消收藏' : '加入收藏'}
-            onClick={onToggleFavorite}
-            className={cn(
-              'inline-flex items-center rounded p-0.5 transition-colors',
-              isFavorited ? 'text-primary' : 'text-muted-foreground hover:text-primary',
-            )}
-          >
-            <Star className={cn('w-3.5 h-3.5', isFavorited && 'fill-primary')} />
-          </button>
+      <div
+        onClick={handleRowClick}
+        draggable={!!draggable && platform.isAuthenticated}
+        onDragStart={onDragStart}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        onDragEnd={onDragEnd}
+        title={
+          isCheckingAuth
+            ? `${platform.name} · 正在检测登录…`
+            : !platform.isAuthenticated
+              ? `${platform.name} · 点击检测登录状态`
+              : draggable
+                ? `${platform.name} · 可拖动排序`
+                : undefined
+        }
+        className={cn(
+          'flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors',
+          isIdle && platform.isAuthenticated && 'cursor-pointer hover:bg-muted/70',
+          isIdle && !platform.isAuthenticated && 'cursor-pointer opacity-55 hover:opacity-100 hover:bg-muted/40',
+          draggable && platform.isAuthenticated && 'cursor-grab active:cursor-grabbing',
         )}
-        {isIdle && !platform.isAuthenticated && (
-          <button
-            type="button"
-            title="重新检测登录状态"
-            disabled={isCheckingAuth}
-            onClick={handleRecheckClick}
-            className={cn(
-              'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] transition-colors',
-              isCheckingAuth
-                ? 'text-primary'
-                : 'text-muted-foreground hover:text-primary hover:bg-muted'
-            )}
-          >
-            <RefreshCw className={cn('w-3 h-3', isCheckingAuth && 'animate-spin')} />
-            {isCheckingAuth ? '检测中' : '检测'}
-          </button>
+      >
+        {/* 拖拽手柄（仅 idle 列表视图） */}
+        {draggable && platform.isAuthenticated && (
+          <GripVertical className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
         )}
-        <RowInfo
-          platform={platform}
-          isIdle={isIdle}
-          isWaiting={isWaiting}
-          isInProgress={isInProgress}
-          isCheckingAuth={isCheckingAuth}
-          result={result}
-          progress={progress}
-          alreadySynced={alreadySynced}
-          isSelected={isSelected}
+
+        {/* Status indicator */}
+        {isCheckingAuth ? (
+          <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0" />
+        ) : (
+          <RowIndicator
+            isIdle={isIdle}
+            isSelected={isSelected}
+            isAuthenticated={platform.isAuthenticated}
+            isWaiting={isWaiting}
+            isInProgress={isInProgress}
+            result={result}
+            alreadySynced={alreadySynced}
+          />
+        )}
+
+        {/* Platform icon */}
+        <img
+          src={platform.icon}
+          alt={platform.name}
+          className="w-5 h-5 rounded flex-shrink-0"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = '/assets/icon-48.png'
+          }}
         />
+
+        {/* Platform name */}
+        <span className="text-sm flex-1 truncate">{platform.name}</span>
+
+        {/* Right side info + 手动检测（仅未登录） */}
+        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+          {isIdle && (
+            <button
+              type="button"
+              title={isFavorited ? '取消收藏' : '加入收藏'}
+              onClick={onToggleFavorite}
+              className={cn(
+                'inline-flex items-center rounded p-0.5 transition-colors',
+                isFavorited ? 'text-primary' : 'text-muted-foreground hover:text-primary',
+              )}
+            >
+              <Star className={cn('w-3.5 h-3.5', isFavorited && 'fill-primary')} />
+            </button>
+          )}
+          {isIdle && !platform.isAuthenticated && (
+            <button
+              type="button"
+              title="重新检测登录状态"
+              disabled={isCheckingAuth}
+              onClick={handleRecheckClick}
+              className={cn(
+                'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] transition-colors',
+                isCheckingAuth
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:text-primary hover:bg-muted'
+              )}
+            >
+              <RefreshCw className={cn('w-3 h-3', isCheckingAuth && 'animate-spin')} />
+              {isCheckingAuth ? '检测中' : '检测'}
+            </button>
+          )}
+          <RowInfo
+            platform={platform}
+            isIdle={isIdle}
+            isWaiting={isWaiting}
+            isInProgress={isInProgress}
+            isCheckingAuth={isCheckingAuth}
+            result={result}
+            progress={progress}
+            alreadySynced={alreadySynced}
+            isSelected={isSelected}
+          />
+        </div>
       </div>
     </div>
   )

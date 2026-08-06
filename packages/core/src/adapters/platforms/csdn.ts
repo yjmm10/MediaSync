@@ -2,8 +2,7 @@
  * CSDN 适配器（PipelineAdapter 实现）
  *
  * 行为等价迁移：原有签名鉴权、图片上传（OBS 直传）、saveArticle 草稿流程全部保留。
- * 新增 publishSchema 声明（为 UI 准备），P1 运行时 buildPayload 仍用写死值，
- * 等 P2 注册代码 + UI 接入后再让 buildPayload 读 ctx.params。
+ * 新增 publishSchema；buildPayload 读 ctx.params（categories 用名称，可见性对齐 readType）。
  *
  * Header 规则拆分（与原实现等价）：
  *   原来用一次 withHeaderRules 包整个 publish；迁移后管道分层，拆为两次顺序包：
@@ -41,8 +40,7 @@ export class CSDNAdapter extends PipelineAdapter {
 
   /**
    * 配置 Schema（声明式，UI 据此渲染）
-   * 注意：P1 运行时 buildPayload 仍用写死值保持行为等价；
-   *      等注册代码（P2）与 UI 接入后，buildPayload 再读 ctx.params。
+   * categories 选项为专栏名称；活动/话题仅正式发布时由平台生效。
    */
   readonly publishSchema: PublishSchema = {
     fields: [
@@ -71,20 +69,26 @@ export class CSDNAdapter extends PipelineAdapter {
       {
         kind: 'activity',
         key: 'activityId',
-        label: '活动',
+        label: '活动（仅正式发布时生效）',
         source: 'remote',
         selectMode: 'either-or',
         eitherWith: 'topicId',
-        remoteRef: { apiPath: '/blog/phoenix/console/v1/write-active/list', params: { type: '1', order: '0', page: '1', size: '24', activeStatus: '0' } },
+        remoteRef: {
+          apiPath: '/blog/phoenix/console/v1/write-active/list',
+          params: { activeStatus: '2', order: '1', page: '1', size: '100', type: '1' },
+        },
       },
       {
         kind: 'topic',
         key: 'topicId',
-        label: '话题（与活动二选一）',
+        label: '话题（与活动二选一；仅正式发布时生效）',
         source: 'remote',
         selectMode: 'either-or',
         eitherWith: 'activityId',
-        remoteRef: { apiPath: '/blog/phoenix/console/v1/write-active/list', params: { type: '2', order: '0', page: '1', size: '24', activeStatus: '0' } },
+        remoteRef: {
+          apiPath: '/blog/phoenix/console/v1/write-active/list',
+          params: { activeStatus: '2', order: '1', page: '1', size: '100', type: '2' },
+        },
       },
       {
         kind: 'schedule',
@@ -106,6 +110,8 @@ export class CSDNAdapter extends PipelineAdapter {
   }
 
   private userInfo: CSDNUserInfo | null = null
+  /** getBaseInfo.categorys：分类专栏名称（与编辑器 tagOptionList 一致） */
+  private categoryNames: string[] = []
 
   // CSDN API 签名密钥
   private readonly API_KEY = '203803574'
@@ -172,6 +178,8 @@ export class CSDNAdapter extends PipelineAdapter {
           nickname: string
           avatar: string
           blog_url: string
+          /** 分类专栏名称列表（saveArticle.categories 必须用名称，不能用 id） */
+          categorys?: string[]
         }
       }
 
@@ -183,6 +191,9 @@ export class CSDNAdapter extends PipelineAdapter {
           username: res.data.nickname || res.data.name,
           avatarurl: res.data.avatar,
         }
+        this.categoryNames = Array.isArray(res.data.categorys)
+          ? res.data.categorys.filter((n): n is string => typeof n === 'string' && !!n.trim())
+          : []
         return {
           isAuthenticated: true,
           userId: res.data.name,
@@ -236,25 +247,52 @@ export class CSDNAdapter extends PipelineAdapter {
     ctx.content.html = stripDataUriImages(ctx.content.html)
   }
 
-  /** 5. 构建平台请求体（P1 写死保持等价；P2 注册代码 + UI 接入后读 ctx.params） */
+  /**
+   * 5. 构建平台请求体
+   * categories 必须是专栏「名称」；可见性对齐官方 readType / status（私密=64）
+   */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
     const { params } = ctx
     const isSchedule = params.mode === 'schedule' && !!params.scheduleAt
     const isPublish = params.mode === 'publish' || isSchedule
+    const isPrivate = params.visibility === 'private'
     const coverUrl =
       params.cover && params.cover !== 'auto' && params.cover !== 'none'
         ? params.cover
         : ''
+    // 官方：private 时 readType=private 且强制 level=0；草稿公开 status=2，私密 status=64
+    const readType = isPrivate ? 'private' : 'public'
+    const level = isPrivate
+      ? '0'
+      : String(this.visibilityToLevel(params.visibility))
+    let status: number
+    if (isPrivate) {
+      status = 64
+    } else if (isPublish) {
+      status = 0
+    } else {
+      status = 2
+    }
+    const categories = await this.resolveCategoryNames(params.category ?? '')
+    // 官方编辑器仅在正式发布时写入活动；草稿仍传，后端可能忽略
+    const activityId = params.activityId || params.topicId || ''
+    const creatorActivityId =
+      isPublish && !isPrivate && (params.originalType ?? 'original') === 'original'
+        ? activityId
+        : isPublish
+          ? ''
+          : activityId
+
     ctx.payload = {
       id: 0, // 0=新建
       title: ctx.article.title,
       markdowncontent: ctx.content.markdown,
       content: ctx.content.html,
-      readType: 'public',
-      level: String(this.visibilityToLevel(params.visibility)), // 真实接口要字符串
+      readType,
+      level,
       tags: (params.tags ?? []).slice(0, 7).join(','),
-      status: isPublish ? 0 : 2, // 0=发布 2=草稿（对齐真实接口）
-      categories: params.category ?? '',
+      status,
+      categories,
       type: params.originalType ?? 'original',
       original_link: params.originalLink ?? '',
       authorized_status: false,
@@ -270,7 +308,7 @@ export class CSDNAdapter extends PipelineAdapter {
       pubStatus: isPublish ? 'publish' : 'draft',
       creation_statement: (params.extra?.creationStatement as number) ?? 0, // 0=无 1=原创声明 2=独家授权 3=原创+独家
       sync_git_code: (params.extra?.syncGitCode as number) ?? 0,
-      creator_activity_id: params.activityId ?? params.topicId ?? '', // 活动或话题（二选一）
+      creator_activity_id: creatorActivityId,
       scheduled_time: isSchedule && params.scheduleAt ? this.formatScheduleTime(params.scheduleAt) : '',
     }
   }
@@ -282,19 +320,52 @@ export class CSDNAdapter extends PipelineAdapter {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
-  /** 可见性 → CSDN level（0=公开，1=粉丝可见，2=仅自己） */
+  /** 可见性 → CSDN level（公开场景：0=公开，1=粉丝可见；私密走 readType，不用 level=2） */
   private visibilityToLevel(visibility?: string): number {
-    if (visibility === 'private') return 2
     if (visibility === 'followers') return 1
     return 0
+  }
+
+  /**
+   * categories 必须是 getBaseInfo.categorys 中的名称。
+   * 数字 id（旧 UI / column/list）无法可靠映射到 categorys，直接丢弃并打日志。
+   */
+  private async resolveCategoryNames(raw: string): Promise<string> {
+    const parts = raw.split(',').map(s => s.trim()).filter(Boolean)
+    if (parts.length === 0) return ''
+
+    if (this.categoryNames.length === 0) {
+      await this.withHeaderRules(this.HEADER_RULES, () => this.fetchCategoryColumns())
+    }
+    const known = new Set(this.categoryNames)
+    const names: string[] = []
+    const dropped: string[] = []
+    for (const p of parts) {
+      if (known.has(p)) {
+        names.push(p)
+      } else if (/^\d+$/.test(p)) {
+        dropped.push(p)
+      } else {
+        // 名称不在当前列表里也可能是刚新建的专栏，仍提交
+        names.push(p)
+      }
+    }
+    if (dropped.length > 0) {
+      logger.warn(
+        'categories 含旧版数字 id，已忽略（请在同步页重新选择分类专栏）:',
+        dropped.join(','),
+      )
+    }
+    logger.debug('resolved categories:', names.join(',') || '(empty)', 'from raw:', raw)
+    return names.join(',')
   }
 
   // ============ 远程引用（活动/话题/专栏列表，供 UI 选择）============
 
   /**
-   * 拉取远程引用列表（活动 + 话题 + 专栏）
-   * UI（PlatformConfigSection）通过 SW message 调用此方法，
-   * 获取列表后渲染 Select 供用户选择 id。
+   * 拉取远程引用列表（活动 + 话题 + 分类专栏）
+   * 分类专栏必须用 getBaseInfo.categorys 名称（与 saveArticle.categories 一致），
+   * 不能用 column/list 的数字 id。
    */
   async fetchRemoteRefs(): Promise<{
     activities: Array<{ id: string; name: string }>
@@ -305,8 +376,13 @@ export class CSDNAdapter extends PipelineAdapter {
       const [activities, topics, columns] = await Promise.all([
         this.fetchWriteActiveList(1),
         this.fetchWriteActiveList(2),
-        this.fetchColumnList(),
+        this.fetchCategoryColumns(),
       ])
+      logger.debug('fetchRemoteRefs counts:', {
+        activities: activities.length,
+        topics: topics.length,
+        columns: columns.length,
+      })
       return { activities, topics, columns }
     })
   }
@@ -314,30 +390,43 @@ export class CSDNAdapter extends PipelineAdapter {
   /** 活动/话题列表（type=1 活动，type=2 话题）*/
   private async fetchWriteActiveList(type: number): Promise<Array<{ id: string; name: string }>> {
     try {
-      const apiPath = `/blog/phoenix/console/v1/write-active/list?type=${type}&order=0&page=1&size=24&activeStatus=0`
+      // 与 editor 一致；query 必须按 key 字母序（阿里云网关验签会重排参数）
+      const apiPath = this.buildSignedPath('/blog/phoenix/console/v1/write-active/list', {
+        activeStatus: '2',
+        order: '1',
+        page: '1',
+        size: '100',
+        type: String(type),
+      })
       const headers = await this.signRequest(apiPath, 'GET')
       const response = await this.runtime.fetch(`https://bizapi.csdn.net${apiPath}`, {
         method: 'GET',
         credentials: 'include',
         headers,
       })
-      const res = await response.json() as {
-        data?: Array<{ id?: number | string; title?: string; name?: string; active_name?: string }>
+      const res = await response.json() as { code?: number; message?: string; msg?: string; data?: unknown }
+      if (res.code != null && res.code !== 200) {
+        logger.warn(`fetchWriteActiveList(type=${type}) code=${res.code}:`, res.message || res.msg || res)
+        return []
       }
-      return (res.data ?? []).map(a => ({
-        id: String(a.id ?? ''),
-        name: a.title || a.active_name || a.name || String(a.id),
-      }))
+      // data.actives[].writeActiveId / name
+      return this.mapRemoteOptions(res.data, ['name', 'title'], ['writeActiveId', 'id'])
     } catch (error) {
-      logger.debug(`fetchWriteActiveList(type=${type}) failed:`, error)
+      logger.warn(`fetchWriteActiveList(type=${type}) failed:`, error)
       return []
     }
   }
 
-  /** 专栏列表 */
-  private async fetchColumnList(): Promise<Array<{ id: string; name: string }>> {
+  /**
+   * 分类专栏选项：getBaseInfo.categorys（名称即 id）。
+   * 编辑器发布弹窗 tagOptionList 同源；saveArticle.categories 也要求名称。
+   */
+  private async fetchCategoryColumns(): Promise<Array<{ id: string; name: string }>> {
     try {
-      const apiPath = '/blog/phoenix/console/v1/column/list?type=all'
+      if (this.categoryNames.length > 0) {
+        return this.categoryNames.map(name => ({ id: name, name }))
+      }
+      const apiPath = '/blog-console-api/v3/editor/getBaseInfo'
       const headers = await this.signRequest(apiPath, 'GET')
       const response = await this.runtime.fetch(`https://bizapi.csdn.net${apiPath}`, {
         method: 'GET',
@@ -345,22 +434,106 @@ export class CSDNAdapter extends PipelineAdapter {
         headers,
       })
       const res = await response.json() as {
-        data?: Array<{ id?: number | string; title?: string; name?: string; column_name?: string }>
+        code?: number
+        data?: { categorys?: unknown }
       }
-      return (res.data ?? []).map(c => ({
-        id: String(c.id ?? ''),
-        name: c.title || c.column_name || c.name || String(c.id),
-      }))
+      if (res.code != null && res.code !== 200) {
+        logger.warn('fetchCategoryColumns code=', res.code, res)
+        return []
+      }
+      const list = Array.isArray(res.data?.categorys) ? res.data!.categorys! : []
+      this.categoryNames = list.filter((n): n is string => typeof n === 'string' && !!n.trim())
+      return this.categoryNames.map(name => ({ id: name, name }))
     } catch (error) {
-      logger.debug('fetchColumnList failed:', error)
+      logger.warn('fetchCategoryColumns failed:', error)
       return []
     }
+  }
+
+  /**
+   * 构造签名与请求共用的 path+query。
+   * 多参数时必须按 key 字母序排列，否则网关验签返回 HMAC signature does not match。
+   */
+  private buildSignedPath(path: string, params: Record<string, string>): string {
+    const qs = Object.keys(params)
+      .sort()
+      .map(k => `${k}=${params[k]}`)
+      .join('&')
+    return qs ? `${path}?${qs}` : path
+  }
+
+  /**
+   * 兼容 CSDN 实际结构：
+   * - 活动/话题：data.actives[{ writeActiveId, name }]
+   */
+  private mapRemoteOptions(
+    data: unknown,
+    nameKeys: string[],
+    idKeys: string[] = ['id'],
+  ): Array<{ id: string; name: string }> {
+    const list = this.extractRemoteList(data)
+    return list
+      .map(item => {
+        if (!item || typeof item !== 'object') return null
+        const row = item as Record<string, unknown>
+        let id: unknown
+        for (const k of idKeys) {
+          if (row[k] != null && row[k] !== '') {
+            id = row[k]
+            break
+          }
+        }
+        if (id == null || id === '') return null
+        let name = ''
+        for (const k of nameKeys) {
+          const v = row[k]
+          if (typeof v === 'string' && v.trim()) {
+            name = v.trim()
+            break
+          }
+        }
+        return { id: String(id), name: name || String(id) }
+      })
+      .filter((x): x is { id: string; name: string } => !!x)
+  }
+
+  private extractRemoteList(data: unknown): unknown[] {
+    if (Array.isArray(data)) return data
+    if (!data || typeof data !== 'object') return []
+    const obj = data as Record<string, unknown>
+
+    // CSDN 活动/话题
+    if (Array.isArray(obj.actives)) return obj.actives
+
+    // CSDN 专栏：data.list.column
+    if (obj.list && typeof obj.list === 'object' && !Array.isArray(obj.list)) {
+      const nested = obj.list as Record<string, unknown>
+      if (Array.isArray(nested.column)) return nested.column
+      for (const v of Object.values(nested)) {
+        if (Array.isArray(v)) return v
+      }
+    }
+
+    for (const key of ['list', 'records', 'items', 'result', 'rows', 'columnList', 'data', 'columns']) {
+      const v = obj[key]
+      if (Array.isArray(v)) return v
+    }
+    return []
   }
 
   /** 6. 提交：签名 + saveArticle，返回草稿结果 */
   protected async submit(ctx: PublishContext): Promise<SyncResult> {
     const apiPath = '/blog-console-api/v3/mdeditor/saveArticle'
     const headers = await this.signRequest(apiPath)
+
+    logger.debug('Save payload meta:', {
+      categories: (ctx.payload as { categories?: string }).categories,
+      tags: (ctx.payload as { tags?: string }).tags,
+      readType: (ctx.payload as { readType?: string }).readType,
+      level: (ctx.payload as { level?: string }).level,
+      status: (ctx.payload as { status?: number }).status,
+      creator_activity_id: (ctx.payload as { creator_activity_id?: string }).creator_activity_id,
+    })
 
     const response = await this.runtime.fetch(
       `https://bizapi.csdn.net${apiPath}`,
@@ -444,12 +617,14 @@ export class CSDNAdapter extends PipelineAdapter {
    */
   private async signRequest(apiPath: string, method: 'GET' | 'POST' = 'POST'): Promise<Record<string, string>> {
     const nonce = this.createUuid()
+    // 签名 Path 与请求 URL 一致（含 query）
+    const signPath = apiPath
 
     // GET: 没有 Content-Type，所以那一行为空
     // POST: Content-Type 为 application/json
     const signStr = method === 'GET'
-      ? `GET\n*/*\n\n\n\nx-ca-key:${this.API_KEY}\nx-ca-nonce:${nonce}\n${apiPath}`
-      : `POST\n*/*\n\napplication/json\n\nx-ca-key:${this.API_KEY}\nx-ca-nonce:${nonce}\n${apiPath}`
+      ? `GET\n*/*\n\n\n\nx-ca-key:${this.API_KEY}\nx-ca-nonce:${nonce}\n${signPath}`
+      : `POST\n*/*\n\napplication/json\n\nx-ca-key:${this.API_KEY}\nx-ca-nonce:${nonce}\n${signPath}`
 
     logger.debug('Sign string:', JSON.stringify(signStr))
 

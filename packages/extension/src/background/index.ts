@@ -179,19 +179,6 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       return { platforms }
     }
 
-    // @ts-expect-error — FETCH_REMOTE_REFS 动态扩展，不在 MessageAction union
-    case 'FETCH_REMOTE_REFS': {
-      await initAdapters()
-      const msg = message as unknown as { payload?: { platformId?: string } }
-      const platformId = msg.payload?.platformId
-      if (!platformId) return { error: 'platformId is required' }
-      const adapter = await getAdapter(platformId)
-      if (!adapter) return { error: 'Platform not found' }
-      const fn = (adapter as unknown as { fetchRemoteRefs?: () => Promise<unknown> }).fetchRemoteRefs
-      if (typeof fn !== 'function') return {}
-      return await fn.call(adapter)
-    }
-
     case 'CHECK_ALL_AUTH': {
       const forceRefresh = message.payload?.forceRefresh ?? false
       const dslPlatforms = await checkAllPlatformsAuth(forceRefresh)
@@ -1247,7 +1234,7 @@ chrome.runtime.onInstalled.addListener(async details => {
     const currentVersion = chrome.runtime.getManifest().version
 
     // 重要版本升级时显示更新日志
-    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0', '3.0.1', '3.1.0']
+    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0', '3.0.1', '3.1.0', '3.1.1']
     if (
       showChangelogVersions.includes(currentVersion) ||
       (previousVersion.startsWith('1.') && currentVersion.startsWith('2.')) ||
