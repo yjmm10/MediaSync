@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
 import { markdownToHtml, htmlToMarkdownNative } from '@mediasync/core'
 import { useSyncStore } from '../stores/sync'
 import { MarkdownSplitEditor } from '@/components/MarkdownSplitEditor'
+import { SubPageHeader } from '../components/SubPageHeader'
 
 /**
  * 分屏 Markdown 编辑（左源码 · 右渲染）。
@@ -36,30 +36,33 @@ export function EditPage() {
 
   if (!article) {
     return (
-      <div className="p-4 h-full flex flex-col">
-        <button onClick={() => navigate('/')} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
-          <ArrowLeft className="w-4 h-4" /> 返回
-        </button>
-        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-          没有可编辑的文章
+      <div className="page-root flex flex-col h-[500px]">
+        <SubPageHeader title="编辑" onBack={() => navigate('/')} />
+        <div className="flex-1 flex items-center justify-center p-4">
+          <div className="rounded-lg border border-dashed border-border bg-muted/30 px-6 py-8 text-center">
+            <p className="text-sm text-muted-foreground">没有可编辑的文章</p>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2 border-b flex-shrink-0">
-        <button onClick={() => navigate('/')} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="w-4 h-4" /> 返回
-        </button>
-        <span className="text-xs text-muted-foreground">编辑（左源码 · 右预览 · 同步滚动）</span>
-      </div>
+    <div className="page-root flex flex-col h-[500px]">
+      <SubPageHeader
+        title="编辑"
+        onBack={() => navigate('/')}
+        right={
+          <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
+            左源码 · 右预览
+          </span>
+        }
+      />
       <MarkdownSplitEditor
         value={mdText}
         onChange={handleChange}
         compact
-        className="flex-1"
+        className="flex-1 min-h-0"
       />
       <style>{`
         .preview-article { font-size: 13px; line-height: 1.7; color: #333; word-break: break-word; }
@@ -71,7 +74,7 @@ export function EditPage() {
         .preview-article pre code { background: none; padding: 0; }
         .preview-article blockquote { border-left: 3px solid #ddd; padding-left: 1em; color: #666; margin: 1em 0; }
         .preview-article ul,.preview-article ol { padding-left: 1.5em; margin: 1em 0; }
-        .preview-article a { color: #2563eb; }
+        .preview-article a { color: #16a34a; }
         .preview-article table { border-collapse: collapse; width: 100%; margin: 1em 0; }
         .preview-article th,.preview-article td { border: 1px solid #ddd; padding: 6px 10px; }
         .preview-article .mermaid-preview,.preview-article .mermaid { margin: 1em 0; overflow-x: auto; text-align: center; }

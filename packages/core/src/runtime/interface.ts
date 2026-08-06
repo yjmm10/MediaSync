@@ -110,6 +110,10 @@ export interface RuntimeInterface {
       args: A,
       options?: { world?: 'MAIN' | 'ISOLATED' }
     ): Promise<T>
+    /**
+     * 将临时鉴权标签归入「鉴权」标签组（扩展环境可选；已有同名组则复用）
+     */
+    addToAuthGroup?(tabId: number): Promise<void>
   }
 
   /**

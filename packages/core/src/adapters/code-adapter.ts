@@ -553,6 +553,11 @@ export abstract class CodeAdapter implements PlatformAdapter {
       throw error
     }
     this.ephemeralTabIds.add(tab.id)
+    try {
+      await this.runtime.tabs.addToAuthGroup?.(tab.id)
+    } catch {
+      // 标签组可选，失败不影响鉴权
+    }
     return tab.id
   }
 

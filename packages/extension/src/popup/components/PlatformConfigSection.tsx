@@ -1,18 +1,13 @@
 /**
- * 平台默认发布配置（P3c 最小 demo）
+ * 设置页：平台默认发布配置
  *
  * 选平台 → 按该平台 publishSchema 自动渲染表单 → 保存到
  * chrome.storage.local.platformSettings[id]（syncToPlatform 合并时读取）。
- *
- * 这是简化版 SchemaForm：支持 tags / category / column / node / activity /
- * topic / cover / summary / subtitle / originalType / visibility / comments /
- * reward / schedule / toggle。远程列表（category/activity）暂以 id 文本输入，
- * P3c 完整版会换成带缓存的远程 Select。
  */
 import { useState, useEffect } from 'react'
 import { Save, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getAllPlatformMetas, getPlatformProfile } from '../../adapters'
+import { getAllPlatformMetas, getPlatformProfile, initAdapters } from '../../adapters'
 import { getSavedParams, setSavedParams, clearSavedParams } from '../../lib/platform-settings'
 import type { PublishParams, SchemaField, PlatformProfile } from '@mediasync/core'
 
@@ -24,9 +19,11 @@ export function PlatformConfigSection() {
   const [hint, setHint] = useState<string | null>(null)
 
   useEffect(() => {
-    const metas = getAllPlatformMetas()
-    setPlatforms(metas.map(m => ({ id: m.id, name: m.name })))
-    if (metas.length) setSelectedId(metas[0].id)
+    initAdapters().then(() => {
+      const metas = getAllPlatformMetas()
+      setPlatforms(metas.map(m => ({ id: m.id, name: m.name })))
+      if (metas.length) setSelectedId(metas[0].id)
+    })
   }, [])
 
   useEffect(() => {
@@ -76,7 +73,7 @@ export function PlatformConfigSection() {
           <div className="space-y-2.5">
             {fields.map(field => (
               <FieldRenderer
-                key={field.key}
+                key={`${selectedId}:${field.key}`}
                 field={field}
                 value={params}
                 onChange={setParams}
@@ -125,17 +122,17 @@ function FieldRenderer({
   switch (field.kind) {
     case 'tags':
       return (
-        <TextInput
+        <TagsTextInput
           label={field.label}
-          help={field.help}
-          value={(value.tags ?? []).join(', ')}
-          onChange={v =>
-            onChange({
-              ...value,
-              tags: v.split(/[,，]/).map(s => s.trim()).filter(Boolean),
-            })
+          help={
+            field.help
+            ?? (field.max
+              ? `用逗号分隔，最多 ${field.max} 个`
+              : '用逗号分隔，如：前端, React')
           }
-          placeholder="用逗号分隔，如：前端, React"
+          max={field.max}
+          tags={value.tags ?? []}
+          onChange={tags => onChange({ ...value, tags })}
         />
       )
     case 'category':
@@ -249,6 +246,53 @@ function FieldLabel({ label, help }: { label: string; help?: string }) {
     <div className="mb-1">
       <span className="text-[11px] font-medium text-foreground">{label}</span>
       {help && <p className="text-[10px] text-muted-foreground">{help}</p>}
+    </div>
+  )
+}
+
+/** 标签输入：用本地草稿字符串，避免 join/split 吃掉正在输入的逗号 */
+function TagsTextInput({
+  label,
+  help,
+  tags,
+  max,
+  onChange,
+}: {
+  label: string
+  help?: string
+  tags: string[]
+  max?: number
+  onChange: (tags: string[]) => void
+}) {
+  const [text, setText] = useState(() => tags.join(', '))
+
+  const parseTags = (raw: string): string[] => {
+    let next = raw.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+    if (typeof max === 'number' && max > 0) {
+      next = next.slice(0, max)
+    }
+    return next
+  }
+
+  return (
+    <div>
+      <FieldLabel label={label} help={help} />
+      <input
+        type="text"
+        value={text}
+        onChange={e => {
+          const raw = e.target.value
+          setText(raw)
+          onChange(parseTags(raw))
+        }}
+        onBlur={() => {
+          const next = parseTags(text)
+          onChange(next)
+          setText(next.join(', '))
+        }}
+        placeholder="用逗号分隔，如：前端, React"
+        className="input-soft"
+      />
     </div>
   )
 }

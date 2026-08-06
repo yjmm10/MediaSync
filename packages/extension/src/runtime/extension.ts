@@ -292,6 +292,23 @@ export class ExtensionRuntime implements RuntimeInterface {
         throw error
       }
     },
+
+    async addToAuthGroup(tabId: number): Promise<void> {
+      if (!chrome.tabs.group || !chrome.tabGroups) return
+      const AUTH_GROUP_TITLE = '鉴权'
+      try {
+        const groups = await chrome.tabGroups.query({ title: AUTH_GROUP_TITLE })
+        const existing = groups[0]
+        if (existing) {
+          await chrome.tabs.group({ tabIds: [tabId], groupId: existing.id })
+          return
+        }
+        const groupId = await chrome.tabs.group({ tabIds: [tabId] })
+        await chrome.tabGroups.update(groupId, { title: AUTH_GROUP_TITLE, color: 'orange' })
+      } catch {
+        // 标签组不可用或不支持时忽略
+      }
+    },
   }
 
   /**

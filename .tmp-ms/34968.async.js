@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunk=self.webpackChunk||[]).push([[34968],{34968:function(r,t,n){n.r(t),n.d(t,{isRootEditorStr:function(){return c}});var u=n(381504),e=n(181764),c=function(r){var t="";try{var n=(0,e.isString)(r)?JSON.parse(r):[];t=n.includes("root")?n:(0,u.h4)(r)}catch(n){t=(0,u.h4)(r)}return t};t.default=u.GY}}]);

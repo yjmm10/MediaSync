@@ -213,7 +213,7 @@ export function HomeNew() {
 
   const loadAllPlatforms = async () => {
     try {
-      // 打开 UI：cookie 平台可刷新；美篇/小红书/企鹅号等 PAGE_CONTEXT 平台不会因 forceRefresh 开标签真检
+      // 打开 UI：cookie 平台可刷新；会开标签鉴权的平台不会因 forceRefresh 开标签真检
       const response = await chrome.runtime.sendMessage({ type: 'CHECK_ALL_AUTH', payload: { forceRefresh: true } })
       const mapped: DialogPlatform[] = (response.platforms || []).map((p: any) => ({
         id: p.id, name: p.name, icon: p.icon,
@@ -652,20 +652,20 @@ export function HomeNew() {
           onClick={() => setShowPreview(false)}
         >
           <div
-            className="bg-card rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+            className="bg-card rounded-xl border border-border/70 shadow-[0_8px_30px_-8px_rgba(15,23,42,0.25)] w-full max-w-2xl max-h-[90vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-3 py-2 border-b">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border/70">
               <div className="flex gap-1">
                 <button
                   onClick={() => setPreviewTab('render')}
-                  className={`px-2.5 py-1 text-xs rounded ${previewTab === 'render' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
+                  className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${previewTab === 'render' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
                 >
                   渲染
                 </button>
                 <button
                   onClick={() => setPreviewTab('markdown')}
-                  className={`px-2.5 py-1 text-xs rounded ${previewTab === 'markdown' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
+                  className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${previewTab === 'markdown' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}
                 >
                   源码
                 </button>
@@ -674,11 +674,15 @@ export function HomeNew() {
                 <button
                   onClick={handleOpenFullPreview}
                   title="在当前网页上整页预览（关闭后回到原页）"
-                  className="flex items-center gap-0.5 px-2 py-1 text-xs text-primary hover:bg-muted rounded"
+                  className="flex items-center gap-0.5 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 rounded-md transition-colors"
                 >
                   整页
                 </button>
-                <button onClick={() => setShowPreview(false)} title="关闭" className="p-1 rounded hover:bg-muted">
+                <button
+                  onClick={() => setShowPreview(false)}
+                  title="关闭"
+                  className="p-1 rounded-md hover:bg-muted transition-colors"
+                >
                   <X className="w-4 h-4 text-muted-foreground" />
                 </button>
               </div>

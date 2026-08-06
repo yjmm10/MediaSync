@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle, XCircle, ExternalLink, Trash2, ImageIcon, Loader2, Plus, Clock } from 'lucide-react'
+import { ExternalLink, Trash2, ImageIcon, Loader2, Plus, Clock } from 'lucide-react'
 import { useSyncStore } from '../stores/sync'
 import { Button } from './ui/Button'
 import { openUrlsInTabGroup } from '@/lib/tabs'
@@ -143,19 +143,19 @@ export function HistoryList({ embedded, className }: HistoryListProps) {
           const draftUrls = results.filter(r => r.success && r.postUrl).map(r => r.postUrl as string)
 
           return (
-            <div key={item.id} className="p-2.5 rounded-lg border border-border bg-card">
+            <div key={item.id} className="card-interactive p-2.5">
               <div className="flex gap-2.5">
                 {item.cover ? (
                   <img
                     src={item.cover}
                     alt=""
-                    className="w-12 h-12 rounded object-cover flex-shrink-0"
+                    className="w-12 h-12 rounded-md object-cover flex-shrink-0 ring-1 ring-black/5"
                     onError={e => {
                       ;(e.target as HTMLImageElement).style.display = 'none'
                     }}
                   />
                 ) : (
-                  <div className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                  <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
                     <ImageIcon className="w-5 h-5 text-muted-foreground" />
                   </div>
                 )}
@@ -164,7 +164,7 @@ export function HistoryList({ embedded, className }: HistoryListProps) {
                   <div className="flex items-start justify-between gap-2 mb-0.5">
                     <h4 className="font-medium text-sm line-clamp-2 text-foreground">{item.title}</h4>
                     <div className="flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-[11px] text-muted-foreground tabular-nums">
                         {formatTime(
                           item.lastSyncTime ?? item.startTime ?? item.timestamp ?? Date.now(),
                         )}
@@ -173,7 +173,7 @@ export function HistoryList({ embedded, className }: HistoryListProps) {
                         type="button"
                         onClick={() => deleteHistoryItem(item.id)}
                         title="删除"
-                        className="text-muted-foreground hover:text-destructive"
+                        className="p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -183,15 +183,15 @@ export function HistoryList({ embedded, className }: HistoryListProps) {
                   <div className="flex items-center justify-between gap-2 text-[11px]">
                     <div className="flex items-center gap-2">
                       {item.status === 'syncing' ? (
-                        <span className="inline-flex items-center gap-1 text-blue-700 font-medium">
+                        <span className="inline-flex items-center gap-1 text-primary font-medium">
                           <Loader2 className="w-3 h-3 animate-spin" />
                           同步中
                         </span>
                       ) : (
                         <>
-                          <span className="text-emerald-800 font-medium">{successCount} 成功</span>
+                          <span className="text-primary font-medium tabular-nums">{successCount} 成功</span>
                           {failedCount > 0 && (
-                            <span className="text-rose-800 font-medium">{failedCount} 失败</span>
+                            <span className="text-destructive font-medium tabular-nums">{failedCount} 失败</span>
                           )}
                         </>
                       )}
@@ -231,14 +231,14 @@ export function HistoryList({ embedded, className }: HistoryListProps) {
                         className={cn(
                           'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border',
                           result.success
-                            ? 'bg-emerald-50 text-emerald-950 border-emerald-200'
-                            : 'bg-rose-50 text-rose-950 border-rose-200',
+                            ? 'bg-primary/10 text-primary border-primary/20'
+                            : 'bg-destructive/10 text-destructive border-destructive/20',
                         )}
                         title={!result.success && result.error ? result.error : undefined}
                       >
                         <span>{result.platformName || result.platform}</span>
                         {!result.success && result.error && (
-                          <span className="font-normal text-rose-800/90 truncate max-w-[72px]">
+                          <span className="font-normal text-destructive/80 truncate max-w-[72px]">
                             : {result.error}
                           </span>
                         )}

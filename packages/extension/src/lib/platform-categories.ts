@@ -35,6 +35,7 @@ const PLATFORM_CATEGORY_BY_ID: Record<string, PlatformCategory> = {
   cnblogs: 'tech-community',
   segmentfault: 'tech-community',
   cto51: 'tech-community',
+  '51cto': 'tech-community',
   oschina: 'tech-community',
   infoq: 'tech-community',
   jianshu: 'tech-community',

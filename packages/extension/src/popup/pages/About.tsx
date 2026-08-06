@@ -1,6 +1,5 @@
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft,
   Github,
   Globe,
   Heart,
@@ -10,6 +9,7 @@ import {
   Layers,
   PanelRight,
 } from 'lucide-react'
+import { SubPageHeader } from '../components/SubPageHeader'
 
 const LINKS = [
   {
@@ -69,17 +69,7 @@ export function AboutPage() {
 
   return (
     <div className="page-root flex flex-col h-[500px]">
-      <header className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b">
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-          aria-label="返回"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <h1 className="font-semibold">关于</h1>
-      </header>
+      <SubPageHeader title="关于" onBack={() => navigate('/')} />
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {/* Brand */}

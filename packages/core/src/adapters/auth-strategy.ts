@@ -287,5 +287,10 @@ async function ensurePageTab(
     throw error
   }
   ephemeralTabIds.add(tab.id)
+  try {
+    await runtime.tabs.addToAuthGroup?.(tab.id)
+  } catch {
+    // 标签组可选，失败不影响鉴权
+  }
   return tab.id
 }

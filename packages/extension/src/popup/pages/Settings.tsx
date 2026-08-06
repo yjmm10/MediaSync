@@ -1,10 +1,13 @@
+import type { ReactNode } from 'react'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plug, PlugZap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SubPageHeader } from '../components/SubPageHeader'
 import { PlatformConfigSection } from '../components/PlatformConfigSection'
+import { UserPlatformGroupsSection } from '../components/UserPlatformGroupsSection'
 import { trackFeatureDiscovery } from '../../lib/analytics'
+import { getAllPlatformMetas, getTabAuthPlatformIds, initAdapters } from '../../adapters'
 import {
   DEFAULT_LOCAL_MD_CACHE_LIMIT,
   MAX_LOCAL_MD_CACHE_LIMIT,
@@ -28,6 +31,10 @@ import {
   getSyncMessageSizeThresholdMb,
   setSyncMessageSizeThresholdMb,
 } from '../../lib/sync-message-threshold'
+import {
+  getTabAuthAutoDetect,
+  setTabAuthAutoDetect,
+} from '../../lib/tab-auth-auto-detect'
 
 interface McpStatus {
   enabled: boolean
@@ -35,6 +42,14 @@ interface McpStatus {
   token?: string
   serverUrl?: string
 }
+
+type SettingsTab = 'general' | 'platform' | 'advanced'
+
+const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
+  { id: 'general', label: '通用' },
+  { id: 'platform', label: '平台' },
+  { id: 'advanced', label: '高级' },
+]
 
 /** 统一开关滑块：避免圆点错位 */
 function Toggle({
@@ -67,17 +82,38 @@ function Toggle({
   )
 }
 
+function SettingRow({
+  title,
+  desc,
+  children,
+}: {
+  title: string
+  desc?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="card-soft flex items-start justify-between gap-3 p-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{title}</p>
+        {desc && <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{desc}</p>}
+      </div>
+      <div className="flex-shrink-0 pt-0.5">{children}</div>
+    </div>
+  )
+}
+
 /**
- * 设置页（路由 /settings），与其他二级页（历史/关于）保持一致的页面式布局，
- * 取代原先的右侧抽屉弹窗。
- * 历史 / 自建站点入口分别在顶栏「历史」「添加」，此处不再重复。
+ * 设置页（路由 /settings）：顶部分类切换，降低纵向堆叠噪音。
  */
 export function SettingsPage() {
   const navigate = useNavigate()
+  const [tab, setTab] = useState<SettingsTab>('general')
   const [mcpStatus, setMcpStatus] = useState<McpStatus>({ enabled: false, connected: false })
   const [loading, setLoading] = useState(false)
   const [floatingButtonEnabled, setFloatingButtonEnabled] = useState(false)
   const [realtimeDetect, setRealtimeDetect] = useState(true)
+  const [tabAuthAutoDetect, setTabAuthAutoDetectState] = useState(false)
+  const [tabAuthNames, setTabAuthNames] = useState<string[]>([])
   const [localMdCacheLimit, setLocalMdCacheLimitState] = useState(DEFAULT_LOCAL_MD_CACHE_LIMIT)
   const [localMdCacheBytes, setLocalMdCacheBytes] = useState(0)
   const [cacheClearHint, setCacheClearHint] = useState<string | null>(null)
@@ -114,6 +150,16 @@ export function SettingsPage() {
 
     chrome.storage.local.get('realtimeDetect', (result) => {
       setRealtimeDetect(result.realtimeDetect ?? true)
+    })
+
+    getTabAuthAutoDetect().then(setTabAuthAutoDetectState)
+
+    initAdapters().then(() => {
+      const ids = new Set(getTabAuthPlatformIds())
+      const names = getAllPlatformMetas()
+        .filter(m => ids.has(m.id))
+        .map(m => m.name)
+      setTabAuthNames(names)
     })
 
     getLocalMdCacheLimit().then(setLocalMdCacheLimitState)
@@ -188,6 +234,12 @@ export function SettingsPage() {
     chrome.storage.local.set({ realtimeDetect: next })
   }
 
+  const toggleTabAuthAutoDetect = () => {
+    const next = !tabAuthAutoDetect
+    setTabAuthAutoDetectState(next)
+    setTabAuthAutoDetect(next)
+  }
+
   const handleCacheLimitChange = (value: string) => {
     const parsed = Number(value)
     if (!Number.isFinite(parsed)) return
@@ -236,180 +288,207 @@ export function SettingsPage() {
     <div className="page-root flex flex-col h-[500px]">
       <SubPageHeader title="设置" onBack={() => navigate('/')} />
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* 同步桥接设置 */}
-        <section className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground px-0.5">同步桥接</h3>
-
-          <div className="card-soft flex items-center justify-between gap-3 p-3">
-            <div className="flex items-center gap-2 min-w-0">
-              {mcpStatus.connected ? (
-                <PlugZap className="w-5 h-5 text-primary flex-shrink-0" />
-              ) : (
-                <Plug className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+      <div className="px-4 pt-2 pb-1">
+        <div className="flex gap-1 p-0.5 rounded-lg bg-muted/70">
+          {SETTINGS_TABS.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={cn(
+                'flex-1 py-1.5 rounded-md text-xs font-medium transition-colors',
+                tab === t.id
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
-              <div className="min-w-0">
-                <p className="text-sm font-medium">CLI / MCP 连接</p>
-                <p className="text-xs text-muted-foreground">
-                  {mcpStatus.enabled
-                    ? mcpStatus.connected
-                      ? '已连接'
-                      : '等待连接...'
-                    : '未启用'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {mcpStatus.enabled && (
-                <span
-                  className={cn(
-                    'text-[10px] font-medium px-1.5 py-0.5 rounded-full',
-                    mcpStatus.connected
-                      ? 'bg-primary/15 text-primary'
-                      : 'bg-muted text-muted-foreground',
-                  )}
-                >
-                  {mcpStatus.connected ? '在线' : '离线'}
-                </span>
-              )}
-              <Toggle on={mcpStatus.enabled} onClick={toggleMcp} disabled={loading} />
-            </div>
-          </div>
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-          {mcpStatus.enabled && (
+      <div className="flex-1 overflow-y-auto p-4 pt-2 space-y-3">
+        {tab === 'general' && (
+          <>
+            <SettingRow
+              title="悬浮同步按钮"
+              desc="网页右下角快捷同步"
+            >
+              <Toggle on={floatingButtonEnabled} onClick={toggleFloatingButton} />
+            </SettingRow>
+
+            <SettingRow
+              title="实时检测文章"
+              desc="关闭后首页不会随切页自动检测；开启后可由顶栏雷达控制"
+            >
+              <Toggle on={realtimeDetect} onClick={toggleRealtimeDetect} />
+            </SettingRow>
+
+            <SettingRow
+              title="开标签平台自动检测"
+              desc={
+                tabAuthNames.length > 0
+                  ? `默认关闭。开启后全量刷新也可能为这些平台新建标签：${tabAuthNames.join('、')}`
+                  : '默认关闭。开启后全量/TTL 刷新也可能为需页面鉴权的平台新建标签'
+              }
+            >
+              <Toggle on={tabAuthAutoDetect} onClick={toggleTabAuthAutoDetect} />
+            </SettingRow>
+
             <div className="card-soft p-3 space-y-2">
-              <p className="text-xs text-muted-foreground">
-                供 CLI 和 MCP Server 通过 WebSocket 桥接同步文章
-              </p>
-              {mcpStatus.token && (
-                <div>
-                  <p className="text-[11px] text-muted-foreground mb-1">Token</p>
-                  <code className="block bg-muted/50 p-1.5 rounded-md text-[11px] break-all select-all border border-border/60">
-                    {mcpStatus.token}
-                  </code>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">同步消息体积阈值（MB）</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                    超过后正文经本地存储传递，避免消息体积上限。默认{' '}
+                    {DEFAULT_SYNC_MESSAGE_SIZE_THRESHOLD_MB}。
+                  </p>
                 </div>
-              )}
-              <div>
-                <p className="text-[11px] text-muted-foreground mb-1">服务器地址（留空使用本地默认）</p>
                 <input
-                  type="text"
-                  value={serverUrlInput}
-                  onChange={(e) => handleServerUrlChange(e.target.value)}
-                  placeholder="ws://localhost:9527"
-                  className="input-soft font-mono"
+                  type="number"
+                  min={MIN_SYNC_MESSAGE_SIZE_THRESHOLD_MB}
+                  max={MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB}
+                  value={syncMsgThresholdMb}
+                  onChange={(e) => handleSyncThresholdChange(e.target.value)}
+                  className="input-soft w-16 text-center font-mono tabular-nums"
                 />
               </div>
             </div>
-          )}
-        </section>
+          </>
+        )}
 
-        {/* 网页功能 */}
-        <section className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground px-0.5">网页功能</h3>
+        {tab === 'platform' && (
+          <>
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold text-muted-foreground px-0.5">自定义分组</h3>
+              <UserPlatformGroupsSection />
+            </section>
+            <PlatformConfigSection />
+          </>
+        )}
 
-          <div className="card-soft flex items-center justify-between gap-3 p-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">悬浮同步按钮</p>
-              <p className="text-xs text-muted-foreground">网页右下角快捷同步</p>
-            </div>
-            <Toggle on={floatingButtonEnabled} onClick={toggleFloatingButton} />
-          </div>
+        {tab === 'advanced' && (
+          <>
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold text-muted-foreground px-0.5">同步桥接</h3>
 
-          <div className="card-soft flex items-center justify-between gap-3 p-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">实时检测文章</p>
-              <p className="text-xs text-muted-foreground">
-                总开关：关闭后首页不会随切页自动检测；开启后可由顶栏雷达控制当前是否检测
-              </p>
-            </div>
-            <Toggle on={realtimeDetect} onClick={toggleRealtimeDetect} />
-          </div>
-        </section>
-
-        {/* 同步传输 */}
-        <section className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground px-0.5">同步</h3>
-
-          <div className="card-soft p-3 space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">同步消息体积阈值（MB）</p>
-                <p className="text-xs text-muted-foreground">
-                  超过该大小时正文经本地存储传递，避免 Chrome 消息约 64MB 上限报错；不限制文章能否同步。
-                  默认 {DEFAULT_SYNC_MESSAGE_SIZE_THRESHOLD_MB}，可调 {MIN_SYNC_MESSAGE_SIZE_THRESHOLD_MB}–
-                  {MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB}。
-                </p>
+              <div className="card-soft flex items-center justify-between gap-3 p-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  {mcpStatus.connected ? (
+                    <PlugZap className="w-5 h-5 text-primary flex-shrink-0" />
+                  ) : (
+                    <Plug className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">CLI / MCP 连接</p>
+                    <p className="text-xs text-muted-foreground">
+                      {mcpStatus.enabled
+                        ? mcpStatus.connected
+                          ? '已连接'
+                          : '等待连接...'
+                        : '未启用'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {mcpStatus.enabled && (
+                    <span
+                      className={cn(
+                        'text-[10px] font-medium px-1.5 py-0.5 rounded-full',
+                        mcpStatus.connected
+                          ? 'bg-primary/15 text-primary'
+                          : 'bg-muted text-muted-foreground',
+                      )}
+                    >
+                      {mcpStatus.connected ? '在线' : '离线'}
+                    </span>
+                  )}
+                  <Toggle on={mcpStatus.enabled} onClick={toggleMcp} disabled={loading} />
+                </div>
               </div>
-              <input
-                type="number"
-                min={MIN_SYNC_MESSAGE_SIZE_THRESHOLD_MB}
-                max={MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB}
-                value={syncMsgThresholdMb}
-                onChange={(e) => handleSyncThresholdChange(e.target.value)}
-                className="input-soft w-16 text-center font-mono tabular-nums"
-              />
-            </div>
-          </div>
-        </section>
 
-        {/* 本地导入缓存 */}
-        <section className="space-y-2">
-          <h3 className="text-xs font-semibold text-muted-foreground px-0.5">本地导入</h3>
+              {mcpStatus.enabled && (
+                <div className="card-soft p-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    供 CLI 和 MCP Server 通过 WebSocket 桥接同步文章
+                  </p>
+                  {mcpStatus.token && (
+                    <div>
+                      <p className="text-[11px] text-muted-foreground mb-1">Token</p>
+                      <code className="block bg-muted/50 p-1.5 rounded-md text-[11px] break-all select-all border border-border/60">
+                        {mcpStatus.token}
+                      </code>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-[11px] text-muted-foreground mb-1">服务器地址（留空使用本地默认）</p>
+                    <input
+                      type="text"
+                      value={serverUrlInput}
+                      onChange={(e) => handleServerUrlChange(e.target.value)}
+                      placeholder="ws://localhost:9527"
+                      className="input-soft font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+            </section>
 
-          <div className="card-soft p-3 space-y-2">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">标题来源</p>
-              <p className="text-xs text-muted-foreground">
-                默认：一级标题 → front matter → 文件名；也可指定优先来源，缺失时再兜底。
-              </p>
-            </div>
-            <select
-              value={localMdTitleSource}
-              onChange={(e) => handleTitleSourceChange(e.target.value)}
-              className="input-soft"
-            >
-              <option value="auto">自动（一级标题 → front matter → 文件名）</option>
-              <option value="h1">优先一级标题</option>
-              <option value="frontmatter">优先 front matter</option>
-              <option value="filename">优先文件名</option>
-            </select>
-          </div>
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold text-muted-foreground px-0.5">本地导入</h3>
 
-          <div className="card-soft p-3 space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Markdown 缓存条数</p>
-                <p className="text-xs text-muted-foreground">
-                  缓存最近导入的本地 MD（含图片），历史追加同步时无需重选文件夹。默认 {DEFAULT_LOCAL_MD_CACHE_LIMIT}。
-                </p>
-                <p className="text-xs text-muted-foreground mt-1 tabular-nums">
-                  当前占用：{formatCacheBytes(localMdCacheBytes)}
-                </p>
+              <div className="card-soft p-3 space-y-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">标题来源</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    默认：一级标题 → front matter → 文件名
+                  </p>
+                </div>
+                <select
+                  value={localMdTitleSource}
+                  onChange={(e) => handleTitleSourceChange(e.target.value)}
+                  className="input-soft"
+                >
+                  <option value="auto">自动（一级标题 → front matter → 文件名）</option>
+                  <option value="h1">优先一级标题</option>
+                  <option value="frontmatter">优先 front matter</option>
+                  <option value="filename">优先文件名</option>
+                </select>
               </div>
-              <input
-                type="number"
-                min={MIN_LOCAL_MD_CACHE_LIMIT}
-                max={MAX_LOCAL_MD_CACHE_LIMIT}
-                value={localMdCacheLimit}
-                onChange={(e) => handleCacheLimitChange(e.target.value)}
-                className="input-soft w-16 text-center font-mono tabular-nums"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleClearLocalMdCache}
-              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-            >
-              清空本地 Markdown 缓存
-            </button>
-            {cacheClearHint && (
-              <p className="text-[11px] text-primary">{cacheClearHint}</p>
-            )}
-          </div>
-        </section>
 
-        {/* 平台默认发布配置（P3） */}
-        <PlatformConfigSection />
+              <div className="card-soft p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Markdown 缓存条数</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      默认 {DEFAULT_LOCAL_MD_CACHE_LIMIT}；当前占用{' '}
+                      <span className="tabular-nums">{formatCacheBytes(localMdCacheBytes)}</span>
+                    </p>
+                  </div>
+                  <input
+                    type="number"
+                    min={MIN_LOCAL_MD_CACHE_LIMIT}
+                    max={MAX_LOCAL_MD_CACHE_LIMIT}
+                    value={localMdCacheLimit}
+                    onChange={(e) => handleCacheLimitChange(e.target.value)}
+                    className="input-soft w-16 text-center font-mono tabular-nums"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearLocalMdCache}
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  清空本地 Markdown 缓存
+                </button>
+                {cacheClearHint && (
+                  <p className="text-[11px] text-primary">{cacheClearHint}</p>
+                )}
+              </div>
+            </section>
+          </>
+        )}
       </div>
     </div>
   )

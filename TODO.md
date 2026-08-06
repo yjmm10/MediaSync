@@ -14,7 +14,7 @@
 
 ---
 
-## 🔴 鉴权开标签：仅允许手动检测（v2.1.22）
+## 🟢 鉴权开标签：仅允许手动检测（v2.1.22）
 
 ### 现象
 
@@ -37,11 +37,10 @@
 
 ### 现状代码
 
-- 扩展侧白名单 `PAGE_CONTEXT_AUTH_IDS`（`packages/extension/src/adapters/index.ts`）目前仅：
-  - `meipian` / `xiaohongshu` / `qiehao`
+- 扩展侧 `TAB_AUTH_PLATFORM_IDS`（`packages/extension/src/adapters/index.ts`）含：
+  - `meipian` / `xiaohongshu` / `qiehao` / `volcengine` / `baidu-developer` / `tencentcloud` / `aliyun-developer` / `modelscope` / `v2ex`
 - 上述平台：**全量检查（含 forceRefresh）不自动 `checkAuth`**；仅手动「重新检测」真检。
-- 火山 / 百度开发 / 腾讯云 **未**加入该集合 → 启动与 TTL 仍会真检并可能开标签。
-- 「第一次打开也可能自动检测」：首次无缓存或未登录 TTL 短，更容易触发真检开页。
+- 临时鉴权标签经 `runtime.tabs.addToAuthGroup` 归入标题为「鉴权」的标签组；`releaseEphemeralTabs` 只关 ephemeral。
 
 ### 目标行为（需修正）
 
@@ -63,10 +62,10 @@
 
 ### 验收
 
-- [ ] 冷启动 / 刷新扩展：火山、百度开发、腾讯云 **不**自动开标签  
-- [ ] 仅手动「重新检测」开标签，且在标签组内  
-- [ ] 检测结束后临时标签关闭；用户原有站点标签仍在  
-- [ ] 美篇 / 小红书 / 企鹅号原有「不自动真检」行为不变  
+- [x] 冷启动 / 刷新扩展：火山、百度开发、腾讯云 **不**自动开标签（调度层已跳过；待手工确认）
+- [x] 仅手动「重新检测」开标签，且在「鉴权」标签组内（实现已合入；待手工确认）
+- [x] 检测结束后临时标签关闭；用户原有站点标签仍在（原有 `releaseEphemeralTabs`；待手工确认）
+- [x] 美篇 / 小红书 / 企鹅号原有「不自动真检」行为不变
 
 ---
 
@@ -94,3 +93,4 @@
 | 日期 | 说明 |
 |------|------|
 | 2026-08-05 | 初建：记录 v2.1.22 鉴权自动开标签问题与目标行为 |
+| 2026-08-06 | 实现：`TAB_AUTH_PLATFORM_IDS` 扩至 8 平台；临时页入「鉴权」组；用户自定义平台分组 |

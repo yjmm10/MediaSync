@@ -4,9 +4,9 @@ import { cn } from '@/lib/utils'
 import { getActiveBanner, dismissBanner, type RemoteBanner } from '@/lib/remote-config'
 
 const styleMap: Record<string, string> = {
-  info: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300',
-  promo: 'bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-800 text-violet-800 dark:text-violet-300',
-  warning: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300',
+  info: 'bg-primary/[0.06] border-primary/20 text-primary',
+  promo: 'bg-gradient-to-br from-primary/[0.08] to-primary/[0.02] border-primary/20 text-foreground',
+  warning: 'bg-amber-50 border-amber-200/80 text-amber-800',
 }
 
 export function PromoBanner() {
@@ -41,14 +41,14 @@ export function PromoBanner() {
         <div className="min-w-0">
           <p className="font-medium text-xs leading-4">{banner.title}</p>
           {banner.description && (
-            <p className="text-xs opacity-75 mt-0.5 leading-4">{banner.description}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-4">{banner.description}</p>
           )}
           {banner.action && (
             <a
               href={banner.action.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs font-medium hover:underline inline-flex items-center gap-0.5 mt-1 opacity-90 hover:opacity-100"
+              className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-0.5 mt-1"
             >
               {banner.action.text}
               <ExternalLink className="w-3 h-3" />

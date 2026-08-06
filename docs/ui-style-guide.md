@@ -67,7 +67,7 @@
   - `text-[11px]` 状态栏、徽章、提示
   - `text-[10px]` 仅底栏图标标签
 - **字重**：标题 `font-semibold`/`font-bold` + `tracking-tight`；正文 `font-medium` 或默认。
-- **数字**用 `tabular-nums`，避免计数跳动（如 `5/12`、`v2.1.22`）。
+- **数字**用 `tabular-nums`，避免计数跳动（如 `5/12`、`v3.1.0`）。
 - **间距单位**统一用 Tailwind 的 `gap-2`（8px）/ `p-3`（12px）/ `p-4`（16px）；不写任意像素值。
 
 ---

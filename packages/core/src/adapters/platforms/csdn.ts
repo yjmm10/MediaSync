@@ -46,7 +46,7 @@ export class CSDNAdapter extends PipelineAdapter {
    */
   readonly publishSchema: PublishSchema = {
     fields: [
-      { kind: 'tags', key: 'tags', label: '标签', max: 5 },
+      { kind: 'tags', key: 'tags', label: '标签', max: 7 },
       { kind: 'category', key: 'category', label: '分类', source: 'remote' },
       {
         kind: 'originalType',
@@ -206,22 +206,26 @@ export class CSDNAdapter extends PipelineAdapter {
   /** 5. 构建平台请求体（P1 写死保持等价；P2 注册代码 + UI 接入后读 ctx.params） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
     const { params } = ctx
+    const isPublish = params.mode === 'publish'
     const coverUrl =
       params.cover && params.cover !== 'auto' && params.cover !== 'none'
         ? params.cover
         : ''
     ctx.payload = {
+      id: 0, // 0=新建
       title: ctx.article.title,
       markdowncontent: ctx.content.markdown,
       content: ctx.content.html,
       readType: 'public',
-      level: this.visibilityToLevel(params.visibility),
-      tags: (params.tags ?? []).join(','),
-      status: params.mode === 'publish' ? 1 : 2, // 1=发布 2=草稿
+      level: String(this.visibilityToLevel(params.visibility)), // 真实接口要字符串
+      tags: (params.tags ?? []).slice(0, 7).join(','),
+      status: isPublish ? 0 : 2, // 0=发布 2=草稿（对齐真实接口）
       categories: params.category ?? '',
       type: params.originalType ?? 'original',
       original_link: params.originalLink ?? '',
       authorized_status: false,
+      Description: params.summary ?? '', // AI 摘要（大写 D）
+      resource_url: '',
       not_auto_saved: '1',
       source: 'pc_mdeditor',
       cover_images: coverUrl ? [coverUrl] : [],
@@ -229,7 +233,9 @@ export class CSDNAdapter extends PipelineAdapter {
       is_new: 1,
       vote_id: 0,
       resource_id: '',
-      pubStatus: params.mode === 'publish' ? 'publish' : 'draft',
+      pubStatus: isPublish ? 'publish' : 'draft',
+      creation_statement: (params.extra?.creationStatement as number) ?? 0, // 0=无 1=原创声明 2=独家授权 3=原创+独家
+      sync_git_code: (params.extra?.syncGitCode as number) ?? 0,
       creator_activity_id: params.activityId ?? '',
     }
   }
