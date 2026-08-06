@@ -46,25 +46,52 @@ export class CSDNAdapter extends PipelineAdapter {
    */
   readonly publishSchema: PublishSchema = {
     fields: [
-      { kind: 'tags', key: 'tags', label: '标签', max: 7 },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
+      { kind: 'tags', key: 'tags', label: '标签', max: 7, selectMode: 'multi' },
+      { kind: 'category', key: 'category', label: '分类', source: 'remote', selectMode: 'single' },
       {
         kind: 'originalType',
         key: 'originalType',
         label: '原创类型',
         needsOriginalLink: true,
+        selectMode: 'single',
         options: [
           { value: 'original', label: '原创' },
           { value: 'reprint', label: '转载' },
           { value: 'translate', label: '翻译' },
         ],
       },
-      { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
-      { kind: 'topic', key: 'topicId', label: '话题（与活动二选一）', source: 'remote' },
+      {
+        kind: 'activity',
+        key: 'activityId',
+        label: '活动',
+        source: 'remote',
+        selectMode: 'either-or',
+        eitherWith: 'topicId',
+        remoteRef: { apiPath: '/blog/phoenix/console/v1/write-active/list', params: { type: '1', order: '0', page: '1', size: '24', activeStatus: '0' } },
+      },
+      {
+        kind: 'topic',
+        key: 'topicId',
+        label: '话题（与活动二选一）',
+        source: 'remote',
+        selectMode: 'either-or',
+        eitherWith: 'activityId',
+        remoteRef: { apiPath: '/blog/phoenix/console/v1/write-active/list', params: { type: '2', order: '0', page: '1', size: '24', activeStatus: '0' } },
+      },
+      {
+        kind: 'column',
+        key: 'column',
+        label: '专栏',
+        source: 'remote',
+        selectMode: 'multi',
+        max: 3,
+        remoteRef: { apiPath: '/blog/phoenix/console/v1/column/list', params: { type: 'all' } },
+      },
       {
         kind: 'visibility',
         key: 'visibility',
         label: '可见性',
+        selectMode: 'single',
         options: [
           { value: 'public', label: '公开' },
           { value: 'private', label: '仅自己可见' },

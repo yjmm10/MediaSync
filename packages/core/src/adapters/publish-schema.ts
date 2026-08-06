@@ -19,6 +19,17 @@ export interface FieldBase {
   required?: boolean
   /** 是否仅直发模式下出现（草稿模式收起） */
   publishOnly?: boolean
+  /** 选择模式：single=单选 / multi=多选 / either-or=二选一（配合 eitherWith） */
+  selectMode?: 'single' | 'multi' | 'either-or'
+  /** 互斥字段 key（selectMode='either-or' 时，选了本字段清另一个） */
+  eitherWith?: string
+  /** 远程引用声明（resolveReferences 据此拉列表，UI 渲染 Select） */
+  remoteRef?: {
+    /** 平台 API 路径（如 /blog/phoenix/console/v1/write-active/list） */
+    apiPath: string
+    /** 查询参数（如 { type: '1' }） */
+    params?: Record<string, string>
+  }
 }
 
 /** 选项来源 */
@@ -58,6 +69,8 @@ export interface ColumnField extends FieldBase {
   source: RefSource
   refKey?: string
   options?: FieldOption[]
+  /** 最大选择数（selectMode='multi' 时） */
+  max?: number
 }
 
 /** 封面字段 */
