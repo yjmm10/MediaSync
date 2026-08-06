@@ -60,6 +60,8 @@ export interface CategoryField extends FieldBase {
   refKey?: string
   /** source=static 时的静态选项 */
   options?: FieldOption[]
+  /** 最大选择数（selectMode='multi' 时） */
+  max?: number
 }
 
 /** 专栏/合集字段 */

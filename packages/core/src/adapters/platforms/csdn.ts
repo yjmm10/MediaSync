@@ -47,7 +47,15 @@ export class CSDNAdapter extends PipelineAdapter {
   readonly publishSchema: PublishSchema = {
     fields: [
       { kind: 'tags', key: 'tags', label: '标签', max: 7, selectMode: 'multi' },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote', selectMode: 'single' },
+      {
+        kind: 'category',
+        key: 'category',
+        label: '分类/专栏',
+        source: 'remote',
+        selectMode: 'multi',
+        max: 3,
+        remoteRef: { apiPath: '/blog/phoenix/console/v1/column/list', params: { type: 'all' } },
+      },
       {
         kind: 'originalType',
         key: 'originalType',
@@ -79,13 +87,10 @@ export class CSDNAdapter extends PipelineAdapter {
         remoteRef: { apiPath: '/blog/phoenix/console/v1/write-active/list', params: { type: '2', order: '0', page: '1', size: '24', activeStatus: '0' } },
       },
       {
-        kind: 'column',
-        key: 'column',
-        label: '专栏',
-        source: 'remote',
-        selectMode: 'multi',
-        max: 3,
-        remoteRef: { apiPath: '/blog/phoenix/console/v1/column/list', params: { type: 'all' } },
+        kind: 'schedule',
+        key: 'scheduleAt',
+        label: '定时发布',
+        enabled: true,
       },
       {
         kind: 'visibility',
@@ -234,7 +239,8 @@ export class CSDNAdapter extends PipelineAdapter {
   /** 5. 构建平台请求体（P1 写死保持等价；P2 注册代码 + UI 接入后读 ctx.params） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
     const { params } = ctx
-    const isPublish = params.mode === 'publish'
+    const isSchedule = params.mode === 'schedule' && !!params.scheduleAt
+    const isPublish = params.mode === 'publish' || isSchedule
     const coverUrl =
       params.cover && params.cover !== 'auto' && params.cover !== 'none'
         ? params.cover
@@ -265,7 +271,15 @@ export class CSDNAdapter extends PipelineAdapter {
       creation_statement: (params.extra?.creationStatement as number) ?? 0, // 0=无 1=原创声明 2=独家授权 3=原创+独家
       sync_git_code: (params.extra?.syncGitCode as number) ?? 0,
       creator_activity_id: params.activityId ?? params.topicId ?? '', // 活动或话题（二选一）
+      scheduled_time: isSchedule && params.scheduleAt ? this.formatScheduleTime(params.scheduleAt) : '',
     }
+  }
+
+  /** 时间戳 → CSDN scheduled_time 格式（YYYY-MM-DD HH:mm） */
+  private formatScheduleTime(ts: number): string {
+    const d = new Date(ts)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
   /** 可见性 → CSDN level（0=公开，1=粉丝可见，2=仅自己） */
@@ -273,6 +287,74 @@ export class CSDNAdapter extends PipelineAdapter {
     if (visibility === 'private') return 2
     if (visibility === 'followers') return 1
     return 0
+  }
+
+  // ============ 远程引用（活动/话题/专栏列表，供 UI 选择）============
+
+  /**
+   * 拉取远程引用列表（活动 + 话题 + 专栏）
+   * UI（PlatformConfigSection）通过 SW message 调用此方法，
+   * 获取列表后渲染 Select 供用户选择 id。
+   */
+  async fetchRemoteRefs(): Promise<{
+    activities: Array<{ id: string; name: string }>
+    topics: Array<{ id: string; name: string }>
+    columns: Array<{ id: string; name: string }>
+  }> {
+    return this.withHeaderRules(this.HEADER_RULES, async () => {
+      const [activities, topics, columns] = await Promise.all([
+        this.fetchWriteActiveList(1),
+        this.fetchWriteActiveList(2),
+        this.fetchColumnList(),
+      ])
+      return { activities, topics, columns }
+    })
+  }
+
+  /** 活动/话题列表（type=1 活动，type=2 话题）*/
+  private async fetchWriteActiveList(type: number): Promise<Array<{ id: string; name: string }>> {
+    try {
+      const apiPath = `/blog/phoenix/console/v1/write-active/list?type=${type}&order=0&page=1&size=24&activeStatus=0`
+      const headers = await this.signRequest(apiPath, 'GET')
+      const response = await this.runtime.fetch(`https://bizapi.csdn.net${apiPath}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers,
+      })
+      const res = await response.json() as {
+        data?: Array<{ id?: number | string; title?: string; name?: string; active_name?: string }>
+      }
+      return (res.data ?? []).map(a => ({
+        id: String(a.id ?? ''),
+        name: a.title || a.active_name || a.name || String(a.id),
+      }))
+    } catch (error) {
+      logger.debug(`fetchWriteActiveList(type=${type}) failed:`, error)
+      return []
+    }
+  }
+
+  /** 专栏列表 */
+  private async fetchColumnList(): Promise<Array<{ id: string; name: string }>> {
+    try {
+      const apiPath = '/blog/phoenix/console/v1/column/list?type=all'
+      const headers = await this.signRequest(apiPath, 'GET')
+      const response = await this.runtime.fetch(`https://bizapi.csdn.net${apiPath}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers,
+      })
+      const res = await response.json() as {
+        data?: Array<{ id?: number | string; title?: string; name?: string; column_name?: string }>
+      }
+      return (res.data ?? []).map(c => ({
+        id: String(c.id ?? ''),
+        name: c.title || c.column_name || c.name || String(c.id),
+      }))
+    } catch (error) {
+      logger.debug('fetchColumnList failed:', error)
+      return []
+    }
   }
 
   /** 6. 提交：签名 + saveArticle，返回草稿结果 */
