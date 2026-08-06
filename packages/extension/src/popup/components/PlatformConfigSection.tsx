@@ -1,427 +1,214 @@
 /**
- * 设置页：平台默认发布配置
- *
- * 选平台 → 按该平台 publishSchema 自动渲染表单 → 保存到
- * chrome.storage.local.platformSettings[id]（syncToPlatform 合并时读取）。
+ * 设置页：平台默认发布配置（手风琴折叠，按平台展开编辑）
  */
-import { useState, useEffect } from 'react'
-import { Save, RotateCcw } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronDown, RotateCcw, Save, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PublishSchemaForm } from '@/components/PublishSchemaForm'
 import { getAllPlatformMetas, getPlatformProfile, initAdapters } from '../../adapters'
-import { getSavedParams, setSavedParams, clearSavedParams } from '../../lib/platform-settings'
-import type { PublishParams, SchemaField, PlatformProfile } from '@mediasync/core'
+import { clearSavedParams, getSavedParams, hasSavedParams, setSavedParams } from '../../lib/platform-settings'
+import type { PublishParams, SchemaField } from '@mediasync/core'
+
+interface PlatformOption {
+  id: string
+  name: string
+  fields: SchemaField[]
+}
 
 export function PlatformConfigSection() {
-  const [platforms, setPlatforms] = useState<Array<{ id: string; name: string }>>([])
-  const [selectedId, setSelectedId] = useState('')
-  const [profile, setProfile] = useState<PlatformProfile | null>(null)
+  const [platforms, setPlatforms] = useState<PlatformOption[]>([])
+  const [query, setQuery] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [params, setParams] = useState<PublishParams>({})
+  const [isCustomized, setIsCustomized] = useState(false)
+  const [customizedMap, setCustomizedMap] = useState<Record<string, boolean>>({})
+  const [remoteRefs, setRemoteRefs] = useState<Record<string, Array<{ id: string; name: string }>>>({})
   const [hint, setHint] = useState<string | null>(null)
+  const [sectionOpen, setSectionOpen] = useState(true)
 
   useEffect(() => {
-    initAdapters().then(() => {
-      const metas = getAllPlatformMetas()
-      setPlatforms(metas.map(m => ({ id: m.id, name: m.name })))
-      if (metas.length) setSelectedId(metas[0].id)
+    initAdapters().then(async () => {
+      const list: PlatformOption[] = getAllPlatformMetas()
+        .map(m => {
+          const profile = getPlatformProfile(m.id)
+          const fields = profile?.publishSchema?.fields ?? []
+          return { id: m.id, name: m.name, fields }
+        })
+        .filter(p => p.fields.length > 0)
+      setPlatforms(list)
+      const flags: Record<string, boolean> = {}
+      await Promise.all(
+        list.map(async p => {
+          flags[p.id] = await hasSavedParams(p.id)
+        }),
+      )
+      setCustomizedMap(flags)
     })
   }, [])
 
   useEffect(() => {
-    if (!selectedId) return
-    const p = getPlatformProfile(selectedId)
-    setProfile(p)
-    getSavedParams(selectedId).then(saved => {
-      setParams({ ...(p?.publishDefaults ?? {}), ...(saved ?? {}) })
+    if (!expandedId) return
+    const profile = getPlatformProfile(expandedId)
+    Promise.all([getSavedParams(expandedId), hasSavedParams(expandedId)]).then(([saved, custom]) => {
+      setParams({ ...(profile?.publishDefaults ?? {}), ...(saved ?? {}) })
+      setIsCustomized(custom)
     })
-  }, [selectedId])
+  }, [expandedId])
+
+  // 拉远程引用列表（活动/话题/专栏等）
+  useEffect(() => {
+    if (!expandedId) return
+    setRemoteRefs({})
+    chrome.runtime.sendMessage(
+      { type: 'FETCH_REMOTE_REFS', payload: { platformId: expandedId } },
+      (response: unknown) => {
+        if (response && typeof response === 'object' && !('error' in (response as Record<string, unknown>))) {
+          setRemoteRefs(response as Record<string, Array<{ id: string; name: string }>>)
+        }
+      },
+    )
+  }, [expandedId])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return platforms
+    return platforms.filter(
+      p => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q),
+    )
+  }, [platforms, query])
+
+  const showHint = (msg: string) => {
+    setHint(msg)
+    setTimeout(() => setHint(null), 1800)
+  }
 
   const handleSave = async () => {
-    if (!selectedId) return
-    // 只保存用户实际改动的字段（去掉 publishDefaults 注入的初始值同名项也无所谓，合并时会兜底）
-    await setSavedParams(selectedId, params)
-    setHint('已保存')
-    setTimeout(() => setHint(null), 1800)
+    if (!expandedId) return
+    await setSavedParams(expandedId, params)
+    setIsCustomized(true)
+    setCustomizedMap(m => ({ ...m, [expandedId]: true }))
+    showHint('已缓存到本地')
   }
 
   const handleClear = async () => {
-    if (!selectedId) return
-    await clearSavedParams(selectedId)
+    if (!expandedId) return
+    await clearSavedParams(expandedId)
+    const profile = getPlatformProfile(expandedId)
     setParams({ ...(profile?.publishDefaults ?? {}) })
-    setHint('已恢复默认')
-    setTimeout(() => setHint(null), 1800)
+    setIsCustomized(false)
+    setCustomizedMap(m => ({ ...m, [expandedId]: false }))
+    showHint('已还原系统默认')
   }
 
-  const fields = profile?.publishSchema?.fields ?? []
+  const toggleExpand = (id: string) => {
+    setExpandedId(prev => (prev === id ? null : id))
+  }
 
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-semibold text-muted-foreground px-0.5">平台默认发布配置</h3>
-      <div className="card-soft p-3 space-y-3">
-        <select
-          value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
-          className="input-soft"
-        >
-          {platforms.map(p => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-
-        {fields.length === 0 ? (
-          <p className="text-xs text-muted-foreground">该平台暂无可配置项（仅按默认行为同步）</p>
-        ) : (
-          <div className="space-y-2.5">
-            {fields.map(field => (
-              <FieldRenderer
-                key={`${selectedId}:${field.key}`}
-                field={field}
-                value={params}
-                onChange={setParams}
-              />
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 pt-1 border-t border-border/40 mt-2">
-          <button
-            type="button"
-            onClick={handleSave}
-            className="btn-brand px-3 py-1.5 text-xs inline-flex items-center gap-1"
-          >
-            <Save className="w-3 h-3" /> 保存
-          </button>
-          <button
-            type="button"
-            onClick={handleClear}
-            className="text-xs text-muted-foreground hover:text-destructive transition-colors inline-flex items-center gap-1"
-          >
-            <RotateCcw className="w-3 h-3" /> 恢复默认
-          </button>
-          {hint && <span className="text-[11px] text-primary ml-auto">{hint}</span>}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function FieldRenderer({
-  field,
-  value,
-  onChange,
-}: {
-  field: SchemaField
-  value: PublishParams
-  onChange: (p: PublishParams) => void
-}) {
-  const get = (key: string): string => {
-    const v = (value as Record<string, unknown>)[key]
-    return typeof v === 'string' ? v : ''
-  }
-  const set = (key: string, v: unknown) => onChange({ ...value, [key]: v })
-
-  switch (field.kind) {
-    case 'tags':
-      return (
-        <TagsTextInput
-          label={field.label}
-          help={
-            field.help
-            ?? (field.max
-              ? `用逗号分隔，最多 ${field.max} 个`
-              : '用逗号分隔，如：前端, React')
-          }
-          max={field.max}
-          tags={value.tags ?? []}
-          onChange={tags => onChange({ ...value, tags })}
-        />
-      )
-    case 'category':
-    case 'column':
-    case 'node':
-    case 'activity':
-    case 'topic':
-      return (
-        <TextInput
-          label={field.label}
-          help={field.help}
-          value={get(field.key)}
-          onChange={v => set(field.key, v)}
-          placeholder="id（可从平台编辑器地址栏复制）"
-        />
-      )
-    case 'cover':
-      return (
-        <TextInput
-          label={field.label}
-          help={field.help}
-          value={value.cover ?? ''}
-          onChange={v => onChange({ ...value, cover: v })}
-          placeholder="图片 URL，或 auto（首图）/ none"
-        />
-      )
-    case 'summary':
-    case 'subtitle':
-      return (
-        <TextInput
-          label={field.label}
-          help={field.help}
-          value={get(field.key)}
-          onChange={v => set(field.key, v)}
-          placeholder={field.kind === 'summary' ? '留空则由平台自动生成' : ''}
-          multiline
-        />
-      )
-    case 'originalType':
-      return (
-        <SelectInput
-          label={field.label}
-          help={field.help}
-          value={value.originalType ?? ''}
-          onChange={v =>
-            onChange({ ...value, originalType: (v || undefined) as PublishParams['originalType'] })
-          }
-          options={[{ value: '', label: '默认' }, ...field.options]}
-        />
-      )
-    case 'visibility':
-      return (
-        <SelectInput
-          label={field.label}
-          help={field.help}
-          value={value.visibility ?? ''}
-          onChange={v => onChange({ ...value, visibility: v || undefined })}
-          options={[{ value: '', label: '默认' }, ...field.options]}
-        />
-      )
-    case 'comments':
-      return (
-        <ToggleInput
-          label={field.label}
-          help={field.help}
-          on={value.commentsEnabled ?? false}
-          onClick={() => onChange({ ...value, commentsEnabled: !value.commentsEnabled })}
-        />
-      )
-    case 'reward':
-      return (
-        <ToggleInput
-          label={field.label}
-          help={field.help}
-          on={value.reward ?? false}
-          onClick={() => onChange({ ...value, reward: !value.reward })}
-        />
-      )
-    case 'schedule':
-      if (!field.enabled) return null
-      return (
-        <DateTimeInput
-          label={field.label}
-          help={field.help}
-          value={value.scheduleAt}
-          onChange={ts =>
-            onChange({ ...value, scheduleAt: ts, mode: ts ? 'schedule' : 'draft' })
-          }
-        />
-      )
-    case 'toggle': {
-      const on = (value.extra?.[field.key] as boolean) ?? false
-      return (
-        <ToggleInput
-          label={field.label}
-          help={field.help}
-          on={on}
-          onClick={() =>
-            onChange({ ...value, extra: { ...value.extra, [field.key]: !on } })
-          }
-        />
-      )
-    }
-    default:
-      return null
-  }
-}
-
-function FieldLabel({ label, help }: { label: string; help?: string }) {
-  return (
-    <div className="mb-1">
-      <span className="text-[11px] font-medium text-foreground">{label}</span>
-      {help && <p className="text-[10px] text-muted-foreground">{help}</p>}
-    </div>
-  )
-}
-
-/** 标签输入：用本地草稿字符串，避免 join/split 吃掉正在输入的逗号 */
-function TagsTextInput({
-  label,
-  help,
-  tags,
-  max,
-  onChange,
-}: {
-  label: string
-  help?: string
-  tags: string[]
-  max?: number
-  onChange: (tags: string[]) => void
-}) {
-  const [text, setText] = useState(() => tags.join(', '))
-
-  const parseTags = (raw: string): string[] => {
-    let next = raw.split(/[,，]/).map(s => s.trim()).filter(Boolean)
-    if (typeof max === 'number' && max > 0) {
-      next = next.slice(0, max)
-    }
-    return next
-  }
-
-  return (
-    <div>
-      <FieldLabel label={label} help={help} />
-      <input
-        type="text"
-        value={text}
-        onChange={e => {
-          const raw = e.target.value
-          setText(raw)
-          onChange(parseTags(raw))
-        }}
-        onBlur={() => {
-          const next = parseTags(text)
-          onChange(next)
-          setText(next.join(', '))
-        }}
-        placeholder="用逗号分隔，如：前端, React"
-        className="input-soft"
-      />
-    </div>
-  )
-}
-
-function TextInput({
-  label,
-  help,
-  value,
-  onChange,
-  placeholder,
-  multiline,
-}: {
-  label: string
-  help?: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  multiline?: boolean
-}) {
-  return (
-    <div>
-      <FieldLabel label={label} help={help} />
-      {multiline ? (
-        <textarea
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder={placeholder}
-          rows={2}
-          className="input-soft resize-none"
-        />
-      ) : (
-        <input
-          type="text"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="input-soft"
-        />
-      )}
-    </div>
-  )
-}
-
-function SelectInput({
-  label,
-  help,
-  value,
-  onChange,
-  options,
-}: {
-  label: string
-  help?: string
-  value: string
-  onChange: (v: string) => void
-  options: Array<{ value: string; label: string }>
-}) {
-  return (
-    <div>
-      <FieldLabel label={label} help={help} />
-      <select value={value} onChange={e => onChange(e.target.value)} className="input-soft">
-        {options.map(o => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
-}
-
-function ToggleInput({
-  label,
-  help,
-  on,
-  onClick,
-}: {
-  label: string
-  help?: string
-  on: boolean
-  onClick: () => void
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <FieldLabel label={label} help={help} />
       <button
         type="button"
-        onClick={onClick}
-        className={cn(
-          'relative h-5 w-9 flex-shrink-0 rounded-full transition-colors',
-          on ? 'bg-primary' : 'bg-muted-foreground/30',
-        )}
+        onClick={() => setSectionOpen(o => !o)}
+        className="flex w-full items-center gap-1.5 px-0.5 text-left"
       >
-        <span
+        <h3 className="text-xs font-semibold text-muted-foreground flex-1">平台默认发布配置</h3>
+        <span className="text-[10px] tabular-nums text-muted-foreground">{platforms.length}</span>
+        <ChevronDown
           className={cn(
-            'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
-            on ? 'translate-x-4' : 'translate-x-0',
+            'w-3.5 h-3.5 text-muted-foreground transition-transform',
+            sectionOpen && 'rotate-180',
           )}
         />
       </button>
-    </div>
-  )
-}
 
-function DateTimeInput({
-  label,
-  help,
-  value,
-  onChange,
-}: {
-  label: string
-  help?: string
-  value?: number
-  onChange: (ts: number | undefined) => void
-}) {
-  const local = value
-    ? new Date(value - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-    : ''
-  return (
-    <div>
-      <FieldLabel label={label} help={help} />
-      <input
-        type="datetime-local"
-        value={local}
-        onChange={e => {
-          const v = e.target.value
-          onChange(v ? new Date(v).getTime() : undefined)
-        }}
-        className="input-soft"
-      />
-    </div>
+      {sectionOpen && (
+        <div className="space-y-2">
+          <p className="text-[11px] text-muted-foreground px-0.5 leading-relaxed">
+            保存在浏览器本地缓存，与同步页共用；「还原系统默认」清除缓存并恢复适配器内置值。
+          </p>
+
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              type="search"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="搜索平台…"
+              className="input-soft h-8 pl-8 text-sm"
+            />
+          </div>
+
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="text-xs text-muted-foreground px-1 py-3 text-center">无匹配平台</p>
+            ) : (
+              filtered.map(p => {
+                const open = expandedId === p.id
+                const cached = !!customizedMap[p.id]
+                return (
+                  <div key={p.id} className="card-soft overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(p.id)}
+                      className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-muted/40 transition-colors"
+                    >
+                      <span className="text-sm font-medium truncate flex-1">{p.name}</span>
+                      {cached && (
+                        <span className="text-[10px] px-1 py-px rounded bg-primary/10 text-primary flex-shrink-0">
+                          已缓存
+                        </span>
+                      )}
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {p.fields.length} 项
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'w-3.5 h-3.5 text-muted-foreground transition-transform flex-shrink-0',
+                          open && 'rotate-180',
+                        )}
+                      />
+                    </button>
+                    {open && (
+                      <div className="border-t border-border/60 px-2.5 py-2.5 space-y-2.5">
+                        <PublishSchemaForm
+                          fields={p.fields}
+                          value={params}
+                          onChange={setParams}
+                          fieldKeyPrefix={`${p.id}:${isCustomized ? 'c' : 'd'}`}
+                          remoteRefs={remoteRefs}
+                        />
+                        <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+                          <button
+                            type="button"
+                            onClick={handleSave}
+                            className="btn-brand px-3 py-1.5 text-xs inline-flex items-center gap-1"
+                          >
+                            <Save className="w-3 h-3" /> 保存缓存
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClear}
+                            disabled={!isCustomized}
+                            className={cn(
+                              'text-xs inline-flex items-center gap-1 transition-colors',
+                              isCustomized
+                                ? 'text-muted-foreground hover:text-destructive'
+                                : 'text-muted-foreground/40',
+                            )}
+                          >
+                            <RotateCcw className="w-3 h-3" /> 还原系统默认
+                          </button>
+                          {hint && <span className="text-[11px] text-primary ml-auto">{hint}</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
