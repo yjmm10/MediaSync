@@ -4,13 +4,16 @@
 import {
   adapterRegistry,
   mergeParams,
+  type AuthMode,
   type PlatformAdapter,
   type PlatformMeta,
   type Article,
   type PublishParams,
+  type PublishSchema,
   type SyncResult,
 } from '@mediasync/core'
 import { getSavedParams } from '../lib/platform-settings'
+import { getTabAuthAutoDetect } from '../lib/tab-auth-auto-detect'
 import { createExtensionRuntime } from '../runtime/extension'
 import { createLogger } from '../lib/logger'
 import {
@@ -137,20 +140,45 @@ const ADAPTER_CLASSES: AdapterConstructor[] = [
   ...getPrivateAdapters(),
 ]
 
+/** 会开标签鉴权的平台 → 注册时的 authMode */
+const TAB_AUTH_MODE_BY_ID: Record<string, AuthMode> = {
+  meipian: 'page-context',
+  xiaohongshu: 'page-context',
+  qiehao: 'page-context',
+  volcengine: 'hybrid',
+  'baidu-developer': 'hybrid',
+  tencentcloud: 'hybrid',
+  'aliyun-developer': 'hybrid',
+  modelscope: 'hybrid',
+  v2ex: 'hybrid',
+}
+
 // 适配器注册条目 (类型安全)
 interface AdapterEntry {
   meta: PlatformMeta
   factory: () => PlatformAdapter
   preprocessConfig?: Record<string, unknown>
+  authMode?: AuthMode
+  publishSchema?: PublishSchema
+  publishDefaults?: PublishParams
 }
 
-// 生成适配器注册条目（包含 preprocessConfig）
+// 生成适配器注册条目（包含 preprocessConfig / authMode / publishSchema / publishDefaults）
 const adapterEntries: AdapterEntry[] = ADAPTER_CLASSES.map(AdapterClass => {
   const instance = new AdapterClass()
+  const id = instance.meta.id
+  const pi = instance as unknown as {
+    preprocessConfig?: Record<string, unknown>
+    publishSchema?: PublishSchema
+    publishDefaults?: PublishParams
+  }
   return {
     meta: instance.meta,
     factory: () => new AdapterClass(),
-    preprocessConfig: (instance as unknown as { preprocessConfig?: Record<string, unknown> }).preprocessConfig,
+    preprocessConfig: pi.preprocessConfig,
+    authMode: TAB_AUTH_MODE_BY_ID[id],
+    publishSchema: pi.publishSchema,
+    publishDefaults: pi.publishDefaults,
   }
 })
 
@@ -228,10 +256,17 @@ const AUTH_CHECK_TIMEOUT = 20 * 1000 // 单个平台认证检查超时：20 秒�
 const PUBLISH_TIMEOUT = 10 * 60 * 1000 // 单个平台发布超时：10 分钟（包含图片上传）
 
 /**
- * 依赖页面上下文（ensurePageTab / 临时标签）的平台：后台 / TTL / 含 forceRefresh 的全量检查均不自动真检，避免开标签。
- * 仅单平台手动 CHECK_AUTH（checkPlatformAuth）时真检。
+ * 依赖打开标签进行鉴权的平台 id 列表（调度与设置 UI 共用）
  */
-const PAGE_CONTEXT_AUTH_IDS = new Set(['meipian', 'xiaohongshu', 'qiehao'])
+export function getTabAuthPlatformIds(): string[] {
+  return Object.keys(TAB_AUTH_MODE_BY_ID)
+}
+
+/**
+ * 依赖打开标签进行鉴权的平台：默认不自动真检；设置开启「开标签自动检测」后可走全量/TTL。
+ * 仅单平台手动 CHECK_AUTH（checkPlatformAuth）时始终允许真检。
+ */
+const TAB_AUTH_PLATFORM_IDS = new Set(Object.keys(TAB_AUTH_MODE_BY_ID))
 
 /**
  * 带超时的 Promise 包装
@@ -339,17 +374,18 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
   const now = Date.now()
   const results: Array<PlatformMeta & { isAuthenticated: boolean; username?: string; error?: string }> = []
   const needsCheck: PlatformMeta[] = [] // 需要实际检查的平台
+  const tabAuthAutoDetect = await getTabAuthAutoDetect()
 
-  logger.debug(' Checking auth for platforms:', metas.map(m => m.id), forceRefresh ? '(force refresh)' : '')
+  logger.debug(' Checking auth for platforms:', metas.map(m => m.id), forceRefresh ? '(force refresh)' : '', tabAuthAutoDetect ? '(tab-auth auto on)' : '')
 
   // 第一步：分离缓存命中和需要检查的平台
   for (const meta of metas) {
     const cached = cache[meta.id]
 
-    // 美篇 / 小红书 / 企鹅号：全量检查（含 forceRefresh）绝不自动 checkAuth（不建标签）
-    if (PAGE_CONTEXT_AUTH_IDS.has(meta.id)) {
+    // 会开标签鉴权的平台：默认跳过自动真检；设置开启后走下方缓存/检查逻辑
+    if (TAB_AUTH_PLATFORM_IDS.has(meta.id) && !tabAuthAutoDetect) {
       if (cached) {
-        logger.debug(` Using cached auth for page-context platform ${meta.id} (no auto recheck)`)
+        logger.debug(` Using cached auth for tab-auth platform ${meta.id} (no auto recheck)`)
         results.push({
           ...meta,
           isAuthenticated: cached.isAuthenticated,
