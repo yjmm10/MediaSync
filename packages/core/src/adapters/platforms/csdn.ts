@@ -60,6 +60,7 @@ export class CSDNAdapter extends PipelineAdapter {
         ],
       },
       { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
+      { kind: 'topic', key: 'topicId', label: '话题（与活动二选一）', source: 'remote' },
       {
         kind: 'visibility',
         key: 'visibility',
@@ -236,7 +237,7 @@ export class CSDNAdapter extends PipelineAdapter {
       pubStatus: isPublish ? 'publish' : 'draft',
       creation_statement: (params.extra?.creationStatement as number) ?? 0, // 0=无 1=原创声明 2=独家授权 3=原创+独家
       sync_git_code: (params.extra?.syncGitCode as number) ?? 0,
-      creator_activity_id: params.activityId ?? '',
+      creator_activity_id: params.activityId ?? params.topicId ?? '', // 活动或话题（二选一）
     }
   }
 
