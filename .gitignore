@@ -38,3 +38,6 @@ CLAUDE.md
 
 test/
 question
+# Local scratch dumps
+.tmp-ms/
+3rdparty/
