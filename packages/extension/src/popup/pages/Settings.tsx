@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plug, PlugZap } from 'lucide-react'
+import { Plug, PlugZap } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { SubPageHeader } from '../components/SubPageHeader'
+import { PlatformConfigSection } from '../components/PlatformConfigSection'
 import { trackFeatureDiscovery } from '../../lib/analytics'
 import {
   DEFAULT_LOCAL_MD_CACHE_LIMIT,
@@ -231,26 +233,18 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="p-4 h-full flex flex-col">
-      <button
-        onClick={() => navigate('/')}
-        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        返回
-      </button>
+    <div className="page-root flex flex-col h-[500px]">
+      <SubPageHeader title="设置" onBack={() => navigate('/')} />
 
-      <h2 className="text-sm font-medium mb-4">设置</h2>
-
-      <div className="flex-1 overflow-y-auto space-y-6">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* 同步桥接设置 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-muted-foreground">同步桥接</h3>
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold text-muted-foreground px-0.5">同步桥接</h3>
 
-          <div className="flex items-center justify-between gap-3 p-3 bg-muted/50 rounded-lg">
+          <div className="card-soft flex items-center justify-between gap-3 p-3">
             <div className="flex items-center gap-2 min-w-0">
               {mcpStatus.connected ? (
-                <PlugZap className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <PlugZap className="w-5 h-5 text-primary flex-shrink-0" />
               ) : (
                 <Plug className="w-5 h-5 text-muted-foreground flex-shrink-0" />
               )}
@@ -265,41 +259,55 @@ export function SettingsPage() {
                 </p>
               </div>
             </div>
-            <Toggle on={mcpStatus.enabled} onClick={toggleMcp} disabled={loading} />
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {mcpStatus.enabled && (
+                <span
+                  className={cn(
+                    'text-[10px] font-medium px-1.5 py-0.5 rounded-full',
+                    mcpStatus.connected
+                      ? 'bg-primary/15 text-primary'
+                      : 'bg-muted text-muted-foreground',
+                  )}
+                >
+                  {mcpStatus.connected ? '在线' : '离线'}
+                </span>
+              )}
+              <Toggle on={mcpStatus.enabled} onClick={toggleMcp} disabled={loading} />
+            </div>
           </div>
 
           {mcpStatus.enabled && (
-            <div className="space-y-2">
+            <div className="card-soft p-3 space-y-2">
               <p className="text-xs text-muted-foreground">
                 供 CLI 和 MCP Server 通过 WebSocket 桥接同步文章
               </p>
               {mcpStatus.token && (
-                <div className="p-2 bg-muted/50 rounded text-xs">
-                  <p className="text-muted-foreground mb-1">Token:</p>
-                  <code className="block bg-background p-1.5 rounded break-all select-all">
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-1">Token</p>
+                  <code className="block bg-muted/50 p-1.5 rounded-md text-[11px] break-all select-all border border-border/60">
                     {mcpStatus.token}
                   </code>
                 </div>
               )}
-              <div className="p-2 bg-muted/50 rounded text-xs">
-                <p className="text-muted-foreground mb-1">服务器地址 (留空使用本地默认):</p>
+              <div>
+                <p className="text-[11px] text-muted-foreground mb-1">服务器地址（留空使用本地默认）</p>
                 <input
                   type="text"
                   value={serverUrlInput}
                   onChange={(e) => handleServerUrlChange(e.target.value)}
                   placeholder="ws://localhost:9527"
-                  className="w-full bg-background p-1.5 rounded border border-border text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="input-soft font-mono"
                 />
               </div>
             </div>
           )}
-        </div>
+        </section>
 
         {/* 网页功能 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-muted-foreground">网页功能</h3>
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold text-muted-foreground px-0.5">网页功能</h3>
 
-          <div className="flex items-center justify-between gap-3 p-3 bg-muted/50 rounded-lg">
+          <div className="card-soft flex items-center justify-between gap-3 p-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">悬浮同步按钮</p>
               <p className="text-xs text-muted-foreground">网页右下角快捷同步</p>
@@ -307,7 +315,7 @@ export function SettingsPage() {
             <Toggle on={floatingButtonEnabled} onClick={toggleFloatingButton} />
           </div>
 
-          <div className="flex items-center justify-between gap-3 p-3 bg-muted/50 rounded-lg">
+          <div className="card-soft flex items-center justify-between gap-3 p-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">实时检测文章</p>
               <p className="text-xs text-muted-foreground">
@@ -316,20 +324,20 @@ export function SettingsPage() {
             </div>
             <Toggle on={realtimeDetect} onClick={toggleRealtimeDetect} />
           </div>
-        </div>
+        </section>
 
         {/* 同步传输 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-muted-foreground">同步</h3>
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold text-muted-foreground px-0.5">同步</h3>
 
-          <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+          <div className="card-soft p-3 space-y-2">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium">同步消息体积阈值（MB）</p>
                 <p className="text-xs text-muted-foreground">
                   超过该大小时正文经本地存储传递，避免 Chrome 消息约 64MB 上限报错；不限制文章能否同步。
                   默认 {DEFAULT_SYNC_MESSAGE_SIZE_THRESHOLD_MB}，可调 {MIN_SYNC_MESSAGE_SIZE_THRESHOLD_MB}–
-                  {MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB}。调低更早走存储，调高则更多走消息通道。
+                  {MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB}。
                 </p>
               </div>
               <input
@@ -338,17 +346,17 @@ export function SettingsPage() {
                 max={MAX_SYNC_MESSAGE_SIZE_THRESHOLD_MB}
                 value={syncMsgThresholdMb}
                 onChange={(e) => handleSyncThresholdChange(e.target.value)}
-                className="w-16 bg-background p-1.5 rounded border border-border text-sm text-center font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                className="input-soft w-16 text-center font-mono tabular-nums"
               />
             </div>
           </div>
-        </div>
+        </section>
 
         {/* 本地导入缓存 */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-muted-foreground">本地导入</h3>
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold text-muted-foreground px-0.5">本地导入</h3>
 
-          <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+          <div className="card-soft p-3 space-y-2">
             <div className="min-w-0">
               <p className="text-sm font-medium">标题来源</p>
               <p className="text-xs text-muted-foreground">
@@ -358,7 +366,7 @@ export function SettingsPage() {
             <select
               value={localMdTitleSource}
               onChange={(e) => handleTitleSourceChange(e.target.value)}
-              className="w-full bg-background p-2 rounded border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              className="input-soft"
             >
               <option value="auto">自动（一级标题 → front matter → 文件名）</option>
               <option value="h1">优先一级标题</option>
@@ -367,14 +375,14 @@ export function SettingsPage() {
             </select>
           </div>
 
-          <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+          <div className="card-soft p-3 space-y-2">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium">Markdown 缓存条数</p>
                 <p className="text-xs text-muted-foreground">
-                  缓存最近导入的本地 MD（含图片），历史追加同步时无需重选文件夹。默认 {DEFAULT_LOCAL_MD_CACHE_LIMIT}，过大可能占存储。
+                  缓存最近导入的本地 MD（含图片），历史追加同步时无需重选文件夹。默认 {DEFAULT_LOCAL_MD_CACHE_LIMIT}。
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground mt-1 tabular-nums">
                   当前占用：{formatCacheBytes(localMdCacheBytes)}
                 </p>
               </div>
@@ -384,7 +392,7 @@ export function SettingsPage() {
                 max={MAX_LOCAL_MD_CACHE_LIMIT}
                 value={localMdCacheLimit}
                 onChange={(e) => handleCacheLimitChange(e.target.value)}
-                className="w-16 bg-background p-1.5 rounded border border-border text-sm text-center font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                className="input-soft w-16 text-center font-mono tabular-nums"
               />
             </div>
             <button
@@ -395,10 +403,13 @@ export function SettingsPage() {
               清空本地 Markdown 缓存
             </button>
             {cacheClearHint && (
-              <p className="text-[11px] text-green-600">{cacheClearHint}</p>
+              <p className="text-[11px] text-primary">{cacheClearHint}</p>
             )}
           </div>
-        </div>
+        </section>
+
+        {/* 平台默认发布配置（P3） */}
+        <PlatformConfigSection />
       </div>
     </div>
   )

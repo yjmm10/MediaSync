@@ -199,6 +199,13 @@ export function getAllPlatformMetas() {
 }
 
 /**
+ * 获取平台档案（含 publishSchema / publishDefaults / publishModes / authMode）
+ */
+export function getPlatformProfile(platformId: string) {
+  return adapterRegistry.getProfile(platformId)
+}
+
+/**
  * 获取平台的预处理配置
  */
 export function getPlatformPreprocessConfig(platformId: string) {
