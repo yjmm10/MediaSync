@@ -15,6 +15,11 @@ import {
   toggleFavorite,
   type UserPlatformGroup,
 } from '@/lib/user-platform-groups'
+import type { PublishParams } from '@mediasync/core'
+import {
+  PlatformInlinePublishConfig,
+  isSyncConfigurablePlatform,
+} from './SyncPlatformConfig'
 import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './types'
 
 const PLATFORM_ORDER_KEY = 'platformOrder'
@@ -47,6 +52,8 @@ interface PlatformListProps {
   onSelectAll: () => void
   onDeselectAll: () => void
   onRecheckAuth?: (platformId: string) => void | Promise<void>
+  platformParams?: Record<string, PublishParams>
+  onPlatformParamsChange?: (platformId: string, params: PublishParams) => void
 }
 
 export function PlatformList({
@@ -60,6 +67,8 @@ export function PlatformList({
   onSelectAll,
   onDeselectAll,
   onRecheckAuth,
+  platformParams,
+  onPlatformParamsChange,
 }: PlatformListProps) {
   const isIdle = status === 'idle' || status === 'loading'
   const isSyncing = status === 'syncing'
@@ -257,6 +266,18 @@ export function PlatformList({
         onDragOver={(e) => e.preventDefault()}
         onDrop={() => handleReorder(platform.id)}
         onDragEnd={() => { setDragId(null); setOverId(null) }}
+        showPublishConfig={
+          isIdle &&
+          isSelected &&
+          isSyncConfigurablePlatform(platform.id) &&
+          !!onPlatformParamsChange
+        }
+        publishParams={platformParams?.[platform.id]}
+        onPublishParamsChange={
+          onPlatformParamsChange
+            ? (p) => onPlatformParamsChange(platform.id, p)
+            : undefined
+        }
       />
     )
   }
@@ -418,6 +439,22 @@ export function PlatformList({
               {orderedAuth.map(p => renderPlatformItem(p, 'auth'))}
             </div>
           )}
+
+          {/* 网格视图：行内无折叠，在列表下方展示已选可配置平台参数 */}
+          {viewMode === 'grid' &&
+            onPlatformParamsChange &&
+            orderedAuth
+              .filter((p) => selected.has(p.id) && isSyncConfigurablePlatform(p.id))
+              .map((p) => (
+                <div key={`cfg-${p.id}`} className="card-soft p-2.5 space-y-2">
+                  <p className="text-xs font-medium">{p.name} · 发布参数</p>
+                  <PlatformInlinePublishConfig
+                    platformId={p.id}
+                    params={platformParams?.[p.id]}
+                    onChangeParams={(params) => onPlatformParamsChange(p.id, params)}
+                  />
+                </div>
+              ))}
 
           {orderedUnauth.length > 0 && (
             <div className="space-y-1">
@@ -657,6 +694,9 @@ function PlatformRow({
   onDragOver,
   onDrop,
   onDragEnd,
+  showPublishConfig,
+  publishParams,
+  onPublishParamsChange,
 }: {
   platform: Platform
   isSelected: boolean
@@ -680,8 +720,16 @@ function PlatformRow({
   onDragOver?: (e: DragEvent<HTMLDivElement>) => void
   onDrop?: (e: DragEvent<HTMLDivElement>) => void
   onDragEnd?: (e: DragEvent<HTMLDivElement>) => void
+  showPublishConfig?: boolean
+  publishParams?: PublishParams
+  onPublishParamsChange?: (params: PublishParams) => void
 }) {
   const isDone = !!result
+  const [configOpen, setConfigOpen] = useState(false)
+
+  useEffect(() => {
+    if (!showPublishConfig) setConfigOpen(false)
+  }, [showPublishConfig])
 
   const handleRowClick = () => {
     if (!isIdle || isCheckingAuth) return
@@ -702,6 +750,12 @@ function PlatformRow({
 
   // 未被用户勾选的已同步平台：浅灰（表示已同步，默认不再同步）
   const syncedIdle = alreadySynced && !isSelected
+  const modeLabel =
+    publishParams?.mode === 'publish'
+      ? '发布'
+      : publishParams?.mode === 'schedule'
+        ? '定时'
+        : '草稿'
 
   return (
     <div
@@ -774,6 +828,21 @@ function PlatformRow({
 
         {/* Right side info + 手动检测（仅未登录） */}
         <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+          {showPublishConfig && (
+            <>
+              <span className="text-[10px] text-muted-foreground tabular-nums">{modeLabel}</span>
+              <button
+                type="button"
+                title={configOpen ? '收起发布参数' : '展开发布参数'}
+                onClick={() => setConfigOpen((o) => !o)}
+                className="inline-flex items-center rounded p-0.5 text-muted-foreground hover:text-primary transition-colors"
+              >
+                <ChevronDown
+                  className={cn('w-3.5 h-3.5 transition-transform', configOpen && 'rotate-180')}
+                />
+              </button>
+            </>
+          )}
           {isIdle && (
             <button
               type="button"
@@ -817,6 +886,19 @@ function PlatformRow({
           />
         </div>
       </div>
+
+      {showPublishConfig && configOpen && onPublishParamsChange && (
+        <div
+          className="px-2.5 pb-2.5 pt-1 border-t border-border/40"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <PlatformInlinePublishConfig
+            platformId={platform.id}
+            params={publishParams}
+            onChangeParams={onPublishParamsChange}
+          />
+        </div>
+      )}
     </div>
   )
 }

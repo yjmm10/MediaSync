@@ -5,6 +5,7 @@ import { Plug, PlugZap, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SubPageHeader } from '../components/SubPageHeader'
 import { UserPlatformGroupsSection } from '../components/UserPlatformGroupsSection'
+import { PlatformConfigPanel } from '../components/PlatformConfigPanel'
 import { trackFeatureDiscovery } from '../../lib/analytics'
 import { getAllPlatformMetas, getTabAuthPlatformIds, initAdapters } from '../../adapters'
 import {
@@ -382,6 +383,8 @@ export function SettingsPage() {
               </button>
               {groupsOpen && <UserPlatformGroupsSection />}
             </section>
+
+            <PlatformConfigPanel />
           </>
         )}
 

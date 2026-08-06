@@ -33,8 +33,10 @@ export interface PublishParams {
   tags?: string[]
   /** 分类 id（来自远程列表） */
   category?: string
-  /** 专栏/合集/文集 id */
+  /** 专栏/合集/文集 id（单选） */
   column?: string
+  /** 专栏/合集/文集 id 列表（多选，如博客园合集） */
+  columns?: string[]
   /** 封面：URL | 'auto' | 'none' */
   cover?: string
   /** 摘要 */

@@ -336,7 +336,7 @@
             <tr><td>慕课网</td><td><code>imooc</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
             <tr><td>开源中国</td><td><code>oschina</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
             <tr><td>SegmentFault</td><td><code>segmentfault</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
-            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>—</td><td>草稿</td><td>✅</td></tr>
+            <tr><td>博客园</td><td><code>cnblogs</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>可配置分类/合集/标签；草稿或发布</td><td>草稿/发布</td><td>✅</td></tr>
             <tr><td>InfoQ 写作社区</td><td><code>infoq</code></td><td><span class="tag">技术社区</span></td><td><span class="md-partial">🟡 部分</span></td><td>✅ 外链/本地图转存；表格/列表/引用/公式</td><td>草稿</td><td><span class="new">✅ 🆕</span></td></tr>
             <tr><td>Reddit</td><td><code>reddit</code></td><td><span class="tag">海外</span></td><td><span class="md-full">✅ 完整</span></td><td>固定个人 profile；图片暂关闭</td><td>草稿</td><td><span class="new">✅ 🆕</span></td></tr>
             <tr><td>百度智能云千帆社区</td><td><code>qianfan</code></td><td><span class="tag">技术社区</span></td><td><span class="md-full">✅ 完整</span></td><td>⚠️ 不支持外链中转 / 本地图</td><td>草稿</td><td><span class="new">✅ 🆕</span></td></tr>
@@ -362,7 +362,7 @@
         <span><b style="color:var(--amber)">🟡 部分</b>：富文本，常用语法部分降级；Mermaid 通常不支持</span>
         <span><b style="color:var(--muted)">⚪ 弱</b>：短内容 / 图文平台，仅基础排版</span>
         <span><b>限制</b>：仅字数 / 长度类约束（及已标注的图片已知问题）。「—」表示未做额外字数截断</span>
-        <span><b>发布</b>：草稿 = 默认同步为草稿；直接发布 = 同步后即时公开（虎扑、美篇、V2EX）</span>
+        <span><b>发布</b>：草稿 = 默认同步为草稿；草稿/发布 = 可在平台配置中选择（目前博客园）；直接发布 = 同步后即时公开（虎扑、美篇、V2EX）</span>
         <span><b>状态</b>：✅ = 当前可同步；❌ 暂未支持 = 规划中，扩展内尚无可用适配器</span>
       </div>
       <p style="margin-top:24px;margin-bottom:8px"><b>常用 Markdown 语法支持矩阵</b>　<span style="color:var(--green)">✅ 原生</span> · <span style="color:var(--amber)">⚠️ 降级</span>（其他代码块→等宽段落、表格→文本行）；Mermaid / 单级·多级列表单独列· <span style="color:var(--muted)">❌ 不支持</span></p>
@@ -531,7 +531,16 @@
       </div>
       <div class="releases">
         <div class="release">
-          <h3>v3.1.1 <span class="ver-tag">最新</span></h3>
+          <h3>v3.2.0 <span class="ver-tag">最新</span></h3>
+          <div class="date">2026-08-07</div>
+          <ul>
+            <li>🆕 平台发布配置（博客园试点）：设置默认 + 同步行内参数；选项源手动更新缓存</li>
+            <li>🆕 博客园支持草稿或正式发布；发布链为公开文章页</li>
+            <li>⚠️ 本轮仅博客园接入平台配置</li>
+          </ul>
+        </div>
+        <div class="release">
+          <h3>v3.1.1</h3>
           <div class="date">2026-08-06</div>
           <ul>
             <li>🎨 选择平台：全部/分类/收藏筛选下列表统一为平台 +「未登录」</li>

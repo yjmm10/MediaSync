@@ -383,6 +383,18 @@ const ADAPTER_CLASSES = [
 ] as const
 ```
 
+## 5.3 平台发布配置（可选）
+
+适配器若声明 `publishSchema` / `publishDefaults` / `publishModes`，扩展可接入「平台发布配置」：
+
+| 层 | 职责 |
+|----|------|
+| 选项源 | 实现 `fetchPublishRefs()`；扩展侧手动「更新」后写入 `platformPublishRefsCache`（无 TTL） |
+| 默认参数 | 用户设置保存 / 同步折叠防抖写回 → `platformPublishConfig` |
+| 本次参数 | 同步行内折叠；合并：`publishDefaults ⊕ saved ⊕ override` |
+
+发布结果：`draftOnly: true` 时 UI 显示「草稿」；正式发布显示「查看」。`postUrl` **按平台各自约定**拼装（无跨平台通用模板）。参考：`packages/core/src/adapters/platforms/cnblogs.ts`（v3.2.0 试点）。
+
 ## 6. 常见模式
 
 ### 6.1 获取 CSRF Token

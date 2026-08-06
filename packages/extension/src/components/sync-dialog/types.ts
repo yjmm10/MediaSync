@@ -49,6 +49,9 @@ export interface SyncDialogProps {
   results: SyncResult[]
   platformProgress: Map<string, PlatformProgress>
   error: string | null
+  /** 每平台本次同步实时参数 */
+  platformParams?: Record<string, import('@mediasync/core').PublishParams>
+  onPlatformParamsChange?: (platformId: string, params: import('@mediasync/core').PublishParams) => void
 
   // Actions
   onTogglePlatform: (id: string) => void

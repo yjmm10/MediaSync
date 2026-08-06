@@ -19,6 +19,8 @@ export function SyncDialog({
   results,
   platformProgress,
   error,
+  platformParams,
+  onPlatformParamsChange,
   onTogglePlatform,
   onSelectAll,
   onDeselectAll,
@@ -88,6 +90,8 @@ export function SyncDialog({
               onSelectAll={onSelectAll}
               onDeselectAll={onDeselectAll}
               onRecheckAuth={onRecheckAuth}
+              platformParams={platformParams}
+              onPlatformParamsChange={onPlatformParamsChange}
             />
           </>
         )}

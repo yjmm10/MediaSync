@@ -67,7 +67,8 @@ export interface CategoryField extends FieldBase {
 /** 专栏/合集字段 */
 export interface ColumnField extends FieldBase {
   kind: 'column'
-  key: 'column'
+  /** column=单选字段；columns=多选字段（对应 PublishParams.columns） */
+  key: 'column' | 'columns'
   source: RefSource
   refKey?: string
   options?: FieldOption[]

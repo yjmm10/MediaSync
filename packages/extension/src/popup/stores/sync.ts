@@ -15,6 +15,7 @@ import {
   PENDING_SYNC_ARTICLE_KEY,
   shouldUseStorageForPayload,
 } from '../../lib/sync-message-threshold'
+import type { PublishParams } from '@mediasync/core'
 
 const logger = createLogger('SyncStore')
 
@@ -133,6 +134,9 @@ interface SyncState {
   // 文章提取失败提示（如需刷新页面）
   extractError: string | null
 
+  /** 每平台本次同步实时参数（会话态） */
+  platformParams: Record<string, PublishParams>
+
   // Actions
   loadPlatforms: () => Promise<void>
   loadArticle: (opts?: { force?: boolean }) => Promise<void>
@@ -143,6 +147,7 @@ interface SyncState {
   togglePlatform: (platformId: string) => void
   selectAll: () => void
   deselectAll: () => void
+  setPlatformParams: (platformId: string, params: PublishParams) => void
   checkRateLimit: () => Promise<string | null>
   startSync: () => Promise<void>
   retryFailed: () => Promise<void>
@@ -202,6 +207,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   recovered: false,
   rateLimitWarning: null,
   extractError: null,
+  platformParams: {},
 
   recoverSyncState: async () => {
     // 避免重复恢复
@@ -546,13 +552,19 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     trackPlatformSelection('deselect_all', 'all', 0).catch(() => {})
   },
 
+  setPlatformParams: (platformId, params) => {
+    set((state) => ({
+      platformParams: { ...state.platformParams, [platformId]: params },
+    }))
+  },
+
   checkRateLimit: async () => {
     const { selectedPlatforms } = get()
     return checkSyncFrequency(selectedPlatforms)
   },
 
   startSync: async () => {
-    const { article, selectedPlatforms, platforms } = get()
+    const { article, selectedPlatforms, platforms, platformParams } = get()
     logger.debug('startSync called', { article, selectedPlatforms })
 
     if (!article) {
@@ -587,10 +599,15 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         summary: article.summary,
         source: article.source,
       }
+      const perPlatform: Record<string, PublishParams> = {}
+      for (const id of selectedPlatforms) {
+        if (platformParams[id]) perPlatform[id] = platformParams[id]
+      }
       const response = await dispatchSyncArticleMessage({
         article: original,
         platforms: selectedPlatforms,
         syncId,
+        perPlatform: Object.keys(perPlatform).length > 0 ? perPlatform : undefined,
       })
 
       const allResults: SyncResult[] = response.results || []
@@ -652,7 +669,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   retryFailed: async () => {
-    const { article, results, platforms } = get()
+    const { article, results, platforms, platformParams } = get()
 
     if (!article) {
       set({ error: '未检测到文章内容' })
@@ -690,10 +707,15 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         summary: article.summary,
         source: article.source,
       }
+      const perPlatform: Record<string, PublishParams> = {}
+      for (const id of failedPlatformIds) {
+        if (platformParams[id]) perPlatform[id] = platformParams[id]
+      }
       const response = await dispatchSyncArticleMessage({
         article: original,
         platforms: failedPlatformIds,
         syncId,
+        perPlatform: Object.keys(perPlatform).length > 0 ? perPlatform : undefined,
       })
 
       const retryResults: SyncResult[] = response.results || []
@@ -796,11 +818,13 @@ async function dispatchSyncArticleMessage(opts: {
   article: Record<string, unknown>
   platforms: string[]
   syncId: string
+  perPlatform?: Record<string, PublishParams>
 }): Promise<{ results?: SyncResult[]; rateLimitWarning?: string | null }> {
   const probe = {
     article: opts.article,
     platforms: opts.platforms,
     syncId: opts.syncId,
+    perPlatform: opts.perPlatform,
   }
   if (await shouldUseStorageForPayload(probe)) {
     await chrome.storage.local.set({
@@ -816,6 +840,7 @@ async function dispatchSyncArticleMessage(opts: {
         fromStorage: true,
         platforms: opts.platforms,
         syncId: opts.syncId,
+        perPlatform: opts.perPlatform,
       },
     })
   }
@@ -825,6 +850,7 @@ async function dispatchSyncArticleMessage(opts: {
       article: opts.article,
       platforms: opts.platforms,
       syncId: opts.syncId,
+      perPlatform: opts.perPlatform,
     },
   })
 }

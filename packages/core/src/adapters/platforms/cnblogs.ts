@@ -1,19 +1,50 @@
 /**
  * 博客园 (cnblogs.com) 适配器（PipelineAdapter 实现）
  *
- * 行为等价迁移：XSRF-TOKEN 获取 + 图片 CORS 上传 + api/posts 创建草稿全部保留。
- *
- * 鉴权策略化：SwHtmlAuthStrategy 拉 CurrentUserInfo 页面正则提取登录态。
- * Header 规则拆分：uploadImages 钩子内包一次 + submit 外层管道自动包一次。
+ * 行为：XSRF-TOKEN + 图片 CORS 上传 + api/posts 创建草稿/发布。
+ * 鉴权：SwHtmlAuthStrategy 拉 CurrentUserInfo。
+ * 选项源：fetchPublishRefs 仅供设置/同步折叠「手动更新」调用，发布路径不自动拉列表。
  */
-import { PipelineAdapter, type PublishContext } from '../pipeline'
+import { PipelineAdapter, type PublishContext, type PublishRefs } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageUploadResult } from '../code-adapter'
 import type { PublishSchema } from '../publish-schema'
+import type { PublishParams } from '../publish-params'
 import { SwHtmlAuthStrategy } from '../auth-strategy'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Cnblogs')
+
+/** 博客园访问权限 → accessPermission */
+const CNBLOGS_ACCESS: Record<string, number> = {
+  public: 0,
+  followers: 8,
+  private: 268435456,
+}
+
+/** 从 markdown/html 提取首张适合做题图的 http(s) 图（SW 无 DOM，正则） */
+function extractFirstImageUrl(markdown?: string, html?: string): string | undefined {
+  const candidates: string[] = []
+  // 优先 markdown（uploadImages 后已是图床 URL）；html 可能仍是外链
+  if (markdown) {
+    const re = /!\[[^\]]*\]\(([^)]+)\)/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(markdown)) !== null) {
+      candidates.push(m[1].trim().replace(/^<|>$/g, '').split(/\s+/)[0])
+    }
+  }
+  if (html) {
+    const re = /<img[^>]+src=["']([^"']+)["']/gi
+    let m: RegExpExecArray | null
+    while ((m = re.exec(html)) !== null) candidates.push(m[1])
+  }
+  const http = candidates.filter((c) => /^https?:\/\//i.test(c))
+  // 优先博客园 CDN（featuredImage 更稳）
+  return (
+    http.find((c) => /cnblogs\.com/i.test(c)) ||
+    http[0]
+  )
+}
 
 export class CnblogsAdapter extends PipelineAdapter {
   readonly meta: PlatformMeta = {
@@ -29,25 +60,71 @@ export class CnblogsAdapter extends PipelineAdapter {
     outputFormat: 'markdown' as const,
   }
 
-  /** 配置 Schema（声明式，UI 据此渲染；P2 运行时仍写死保持等价） */
+  readonly publishDefaults: PublishParams = {
+    mode: 'draft',
+    commentsEnabled: true,
+    visibility: 'public',
+    cover: 'auto',
+    extra: {
+      displayOnHomePage: false,
+      pinned: false,
+      isAigc: false,
+      postType: 2,
+    },
+  }
+
+  /** 配置 Schema（声明式，UI 据此渲染） */
   readonly publishSchema: PublishSchema = {
     fields: [
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'column', key: 'column', label: '合集', source: 'remote' },
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
+      { kind: 'tags', key: 'tags', label: '标签', suggestionsKey: 'tagSuggestions' },
+      { kind: 'category', key: 'category', label: '个人分类', source: 'remote' },
+      {
+        kind: 'column',
+        key: 'columns',
+        label: '合集',
+        source: 'remote',
+        selectMode: 'multi',
+      },
+      { kind: 'cover', key: 'cover', label: '题图', modes: ['auto', 'none'] },
+      { kind: 'summary', key: 'summary', label: '摘要' },
       {
         kind: 'visibility',
         key: 'visibility',
-        label: '可见性',
+        label: '访问权限',
         options: [
           { value: 'public', label: '公开' },
-          { value: 'private', label: '仅自己可见' },
-          { value: 'password', label: '密码访问' },
+          { value: 'followers', label: '仅登录用户' },
+          { value: 'private', label: '只有我' },
         ],
       },
       { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
-      { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
+      { kind: 'schedule', key: 'scheduleAt', label: '定时发布', enabled: true },
+      { kind: 'toggle', key: 'extra.pinned', label: '置顶' },
+      { kind: 'toggle', key: 'extra.displayOnHomePage', label: '博客主页显示' },
+      { kind: 'toggle', key: 'extra.isAigc', label: '内容由AI生成' },
+      { kind: 'text', key: 'extra.password', label: '密码保护', placeholder: '可选' },
+      { kind: 'text', key: 'extra.entryName', label: 'Slug', placeholder: '友好地址名（可选）' },
+    ],
+    groups: [
+      {
+        title: '基本设置',
+        fields: ['category', 'columns', 'tags', 'summary', 'cover'],
+        defaultOpen: true,
+      },
+      {
+        title: '高级选项',
+        fields: [
+          'visibility',
+          'commentsEnabled',
+          'scheduleAt',
+          'extra.pinned',
+          'extra.displayOnHomePage',
+          'extra.isAigc',
+          'extra.password',
+          'extra.entryName',
+        ],
+        defaultOpen: false,
+      },
     ],
   }
 
@@ -71,6 +148,8 @@ export class CnblogsAdapter extends PipelineAdapter {
   ]
 
   private xsrfToken: string | null = null
+  /** 博客地址名，用于拼公开文章 URL */
+  private blogApp: string | null = null
 
   /** 博客园 API 需要的 Header 规则 */
   private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
@@ -92,26 +171,114 @@ export class CnblogsAdapter extends PipelineAdapter {
     },
   ]
 
+  // ============ 选项源（仅手动刷新）============
+
+  /**
+   * 拉取个人分类 + 合集 + 标签建议（设置/同步折叠「更新」按钮调用）。
+   * 发布管道不自动调用。
+   */
+  async fetchPublishRefs(): Promise<PublishRefs> {
+    return this.withHeaderRules(this.HEADER_RULES, async () => {
+      const [categories, columns, tagSuggestions] = await Promise.all([
+        this.fetchCategories(),
+        this.fetchCollections(),
+        this.fetchTagSuggestions(),
+      ])
+      return { categories, columns, tagSuggestions }
+    })
+  }
+
+  private async fetchCategories(): Promise<Array<{ id: string; name: string }>> {
+    const response = await this.runtime.fetch(
+      'https://i.cnblogs.com/api/v2/blog-category-types/2/categories?parent=',
+      { method: 'GET', credentials: 'include' },
+    )
+    if (!response.ok) {
+      throw new Error(`拉取个人分类失败: ${response.status}`)
+    }
+    const data = (await response.json()) as {
+      categories?: Array<{ categoryId?: number; id?: number; title?: string }>
+    }
+    const list = data.categories ?? []
+    return list
+      .map((c) => {
+        const id = c.categoryId ?? c.id
+        if (id == null || !c.title) return null
+        return { id: String(id), name: c.title }
+      })
+      .filter((x): x is { id: string; name: string } => x != null)
+  }
+
+  private async fetchCollections(): Promise<Array<{ id: string; name: string }>> {
+    const response = await this.runtime.fetch('https://i.cnblogs.com/api/collections', {
+      method: 'GET',
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      throw new Error(`拉取合集失败: ${response.status}`)
+    }
+    const data = (await response.json()) as {
+      items?: Array<{ id?: number; title?: string }>
+    }
+    const list = data.items ?? []
+    return list
+      .map((c) => {
+        if (c.id == null || !c.title) return null
+        return { id: String(c.id), name: c.title }
+      })
+      .filter((x): x is { id: string; name: string } => x != null)
+  }
+
+  private async fetchTagSuggestions(): Promise<string[]> {
+    const response = await this.runtime.fetch(
+      'https://i.cnblogs.com/api/tags/list?excludeInUsing=false&excludeUnUsing=false',
+      { method: 'GET', credentials: 'include' },
+    )
+    if (!response.ok) {
+      throw new Error(`拉取标签失败: ${response.status}`)
+    }
+    const data = (await response.json()) as Array<{ name?: string }>
+    if (!Array.isArray(data)) return []
+    const names: string[] = []
+    for (const t of data) {
+      if (t.name && !names.includes(t.name)) names.push(t.name)
+    }
+    return names
+  }
+
+  private async ensureBlogApp(): Promise<string | null> {
+    if (this.blogApp) return this.blogApp
+    try {
+      const response = await this.runtime.fetch('https://i.cnblogs.com/api/user', {
+        method: 'GET',
+        credentials: 'include',
+      })
+      if (!response.ok) return null
+      const data = (await response.json()) as { blogApp?: string; alias?: string }
+      this.blogApp = data.blogApp || data.alias || null
+      return this.blogApp
+    } catch (error) {
+      logger.warn('Failed to get blogApp:', error)
+      return null
+    }
+  }
+
   // ============ 管道钩子 ============
 
-  // authorize / normalizeContent / resolveReferences 用基类默认
+  // authorize / normalizeContent / resolveReferences 用基类默认（resolveReferences 空：不自动拉选项）
 
   /**
    * 3. 上传图片：在 Header 规则保护下获取 XSRF-TOKEN + SharedImageCache 去重上传
-   *    博客园只用 markdown
    */
   protected async uploadImages(ctx: PublishContext): Promise<void> {
     await this.withHeaderRules(this.HEADER_RULES, async () => {
-      // 1. 获取 XSRF-TOKEN（在 header rules 内，与原 publish 顺序一致）
       const xsrfToken = await this.getXsrfToken()
       logger.info('XSRF-TOKEN:', xsrfToken ? `${xsrfToken.substring(0, 20)}...` : 'null')
       if (!xsrfToken) {
         throw new Error('获取 XSRF-TOKEN 失败，请刷新页面后重试')
       }
-      // 保存 xsrfToken 供 uploadImageByUrl / submit 使用
       this.xsrfToken = xsrfToken
 
-      // 2. 处理图片上传
       const upload = async (src: string): Promise<ImageUploadResult> => {
         const hit = await ctx.imageCache.getUploadedUrl(this.meta.id, src)
         if (hit) return { url: hit }
@@ -127,41 +294,86 @@ export class CnblogsAdapter extends PipelineAdapter {
     })
   }
 
-  /** 5. 构建创建草稿请求体（P2 写死保持等价；P3 读 ctx.params） */
+  /** 5. 构建创建草稿/发布请求体 */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
     const { params } = ctx
-    const isPublish = params.mode === 'publish'
-    const coverUrl =
-      params.cover && params.cover !== 'auto' && params.cover !== 'none'
-        ? params.cover
-        : ''
+    const mode = params.mode ?? 'draft'
+    const isPublish = mode === 'publish' || mode === 'schedule'
+    const coverMode = params.cover ?? 'auto'
+    let coverUrl = ''
+    if (coverMode === 'none') {
+      coverUrl = ''
+    } else if (coverMode === 'auto') {
+      // 优先已上传后的正文（图床 URL），再回退文章封面/原文
+      coverUrl =
+        extractFirstImageUrl(ctx.content.markdown, ctx.content.html) ||
+        (ctx.article.cover && /^https?:\/\//i.test(ctx.article.cover)
+          ? ctx.article.cover
+          : '') ||
+        extractFirstImageUrl(
+          ctx.article.markdown,
+          ctx.article.html,
+        ) ||
+        ''
+    } else if (coverMode !== 'auto' && coverMode !== 'none') {
+      coverUrl = coverMode
+    }
+    logger.info('featuredImage resolve:', {
+      coverMode,
+      featuredImage: coverUrl || null,
+      mdLen: ctx.content.markdown?.length ?? 0,
+    })
+    const visibility = params.visibility ?? 'public'
+    const accessPermission = CNBLOGS_ACCESS[visibility] ?? 0
+    const collectionIds = (params.columns?.length
+      ? params.columns
+      : params.column
+        ? [params.column]
+        : []
+    ).map((id) => Number(id)).filter((n) => !Number.isNaN(n))
+
+    const password =
+      typeof params.extra?.password === 'string' && params.extra.password
+        ? params.extra.password
+        : null
+    const entryName =
+      typeof params.extra?.entryName === 'string' && params.extra.entryName
+        ? params.extra.entryName
+        : null
+    const postType =
+      typeof params.extra?.postType === 'number' ? params.extra.postType : 2
+
     ctx.payload = {
       id: null,
-      postType: 2, // 2 = 文章, 1 = 随笔
-      accessPermission: 0,
+      postType,
+      accessPermission,
       title: ctx.article.title,
       url: null,
       postBody: ctx.content.markdown,
-      categoryIds: params.category ? [params.category] : null,
+      categoryIds: (() => {
+        if (!params.category) return null
+        const id = Number(params.category)
+        return Number.isNaN(id) ? null : [id]
+      })(),
       categories: null,
-      collectionIds: params.column ? [params.column] : [],
+      collectionIds,
       inSiteCandidate: false,
       inSiteHome: false,
       siteCategoryId: null,
       blogTeamIds: null,
       isPublished: isPublish,
-      displayOnHomePage: false,
+      displayOnHomePage: Boolean(params.extra?.displayOnHomePage),
       isAllowComments: params.commentsEnabled ?? true,
       includeInMainSyndication: false,
-      isPinned: (params.extra?.pinned as boolean) ?? false,
+      isPinned: Boolean(params.extra?.pinned),
       showBodyWhenPinned: false,
       isOnlyForRegisterUser: false,
       isUpdateDateAdded: false,
-      entryName: null,
+      entryName,
       description: params.summary ?? null,
       featuredImage: coverUrl || null,
       tags: params.tags ?? null,
-      password: null,
+      password,
       publishAt: params.scheduleAt ? new Date(params.scheduleAt).toISOString() : null,
       datePublished: new Date().toISOString(),
       dateUpdated: null,
@@ -178,14 +390,18 @@ export class CnblogsAdapter extends PipelineAdapter {
       isContributeToImpressiveBugActivity: false,
       usingEditorId: 5,
       sourceUrl: null,
+      isAigc: Boolean(params.extra?.isAigc),
     }
   }
 
-  /** 6. 提交：创建草稿，返回结果 */
+  /** 6. 提交：创建草稿/发布，返回结果 */
   protected async submit(ctx: PublishContext): Promise<SyncResult> {
     if (!this.xsrfToken) {
       throw new Error('XSRF-TOKEN 未获取')
     }
+
+    const mode = ctx.params.mode ?? 'draft'
+    const isPublish = mode === 'publish' || mode === 'schedule'
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -208,28 +424,34 @@ export class CnblogsAdapter extends PipelineAdapter {
       if (response.status === 401 || response.status === 403) {
         throw new Error('未登录或登录已过期，请重新登录博客园')
       }
-      throw new Error(`创建草稿失败: ${response.status} - ${responseText}`)
+      throw new Error(`创建失败: ${response.status} - ${responseText}`)
     }
 
     let responseData: { id?: number; blogId?: number; error?: string }
     try {
       responseData = JSON.parse(responseText)
     } catch {
-      throw new Error(`创建草稿失败: 响应不是有效 JSON - ${responseText.substring(0, 100)}`)
+      throw new Error(`创建失败: 响应不是有效 JSON - ${responseText.substring(0, 100)}`)
     }
 
     if (!responseData.id) {
-      throw new Error(responseData.error || '创建草稿失败: 无效响应')
+      throw new Error(responseData.error || '创建失败: 无效响应')
     }
 
     const postId = String(responseData.id)
-    const draftUrl = `https://i.cnblogs.com/articles/edit;postId=${postId}`
-    logger.debug('Draft created:', postId)
+    let postUrl = `https://i.cnblogs.com/articles/edit;postId=${postId}`
+    if (isPublish) {
+      const blogApp = await this.ensureBlogApp()
+      if (blogApp) {
+        postUrl = `https://www.cnblogs.com/${blogApp}/articles/${postId}`
+      }
+    }
+    logger.debug('Post created:', postId, 'publish=', isPublish, 'url=', postUrl)
 
     return this.createResult(true, {
       postId,
-      postUrl: draftUrl,
-      draftOnly: true,
+      postUrl,
+      draftOnly: !isPublish,
     })
   }
 
@@ -238,28 +460,21 @@ export class CnblogsAdapter extends PipelineAdapter {
     return this.HEADER_RULES
   }
 
-  // ============ XSRF-TOKEN 与图片上传（保持原样）============
+  // ============ XSRF-TOKEN 与图片上传 ============
 
-  /**
-   * 从 cookie 中获取 XSRF-TOKEN
-   */
   private async getXsrfToken(): Promise<string | null> {
     if (this.xsrfToken) {
       return this.xsrfToken
     }
 
     try {
-      // 先访问页面以触发 cookie 设置
       await this.runtime.fetch('https://i.cnblogs.com/posts/edit', {
         method: 'GET',
         credentials: 'include',
       })
 
-      // 使用 cookies API 获取 XSRF-TOKEN
       if (this.runtime.getCookie) {
         logger.debug('Trying to get XSRF-TOKEN via getCookie API...')
-
-        // 尝试不同的域名格式
         const domains = ['i.cnblogs.com', '.cnblogs.com', 'cnblogs.com']
         for (const domain of domains) {
           const value = await this.runtime.getCookie(domain, 'XSRF-TOKEN')
@@ -282,29 +497,22 @@ export class CnblogsAdapter extends PipelineAdapter {
     }
   }
 
-  /**
-   * 上传图片到博客园
-   * 使用新版 CORS 上传接口
-   */
   protected async uploadImageByUrl(src: string): Promise<ImageUploadResult> {
     if (!this.xsrfToken) {
       throw new Error('XSRF-TOKEN 未获取')
     }
 
-    // 下载图片
     const imageResponse = await fetch(src)
     if (!imageResponse.ok) {
       throw new Error('图片下载失败: ' + src)
     }
     const imageBlob = await imageResponse.blob()
 
-    // 构建 FormData
     const formData = new FormData()
     formData.append('image', imageBlob, 'image.png')
     formData.append('app', 'blog')
     formData.append('uploadType', 'Select')
 
-    // 上传图片
     const uploadResponse = await this.runtime.fetch(
       'https://upload.cnblogs.com/v2/images/cors-upload',
       {
@@ -314,7 +522,7 @@ export class CnblogsAdapter extends PipelineAdapter {
           'x-xsrf-token': this.xsrfToken,
         },
         body: formData,
-      }
+      },
     )
 
     const responseText = await uploadResponse.text()
@@ -333,7 +541,6 @@ export class CnblogsAdapter extends PipelineAdapter {
 
     logger.debug('Image upload parsed response:', JSON.stringify(res))
 
-    // 尝试不同的响应格式
     const imageUrl = res.data || res.url || res.imageUrl || res.src
     if (!imageUrl || typeof imageUrl !== 'string') {
       throw new Error(`图片上传失败: 无法获取图片 URL - ${JSON.stringify(res)}`)

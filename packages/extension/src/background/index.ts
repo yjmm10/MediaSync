@@ -7,8 +7,17 @@ import {
   cancelSync,
   getAdapter,
   getPlatformPreprocessConfigs,
+  fetchPlatformPublishRefs,
+  getPlatformProfile,
+  getConfigurablePlatformIds,
   type SyncDetailProgress,
 } from '../adapters'
+import {
+  getSavedParams,
+  setSavedParams,
+  getCachedRefs,
+  setCachedRefs,
+} from '../lib/platform-publish-config'
 import * as wordpressAdapter from '../adapters/cms/wordpress'
 import * as metaweblogAdapter from '../adapters/cms/metaweblog'
 import { startMcpClient, stopMcpClient, getMcpStatus, mcpClient } from '../mcp/client'
@@ -138,7 +147,7 @@ type MessageAction =
   | { type: 'GET_PLATFORMS' }
   | { type: 'CHECK_ALL_AUTH'; payload?: { forceRefresh?: boolean } }
   | { type: 'CHECK_AUTH'; payload: { platformId: string } }
-  | { type: 'SYNC_ARTICLE'; payload: { article?: any; uiArticle?: any; fromStorage?: boolean; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string } }
+  | { type: 'SYNC_ARTICLE'; payload: { article?: any; uiArticle?: any; fromStorage?: boolean; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string; perPlatform?: Record<string, import('@mediasync/core').PublishParams> } }
   | { type: 'OPEN_SYNC_PAGE'; path?: string }
   | { type: 'TEST_CMS_CONNECTION'; payload: { type: CMSType; url: string; username: string; password: string } }
   | { type: 'SYNC_TO_CMS'; payload: { accountId: string; article: any } }
@@ -153,12 +162,16 @@ type MessageAction =
   | { type: 'CLEAR_SYNC_STATE' }
   | { type: 'UPDATE_SYNC_STATUS'; payload: { status: 'syncing' | 'completed' } }
   | { type: 'CANCEL_SYNC' }
-  | { type: 'START_SYNC_FROM_EDITOR'; article: any; platforms: string[]; syncId?: string }
+  | { type: 'START_SYNC_FROM_EDITOR'; article: any; platforms: string[]; syncId?: string; perPlatform?: Record<string, import('@mediasync/core').PublishParams> }
   | { type: 'UPLOAD_IMAGE'; payload: { src: string; platform?: string } }
   | { type: 'MAGIC_CALL'; payload: { methodName: string; data: any } }
   | { type: 'CLEAR_UPDATE_BADGE' }
   | { type: 'GET_PREPROCESS_CONFIGS'; platforms: string[] }
   | { type: 'TRIGGER_OPEN_EDITOR' }
+  | { type: 'FETCH_PLATFORM_PUBLISH_REFS'; payload: { platformId: string } }
+  | { type: 'GET_PLATFORM_PUBLISH_CONFIG'; payload: { platformId: string } }
+  | { type: 'SET_PLATFORM_PUBLISH_CONFIG'; payload: { platformId: string; params: import('@mediasync/core').PublishParams } }
+  | { type: 'LIST_CONFIGURABLE_PLATFORMS' }
 
 /**
  * 消息处理
@@ -238,7 +251,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     }
 
     case 'SYNC_ARTICLE': {
-      let { article, uiArticle, platforms, allSelectedPlatforms, skipHistory, source = 'popup', syncId: passedSyncId } = message.payload
+      let { article, uiArticle, platforms, allSelectedPlatforms, skipHistory, source = 'popup', syncId: passedSyncId, perPlatform } = message.payload
       const fromStorage = !!(message.payload as { fromStorage?: boolean }).fromStorage
 
       if (fromStorage) {
@@ -421,7 +434,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
             logger.warn('preparePlatformContents batch failed:', error)
           }
 
-          await syncToMultiplePlatforms(batchIds, processedArticle, syncCallbacks, source)
+          await syncToMultiplePlatforms(batchIds, processedArticle, syncCallbacks, source, perPlatform)
         }
       }
 
@@ -800,7 +813,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     }
 
     case 'START_SYNC_FROM_EDITOR': {
-      const { article, platforms, syncId: passedSyncId } = message
+      const { article, platforms, syncId: passedSyncId, perPlatform } = message
       const tabId = sender?.tab?.id
       const allPlatformMetas = getAllPlatformMetas()
 
@@ -883,7 +896,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
               ...progress,
             })
           },
-        }, 'editor')
+        }, 'editor', perPlatform)
         // dslResults 已经通过 onResult 回调添加到 allResults
       }
 
@@ -1095,6 +1108,51 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       return { configs }
     }
 
+    case 'LIST_CONFIGURABLE_PLATFORMS': {
+      await initAdapters()
+      const ids = getConfigurablePlatformIds()
+      const platforms = ids.map((id) => {
+        const profile = getPlatformProfile(id)
+        return {
+          id,
+          name: profile?.meta.name || id,
+          icon: profile?.meta.icon,
+          publishSchema: profile?.publishSchema,
+          publishDefaults: profile?.publishDefaults,
+        }
+      })
+      return { platforms }
+    }
+
+    case 'FETCH_PLATFORM_PUBLISH_REFS': {
+      await initAdapters()
+      const { platformId } = message.payload
+      const refs = await fetchPlatformPublishRefs(platformId)
+      const cached = await setCachedRefs(platformId, refs)
+      return { refs: cached.refs, updatedAt: cached.updatedAt }
+    }
+
+    case 'GET_PLATFORM_PUBLISH_CONFIG': {
+      await initAdapters()
+      const { platformId } = message.payload
+      const profile = getPlatformProfile(platformId)
+      const saved = await getSavedParams(platformId)
+      const cached = await getCachedRefs(platformId)
+      return {
+        publishSchema: profile?.publishSchema,
+        publishDefaults: profile?.publishDefaults,
+        saved,
+        refs: cached?.refs ?? null,
+        updatedAt: cached?.updatedAt ?? null,
+      }
+    }
+
+    case 'SET_PLATFORM_PUBLISH_CONFIG': {
+      const { platformId, params } = message.payload
+      await setSavedParams(platformId, params)
+      return { success: true }
+    }
+
     case 'TRIGGER_OPEN_EDITOR': {
       // 悬浮按钮触发，与右键菜单逻辑相同
       const tabId = sender?.tab?.id
@@ -1234,7 +1292,7 @@ chrome.runtime.onInstalled.addListener(async details => {
     const currentVersion = chrome.runtime.getManifest().version
 
     // 重要版本升级时显示更新日志
-    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0', '3.0.1', '3.1.0', '3.1.1']
+    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0', '3.0.1', '3.1.0', '3.1.1', '3.2.0']
     if (
       showChangelogVersions.includes(currentVersion) ||
       (previousVersion.startsWith('1.') && currentVersion.startsWith('2.')) ||

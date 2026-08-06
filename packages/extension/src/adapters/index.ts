@@ -13,6 +13,7 @@ import {
   type SyncResult,
 } from '@mediasync/core'
 import { getTabAuthAutoDetect } from '../lib/tab-auth-auto-detect'
+import { getSavedParams } from '../lib/platform-publish-config'
 import { createExtensionRuntime } from '../runtime/extension'
 import { createLogger } from '../lib/logger'
 import {
@@ -230,6 +231,30 @@ export function getAllPlatformMetas() {
  */
 export function getPlatformProfile(platformId: string) {
   return adapterRegistry.getProfile(platformId)
+}
+
+/**
+ * 拉取平台发布选项源（仅适配器实现了 fetchPublishRefs 时可用）
+ */
+export async function fetchPlatformPublishRefs(platformId: string) {
+  const adapter = await getAdapter(platformId)
+  if (!adapter) {
+    throw new Error(`平台不存在: ${platformId}`)
+  }
+  const withFetch = adapter as { fetchPublishRefs?: () => Promise<import('@mediasync/core').PublishRefs> }
+  if (typeof withFetch.fetchPublishRefs !== 'function') {
+    throw new Error(`${platformId} 不支持拉取发布选项`)
+  }
+  return withFetch.fetchPublishRefs()
+}
+
+/**
+ * 列出支持发布配置（有 schema 且可拉选项）的平台 id
+ */
+export function getConfigurablePlatformIds(): string[] {
+  return adapterEntries
+    .filter((e) => e.publishSchema && e.meta.id === 'cnblogs')
+    .map((e) => e.meta.id)
 }
 
 /**
@@ -555,14 +580,15 @@ export async function syncToPlatform(
       }
     }
 
-    // 发布参数：适配器 publishDefaults ⊕ 本次覆盖（不再读取用户平台配置缓存）
+    // 发布参数：publishDefaults ⊕ 用户保存默认 ⊕ 本次覆盖
     const profile = adapterRegistry.getProfile(platformId)
-    const params = mergeParams(profile?.publishDefaults, undefined, options?.params)
+    const saved = await getSavedParams(platformId)
+    const params = mergeParams(profile?.publishDefaults, saved, options?.params)
 
     // 默认只保存草稿，带超时保护
     return await withTimeout(
       adapter.publish(platformArticle, {
-        draftOnly: options?.draftOnly ?? true,
+        draftOnly: options?.draftOnly ?? (params.mode !== 'publish' && params.mode !== 'schedule'),
         params,
         onImageProgress: onImageProgress
           ? (current: number, total: number) => onImageProgress(platformId, current, total)
@@ -614,6 +640,7 @@ export async function syncToMultiplePlatforms(
   article: Article,
   callbacks?: SyncCallbacks,
   source = 'popup', // 来源：popup, weixin, weixin-editor, mcp 等
+  perPlatform?: Record<string, PublishParams>,
 ): Promise<SyncResult[]> {
   // 创建新的取消控制器
   syncAbortController = new AbortController()
@@ -695,7 +722,7 @@ export async function syncToMultiplePlatforms(
     const result = await syncToPlatform(
       platformId,
       article,
-      undefined,
+      { params: perPlatform?.[platformId] },
       wrappedImageProgress
     )
 

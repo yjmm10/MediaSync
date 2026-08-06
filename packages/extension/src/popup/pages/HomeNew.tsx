@@ -38,6 +38,7 @@ export function HomeNew() {
     platformProgress,
     extractError,
     recovered,
+    platformParams,
     loadPlatforms,
     loadArticle,
     recoverSyncState,
@@ -45,6 +46,7 @@ export function HomeNew() {
     togglePlatform,
     selectAll,
     deselectAll,
+    setPlatformParams,
     startSync,
     retryFailed,
     reset,
@@ -631,6 +633,8 @@ export function HomeNew() {
         results={results}
         platformProgress={platformProgress}
         error={error}
+        platformParams={platformParams}
+        onPlatformParamsChange={setPlatformParams}
         onTogglePlatform={togglePlatform}
         onSelectAll={selectAll}
         onDeselectAll={deselectAll}
