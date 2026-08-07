@@ -11,6 +11,7 @@
     "build": "yarn workspaces run build",
     "build:core": "yarn workspace @mediasync/core build",
     "build:extension": "yarn workspace @mediasync/extension build",
+    "rebuild:extension": "node scripts/rebuild-extension.mjs",
     "build:mcp": "yarn workspace @mediasync/mcp-server build",
     "build:cli": "yarn workspace @mediasync/cli build",
     "mcp": "yarn workspace @mediasync/mcp-server start",

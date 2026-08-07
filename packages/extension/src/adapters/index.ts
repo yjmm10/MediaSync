@@ -13,7 +13,7 @@ import {
   type SyncResult,
 } from '@mediasync/core'
 import { getTabAuthAutoDetect } from '../lib/tab-auth-auto-detect'
-import { getSavedParams } from '../lib/platform-publish-config'
+import { getSavedParams, stripFmDrivenFields } from '../lib/platform-publish-config'
 import { createExtensionRuntime } from '../runtime/extension'
 import { createLogger } from '../lib/logger'
 import {
@@ -580,10 +580,15 @@ export async function syncToPlatform(
       }
     }
 
-    // 发布参数：publishDefaults ⊕ 用户保存默认 ⊕ 本次覆盖
+    // 发布参数：defaults ⊕ 设置页非 FM 项 ⊕ 本次会话（含勾选时 FM 快照）
+    // 旧 saved 里的 tags/columns/summary 不得盖回会话
     const profile = adapterRegistry.getProfile(platformId)
     const saved = await getSavedParams(platformId)
-    const params = mergeParams(profile?.publishDefaults, saved, options?.params)
+    const params = mergeParams(
+      profile?.publishDefaults,
+      stripFmDrivenFields(saved),
+      options?.params,
+    )
 
     // 默认只保存草稿，带超时保护
     return await withTimeout(

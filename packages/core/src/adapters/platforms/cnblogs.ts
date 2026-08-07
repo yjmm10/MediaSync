@@ -174,7 +174,7 @@ export class CnblogsAdapter extends PipelineAdapter {
   // ============ 选项源（仅手动刷新）============
 
   /**
-   * 拉取个人分类 + 合集 + 标签建议（设置/同步折叠「更新」按钮调用）。
+   * 拉取个人分类 + 合集 + 标签建议（设置/同步折叠「平台更新」按钮调用）。
    * 发布管道不自动调用。
    */
   async fetchPublishRefs(): Promise<PublishRefs> {
@@ -227,6 +227,41 @@ export class CnblogsAdapter extends PipelineAdapter {
         return { id: String(c.id), name: c.title }
       })
       .filter((x): x is { id: string; name: string } => x != null)
+  }
+
+  /** 合集参数：已是数字 id 则直用；否则按名称匹配合集列表 */
+  private async resolveCollectionIds(raw: string[]): Promise<number[]> {
+    if (raw.length === 0) return []
+    const asNumbers = raw.map((id) => Number(id))
+    if (asNumbers.every((n) => !Number.isNaN(n))) {
+      return asNumbers
+    }
+    let cols: Array<{ id: string; name: string }> = []
+    try {
+      cols = await this.fetchCollections()
+    } catch (e) {
+      logger.warn('resolveCollectionIds: fetch collections failed', e)
+      return asNumbers.filter((n) => !Number.isNaN(n))
+    }
+    const ids: number[] = []
+    for (const item of raw) {
+      const n = Number(item)
+      if (!Number.isNaN(n)) {
+        ids.push(n)
+        continue
+      }
+      const lower = item.trim().toLowerCase()
+      const hit = cols.find(
+        (c) => c.id === item || c.name.trim().toLowerCase() === lower,
+      )
+      if (hit) {
+        const idNum = Number(hit.id)
+        if (!Number.isNaN(idNum)) ids.push(idNum)
+      } else {
+        logger.warn('resolveCollectionIds: no match for', item)
+      }
+    }
+    return ids
   }
 
   private async fetchTagSuggestions(): Promise<string[]> {
@@ -304,12 +339,15 @@ export class CnblogsAdapter extends PipelineAdapter {
     if (coverMode === 'none') {
       coverUrl = ''
     } else if (coverMode === 'auto') {
-      // 优先已上传后的正文（图床 URL），再回退文章封面/原文
-      coverUrl =
-        extractFirstImageUrl(ctx.content.markdown, ctx.content.html) ||
-        (ctx.article.cover && /^https?:\/\//i.test(ctx.article.cover)
+      // 题图优先对应封面图（article.cover）；无封面图时回退正文（图床 URL）
+      // 首图，再回退原文首图；都没有则保持为空，即“没题图则为无”。
+      const articleCover =
+        ctx.article.cover && /^https?:\/\//i.test(ctx.article.cover)
           ? ctx.article.cover
-          : '') ||
+          : ''
+      coverUrl =
+        articleCover ||
+        extractFirstImageUrl(ctx.content.markdown, ctx.content.html) ||
         extractFirstImageUrl(
           ctx.article.markdown,
           ctx.article.html,
@@ -325,12 +363,13 @@ export class CnblogsAdapter extends PipelineAdapter {
     })
     const visibility = params.visibility ?? 'public'
     const accessPermission = CNBLOGS_ACCESS[visibility] ?? 0
-    const collectionIds = (params.columns?.length
+    const rawCollections = params.columns?.length
       ? params.columns
       : params.column
         ? [params.column]
         : []
-    ).map((id) => Number(id)).filter((n) => !Number.isNaN(n))
+    // FM/UI 可能传入合集名称；数字 id 直用，名称则拉列表解析（个人分类不走 FM）
+    const collectionIds = await this.resolveCollectionIds(rawCollections)
 
     const password =
       typeof params.extra?.password === 'string' && params.extra.password
@@ -502,7 +541,12 @@ export class CnblogsAdapter extends PipelineAdapter {
       throw new Error('XSRF-TOKEN 未获取')
     }
 
-    const imageResponse = await fetch(src)
+    // 使用 runtime.fetch 而非全局 fetch：扩展环境会自动携带 cookie，
+    // 并能绕过外链图片的防盗链/CORS 限制。全局 fetch 在 service worker
+    // 中抓取跨域外链图片会失败，导致图片无法转存、发布后不显示。
+    const imageResponse = await this.runtime.fetch(src, {
+      credentials: 'include',
+    })
     if (!imageResponse.ok) {
       throw new Error('图片下载失败: ' + src)
     }

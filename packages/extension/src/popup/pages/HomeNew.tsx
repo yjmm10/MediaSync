@@ -39,6 +39,7 @@ export function HomeNew() {
     extractError,
     recovered,
     platformParams,
+    platformParamsEpoch,
     loadPlatforms,
     loadArticle,
     recoverSyncState,
@@ -304,6 +305,8 @@ export function HomeNew() {
             html: articleToHtml(article),
             markdown: article.markdown || '',
             cover: article.cover,
+            summary: article.summary,
+            frontmatter: article.frontmatter,
             source: { url, platform: '' },
           },
           ts: Date.now(),
@@ -369,6 +372,8 @@ export function HomeNew() {
         markdown: outcome.article.markdown,
         html: outcome.article.html,
         cover: outcome.article.cover,
+        summary: outcome.article.summary,
+        frontmatter: outcome.article.frontmatter,
         fileName: outcome.stats.markdownFileName,
       })
       setArticle(
@@ -378,6 +383,8 @@ export function HomeNew() {
           html: outcome.article.html,
           markdown: outcome.article.markdown,
           cover: outcome.article.cover,
+          summary: outcome.article.summary,
+          frontmatter: outcome.article.frontmatter,
         },
         'import',
       )
@@ -634,6 +641,7 @@ export function HomeNew() {
         platformProgress={platformProgress}
         error={error}
         platformParams={platformParams}
+        platformParamsEpoch={platformParamsEpoch}
         onPlatformParamsChange={setPlatformParams}
         onTogglePlatform={togglePlatform}
         onSelectAll={selectAll}

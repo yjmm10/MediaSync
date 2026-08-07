@@ -327,16 +327,28 @@ MediaSync/
 # 安装依赖
 pnpm install
 
-# 开发模式
+# 开发模式（扩展热更新）
 pnpm dev
 
-# 构建
+# 全量构建（core + extension + mcp + cli）
 pnpm build
+
+# 一键重新构建插件（先 core 再 extension，日常改适配器/扩展推荐）
+pnpm rebuild:extension
+# Windows 也可双击 scripts/rebuild-extension.cmd
 ```
 
-然后在 Chrome 中加载 `packages/extension/dist` 目录。
+然后在 Chrome 中加载 **`packages/extension/dist`** 目录；改完重建后在扩展管理页点「重新加载」。
+
+更完整的构建说明、参数与排错见 [`docs/build.md`](docs/build.md)。
 
 ## 更新日志
+
+### v3.2.1 (2026-08-07)
+
+- 🆕 本地 Markdown front matter →「文档元数据」表单（封面 / 摘要 / 标签 / 分类），勾选平台时预填发布参数
+- 🔧 取消再勾选使用最新元数据；博客园分类映射合集；避免设置缓存盖回会话快照
+- 📝 补充扩展构建说明（`docs/build.md` / `pnpm rebuild:extension`）
 
 ### v3.2.0 (2026-08-07)
 

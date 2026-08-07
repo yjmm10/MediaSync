@@ -16,6 +16,8 @@ export interface Article {
   content: string
   summary?: string
   cover?: string
+  /** front matter 结构化元数据 */
+  frontmatter?: import('@/lib/article-meta').ArticleMeta
 }
 
 export interface SyncResult {
@@ -51,6 +53,8 @@ export interface SyncDialogProps {
   error: string | null
   /** 每平台本次同步实时参数 */
   platformParams?: Record<string, import('@mediasync/core').PublishParams>
+  /** 勾选世代，配置面板用其强制刷新 FM 快照 */
+  platformParamsEpoch?: Record<string, number>
   onPlatformParamsChange?: (platformId: string, params: import('@mediasync/core').PublishParams) => void
 
   // Actions

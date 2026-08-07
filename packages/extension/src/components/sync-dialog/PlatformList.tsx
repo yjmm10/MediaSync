@@ -16,6 +16,7 @@ import {
   type UserPlatformGroup,
 } from '@/lib/user-platform-groups'
 import type { PublishParams } from '@mediasync/core'
+import type { ArticleMeta } from '@/lib/article-meta'
 import {
   PlatformInlinePublishConfig,
   isSyncConfigurablePlatform,
@@ -53,7 +54,9 @@ interface PlatformListProps {
   onDeselectAll: () => void
   onRecheckAuth?: (platformId: string) => void | Promise<void>
   platformParams?: Record<string, PublishParams>
+  platformParamsEpoch?: Record<string, number>
   onPlatformParamsChange?: (platformId: string, params: PublishParams) => void
+  articleMeta?: ArticleMeta | null
 }
 
 export function PlatformList({
@@ -68,7 +71,9 @@ export function PlatformList({
   onDeselectAll,
   onRecheckAuth,
   platformParams,
+  platformParamsEpoch,
   onPlatformParamsChange,
+  articleMeta,
 }: PlatformListProps) {
   const isIdle = status === 'idle' || status === 'loading'
   const isSyncing = status === 'syncing'
@@ -273,11 +278,13 @@ export function PlatformList({
           !!onPlatformParamsChange
         }
         publishParams={platformParams?.[platform.id]}
+        paramsEpoch={platformParamsEpoch?.[platform.id]}
         onPublishParamsChange={
           onPlatformParamsChange
             ? (p) => onPlatformParamsChange(platform.id, p)
             : undefined
         }
+        articleMeta={articleMeta}
       />
     )
   }
@@ -446,12 +453,14 @@ export function PlatformList({
             orderedAuth
               .filter((p) => selected.has(p.id) && isSyncConfigurablePlatform(p.id))
               .map((p) => (
-                <div key={`cfg-${p.id}`} className="card-soft p-2.5 space-y-2">
+                <div key={`cfg-${p.id}-${platformParamsEpoch?.[p.id] ?? 0}`} className="card-soft p-2.5 space-y-2">
                   <p className="text-xs font-medium">{p.name} · 发布参数</p>
                   <PlatformInlinePublishConfig
                     platformId={p.id}
                     params={platformParams?.[p.id]}
+                    paramsEpoch={platformParamsEpoch?.[p.id]}
                     onChangeParams={(params) => onPlatformParamsChange(p.id, params)}
+                    articleMeta={articleMeta}
                   />
                 </div>
               ))}
@@ -696,7 +705,9 @@ function PlatformRow({
   onDragEnd,
   showPublishConfig,
   publishParams,
+  paramsEpoch,
   onPublishParamsChange,
+  articleMeta,
 }: {
   platform: Platform
   isSelected: boolean
@@ -722,7 +733,9 @@ function PlatformRow({
   onDragEnd?: (e: DragEvent<HTMLDivElement>) => void
   showPublishConfig?: boolean
   publishParams?: PublishParams
+  paramsEpoch?: number
   onPublishParamsChange?: (params: PublishParams) => void
+  articleMeta?: ArticleMeta | null
 }) {
   const isDone = !!result
   const [configOpen, setConfigOpen] = useState(false)
@@ -893,9 +906,12 @@ function PlatformRow({
           onClick={(e) => e.stopPropagation()}
         >
           <PlatformInlinePublishConfig
+            key={`${platform.id}-${paramsEpoch ?? 0}`}
             platformId={platform.id}
             params={publishParams}
+            paramsEpoch={paramsEpoch}
             onChangeParams={onPublishParamsChange}
+            articleMeta={articleMeta}
           />
         </div>
       )}

@@ -10,7 +10,9 @@
       "@mediasync/core/*": ["../core/src/*"]
     },
     "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    // 禁止 tsc 在 src 旁产出 .js/.d.ts（会遮蔽 .tsx，导致 Vite 打进旧逻辑）
+    "noEmit": true
   },
   "include": ["src/**/*", "platforms/**/*"],
   "exclude": ["node_modules", "dist"]

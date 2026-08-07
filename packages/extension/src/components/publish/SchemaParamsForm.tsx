@@ -554,7 +554,7 @@ export function SchemaParamsForm({
         <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span>
             {emptyRefs
-              ? '暂无分类/合集/标签数据，请点击更新'
+              ? '暂无分类/合集/标签数据，请点击平台更新'
               : updatedAt
                 ? `选项已缓存 · ${new Date(updatedAt).toLocaleString()}`
                 : '选项已缓存'}
@@ -566,7 +566,7 @@ export function SchemaParamsForm({
             onClick={() => void onRefreshRefs()}
           >
             <RefreshCw className={cn('w-3 h-3', refreshing && 'animate-spin')} />
-            更新
+            平台更新
           </button>
         </div>
       )}

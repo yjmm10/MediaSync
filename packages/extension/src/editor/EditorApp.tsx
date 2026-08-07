@@ -3,6 +3,11 @@ import { Save, Download, X, Loader2 } from 'lucide-react'
 import { markdownToHtml, htmlToMarkdownNative } from '@mediasync/core'
 import { createLogger } from '../lib/logger'
 import { MarkdownSplitEditor } from '@/components/MarkdownSplitEditor'
+import { ArticleMetaForm } from '@/components/ArticleMetaForm'
+import {
+  serializeMarkdownWithMeta,
+  type ArticleMeta,
+} from '@/lib/article-meta'
 
 const logger = createLogger('Editor')
 
@@ -11,6 +16,8 @@ interface EditorArticle {
   content: string
   markdown?: string
   cover?: string
+  summary?: string
+  frontmatter?: ArticleMeta
   url?: string
   extractor?: string
 }
@@ -25,14 +32,16 @@ function toMarkdownSource(article: EditorArticle): string {
   return content
 }
 
-function buildPayload(title: string, mdText: string, cover?: string) {
+function buildPayload(title: string, mdText: string, frontmatter?: ArticleMeta) {
   const html = markdownToHtml(mdText)
   return {
     title,
     markdown: mdText,
     content: html,
     html,
-    cover,
+    cover: frontmatter?.cover,
+    summary: frontmatter?.summary,
+    frontmatter,
   }
 }
 
@@ -44,6 +53,7 @@ export function EditorApp() {
   const [mode, setMode] = useState<EditorMode>('edit')
   const [mdText, setMdText] = useState('')
   const [title, setTitle] = useState('')
+  const [frontmatter, setFrontmatter] = useState<ArticleMeta>({})
   const lastPushedRef = useRef<string | null>(null)
   const skipLiveRef = useRef(true)
 
@@ -55,10 +65,15 @@ export function EditorApp() {
           const art = data.article as EditorArticle
           const md = toMarkdownSource(art)
           const t = art.title || ''
+          const initialFm: ArticleMeta = art.frontmatter ?? {
+            ...(art.cover ? { cover: art.cover } : {}),
+            ...(art.summary ? { summary: art.summary } : {}),
+          }
           setArticle(art)
           setTitle(t)
           setMdText(md)
-          lastPushedRef.current = `${t}\0${md}`
+          setFrontmatter(initialFm)
+          lastPushedRef.current = `${t}\0${md}\0${JSON.stringify(initialFm)}`
           skipLiveRef.current = true
           if (data.mode === 'preview') {
             setMode('preview')
@@ -79,7 +94,7 @@ export function EditorApp() {
   // 编辑过程防抖回写侧栏
   useEffect(() => {
     if (!article) return
-    const key = `${title}\0${mdText}`
+    const key = `${title}\0${mdText}\0${JSON.stringify(frontmatter)}`
     if (key === lastPushedRef.current) return
     if (skipLiveRef.current) {
       skipLiveRef.current = false
@@ -90,33 +105,34 @@ export function EditorApp() {
       lastPushedRef.current = key
       window.parent.postMessage(JSON.stringify({
         type: 'EDITOR_CONTENT_LIVE',
-        article: buildPayload(title, mdText, article.cover),
+        article: buildPayload(title, mdText, frontmatter),
       }), '*')
     }, 350)
     return () => window.clearTimeout(timer)
-  }, [article, title, mdText])
+  }, [article, title, mdText, frontmatter])
 
   const handleSave = useCallback(() => {
-    lastPushedRef.current = `${title}\0${mdText}`
+    lastPushedRef.current = `${title}\0${mdText}\0${JSON.stringify(frontmatter)}`
     window.parent.postMessage(JSON.stringify({
       type: 'EDITOR_CONTENT_LIVE',
-      article: buildPayload(title, mdText, article?.cover),
+      article: buildPayload(title, mdText, frontmatter),
     }), '*')
-  }, [article, title, mdText])
+  }, [title, mdText, frontmatter])
 
   const handleClose = useCallback(() => {
     window.parent.postMessage(JSON.stringify({
       type: 'CLOSE_EDITOR',
-      article: buildPayload(title, mdText, article?.cover),
+      article: buildPayload(title, mdText, frontmatter),
     }), '*')
-  }, [article, title, mdText])
+  }, [title, mdText, frontmatter])
 
   const handleSaveLocal = useCallback(async () => {
     const safe = (title.trim() || 'untitled')
       .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
       .slice(0, 80)
     const filename = `${safe}.md`
-    const blob = new Blob([mdText], { type: 'text/markdown;charset=utf-8' })
+    const fileBody = serializeMarkdownWithMeta(mdText, frontmatter, title)
+    const blob = new Blob([fileBody], { type: 'text/markdown;charset=utf-8' })
     try {
       const url = URL.createObjectURL(blob)
       try {
@@ -140,7 +156,7 @@ export function EditorApp() {
         logger.error('Fallback data URL download failed:', e2)
       }
     }
-  }, [title, mdText])
+  }, [title, mdText, frontmatter])
 
   if (!article) {
     return (
@@ -194,6 +210,8 @@ export function EditorApp() {
           </div>
         </div>
       </header>
+
+      <ArticleMetaForm value={frontmatter} onChange={setFrontmatter} />
 
       <main className="flex-1 min-h-0">
         <MarkdownSplitEditor

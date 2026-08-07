@@ -67,13 +67,36 @@ export function isRefsEmpty(refs: PublishRefs | null | undefined): boolean {
   return cat === 0 && col === 0 && tags === 0
 }
 
+/** 由文档 FM / 勾选快照驱动的字段，不得写入设置页默认缓存，也不得在发布时用旧缓存盖回 */
+export const FM_DRIVEN_PARAM_KEYS = [
+  'cover',
+  'summary',
+  'tags',
+  'category',
+  'columns',
+  'column',
+] as const
+
+/** 去掉 FM 驱动字段，只保留 mode / 可见性等平台设置 */
+export function stripFmDrivenFields(params?: PublishParams): PublishParams {
+  if (!params) return {}
+  const next: PublishParams = { ...params }
+  for (const k of FM_DRIVEN_PARAM_KEYS) {
+    delete next[k]
+  }
+  return next
+}
+
 /**
- * 写入 platformPublishConfig 前归一化：题图仅保留 auto/none，避免手动 URL 污染默认缓存。
+ * 写入 platformPublishConfig 前归一化：
+ * - 去掉 FM 驱动字段（tags/columns/summary 等），避免旧 FM 污染下次勾选/发布
+ * - 题图仅保留 auto/none
  */
 export function toPersistablePublishParams(params: PublishParams): PublishParams {
-  const next: PublishParams = { ...params }
-  if (next.cover !== undefined && next.cover !== 'auto' && next.cover !== 'none') {
-    delete next.cover
+  const next = stripFmDrivenFields(params)
+  // 题图仅保留 auto/none 作为平台默认；FM 里的 URL 不进设置缓存
+  if (params.cover === 'auto' || params.cover === 'none') {
+    next.cover = params.cover
   }
   return next
 }

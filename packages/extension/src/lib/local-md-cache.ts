@@ -6,6 +6,7 @@
  */
 import { computeDocId, type HistoryArticle } from './history-doc'
 import { createLogger } from './logger'
+import type { ArticleMeta } from './article-meta'
 
 const logger = createLogger('LocalMdCache')
 
@@ -21,6 +22,8 @@ export interface LocalMdCacheItem {
   markdown: string
   html: string
   cover?: string
+  summary?: string
+  frontmatter?: ArticleMeta
   fileName?: string
   importedAt: number
 }
@@ -74,6 +77,8 @@ export async function pushLocalMdCache(input: {
   markdown: string
   html: string
   cover?: string
+  summary?: string
+  frontmatter?: ArticleMeta
   fileName?: string
 }): Promise<void> {
   const article: HistoryArticle = {
@@ -88,12 +93,17 @@ export async function pushLocalMdCache(input: {
     markdown: input.markdown,
     html: input.html,
     cover: input.cover,
+    summary: input.summary,
+    frontmatter: input.frontmatter,
     fileName: input.fileName,
     importedAt: Date.now(),
   }
 
   const limit = await getLocalMdCacheLimit()
   const prev = await getLocalMdCache()
+  // 同 id 保留旧 fileName（编辑回写时可能未带）
+  const existing = prev.find(item => item.id === id)
+  if (existing?.fileName && !next.fileName) next.fileName = existing.fileName
   const merged = [next, ...prev.filter(item => item.id !== id)].slice(0, limit)
 
   try {
@@ -102,6 +112,32 @@ export async function pushLocalMdCache(input: {
   } catch (e) {
     logger.warn('pushLocalMdCache failed (quota?):', e)
   }
+}
+
+/**
+ * 将当前文章快照写回本地 MD 缓存（导入/编辑后、追加同步前）。
+ * 无 markdown/html 时跳过。
+ */
+export async function upsertLocalMdCacheFromArticle(article: {
+  title: string
+  markdown?: string
+  html?: string
+  content?: string
+  cover?: string
+  summary?: string
+  frontmatter?: ArticleMeta
+}): Promise<void> {
+  const markdown = article.markdown || ''
+  const html = article.html || article.content || ''
+  if (!markdown && !html) return
+  await pushLocalMdCache({
+    title: article.title,
+    markdown: markdown || html,
+    html: html || markdown,
+    cover: article.cover ?? article.frontmatter?.cover,
+    summary: article.summary ?? article.frontmatter?.summary,
+    frontmatter: article.frontmatter,
+  })
 }
 
 export async function clearLocalMdCache(): Promise<void> {

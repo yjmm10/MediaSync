@@ -63,9 +63,16 @@ interface ActiveSyncState {
   article: {
     title: string
     cover?: string
+    summary?: string
     content?: string
     html?: string
     markdown?: string
+    frontmatter?: {
+      cover?: string
+      summary?: string
+      tags?: string[]
+      category?: string
+    }
   } | null
   selectedPlatforms: string[]
   results: SyncResult[]
@@ -363,9 +370,11 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
         article: {
           title: stateArticle.title,
           cover: stateArticle.cover,
+          summary: stateArticle.summary,
           content: stateArticle.content,
           html: stateArticle.html,
           markdown: stateArticle.markdown,
+          frontmatter: stateArticle.frontmatter,
         },
         selectedPlatforms: allSelectedPlatforms || platforms,
         results: [],
@@ -850,8 +859,11 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
         article: {
           title: article.title,
           cover: article.cover,
+          summary: article.summary,
           content: article.content,
           html: article.html,
+          markdown: article.markdown,
+          frontmatter: article.frontmatter,
         },
         selectedPlatforms: platforms,
         results: [],
@@ -1292,7 +1304,7 @@ chrome.runtime.onInstalled.addListener(async details => {
     const currentVersion = chrome.runtime.getManifest().version
 
     // 重要版本升级时显示更新日志
-    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0', '3.0.1', '3.1.0', '3.1.1', '3.2.0']
+    const showChangelogVersions = ['2.0.8', '2.0.9', '2.0.10', '2.1.0', '2.1.1', '2.1.2', '2.1.3', '2.1.4', '3.0.0', '3.0.1', '3.1.0', '3.1.1', '3.2.0', '3.2.1']
     if (
       showChangelogVersions.includes(currentVersion) ||
       (previousVersion.startsWith('1.') && currentVersion.startsWith('2.')) ||

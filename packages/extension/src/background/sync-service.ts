@@ -44,9 +44,16 @@ interface ActiveSyncState {
   article: {
     title: string
     cover?: string
+    summary?: string
     content?: string
     html?: string
     markdown?: string
+    frontmatter?: {
+      cover?: string
+      summary?: string
+      tags?: string[]
+      category?: string
+    }
   } | null
   selectedPlatforms: string[]
   results: SyncResult[]
@@ -156,6 +163,13 @@ export async function performSync(
     html?: string
     markdown?: string
     cover?: string
+    summary?: string
+    frontmatter?: {
+      cover?: string
+      summary?: string
+      tags?: string[]
+      category?: string
+    }
   },
   platforms: string[],
   options: SyncOptions = {},
@@ -178,6 +192,8 @@ export async function performSync(
     html: article.html || article.content || '',
     markdown: article.markdown || '',
     cover: article.cover,
+    summary: article.summary,
+    frontmatter: article.frontmatter,
     source: contentSource,
   }
   const historyArticle = {
@@ -205,9 +221,11 @@ export async function performSync(
     article: {
       title: normalizedArticle.title,
       cover: normalizedArticle.cover,
+      summary: normalizedArticle.summary,
       content: normalizedArticle.content,
       html: normalizedArticle.html,
       markdown: normalizedArticle.markdown,
+      frontmatter: normalizedArticle.frontmatter,
     },
     selectedPlatforms: platforms,
     results: [],

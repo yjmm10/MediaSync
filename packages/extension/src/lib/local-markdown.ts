@@ -15,6 +15,10 @@
  * - 同一张图片多次引用只读取一次（缓存）
  */
 import { markdownToHtml } from '@mediasync/core'
+import {
+  parseFrontmatterMeta,
+  type ArticleMeta,
+} from './article-meta'
 import { createLogger } from './logger'
 
 const logger = createLogger('LocalMarkdown')
@@ -207,7 +211,9 @@ function titleCandidateOrder(source: LocalMdTitleSource): Array<'h1' | 'frontmat
 export interface ParsedMarkdown {
   title: string
   body: string
-  /** front matter 中的封面路径（尚未转换为 data URI） */
+  /** front matter 结构化元数据（封面路径尚未转换为 data URI） */
+  frontmatter: ArticleMeta
+  /** @deprecated 使用 frontmatter.cover；保留兼容旧调用 */
   cover?: string
 }
 
@@ -222,18 +228,22 @@ export function parseMarkdown(
   options?: ParseMarkdownOptions
 ): ParsedMarkdown {
   const titleSource = normalizeLocalMdTitleSource(options?.titleSource)
-  let cover: string | undefined
   let body = content
   let frontmatterTitle: string | null = null
+  let fm: ArticleMeta = {}
 
-  // 始终剥离 YAML front matter（封面仍从中读取）
+  // 始终剥离 YAML front matter（元数据写入 frontmatter，不进入正文）
   const yamlMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/)
   if (yamlMatch) {
-    const fm = yamlMatch[1]
-    const titleMatch = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m)
-    if (titleMatch) frontmatterTitle = titleMatch[1].trim() || null
-    const coverMatch = fm.match(/^(?:cover|image|thumbnail|banner):\s*["']?(.+?)["']?\s*$/m)
-    if (coverMatch) cover = coverMatch[1].trim()
+    const fmText = yamlMatch[1]
+    const titleMatch = fmText.match(/^title:\s*["']?(.+?)["']?\s*$/m)
+    if (titleMatch) {
+      const t = titleMatch[1].trim()
+      frontmatterTitle = t
+        ? t.replace(/^["']|["']$/g, '').trim() || null
+        : null
+    }
+    fm = parseFrontmatterMeta(fmText)
     body = content.slice(yamlMatch[0].length)
   }
 
@@ -264,7 +274,12 @@ export function parseMarkdown(
 
   if (!body.trim()) body = content
 
-  return { title: title || fallbackTitle, body: body.trim(), cover }
+  return {
+    title: title || fallbackTitle,
+    body: body.trim(),
+    frontmatter: fm,
+    cover: fm.cover,
+  }
 }
 
 /** 读取 File 为 data URI */
@@ -413,8 +428,12 @@ export interface ImportedArticle {
   markdown: string
   /** 由 markdown 渲染得到的 HTML */
   html: string
-  /** 封面（data URI 或远程 URL） */
+  /** 封面（data URI 或远程 URL）；与 meta.cover 镜像 */
   cover?: string
+  /** 摘要；与 meta.summary 镜像 */
+  summary?: string
+  /** front matter 结构化元数据 */
+  frontmatter?: ArticleMeta
 }
 
 export interface ImportStats {
@@ -468,13 +487,15 @@ export async function loadMarkdownFromFiles(
   const markdown = imgResult.content
 
   // 封面：若是本地路径同样转 data URI
-  let cover = parsed.cover
+  const frontmatter: ArticleMeta = { ...parsed.frontmatter }
+  let cover = frontmatter.cover
   if (cover && !isRemoteOrEmbedded(cover)) {
     const resolved = resolveRelativePath(baseDir, cover)
     const file = index.get(resolved) || index.getByBasename(cover)
     if (file && MIME_TYPES[extOf(file.name)]) {
       try {
         cover = await fileToDataUri(file)
+        frontmatter.cover = cover
       } catch (e) {
         logger.warn('封面转换失败:', (e as Error).message)
       }
@@ -484,7 +505,14 @@ export async function loadMarkdownFromFiles(
   const html = markdownToHtml(markdown)
 
   return {
-    article: { title: parsed.title, markdown, html, cover },
+    article: {
+      title: parsed.title,
+      markdown,
+      html,
+      cover: frontmatter.cover,
+      summary: frontmatter.summary,
+      frontmatter,
+    },
     stats,
   }
 }
