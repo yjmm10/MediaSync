@@ -17,7 +17,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Meipian')
@@ -203,23 +202,6 @@ export class MeipianAdapter extends PipelineAdapter {
     outputFormat: 'html' as const,
     processCodeBlocks: true,
     compactHtml: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual'] },
-      {
-        kind: 'visibility',
-        key: 'visibility',
-        label: '可见性',
-        options: [
-          { value: 'public', label: '公开' },
-          { value: 'private', label: '仅自己可见' },
-        ],
-      },
-      { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
-    ],
   }
 
   private readonly HEADER_RULES: HeaderRule[] = [

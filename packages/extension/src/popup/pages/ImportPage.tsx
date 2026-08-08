@@ -53,7 +53,6 @@ export function ImportPage() {
         html: outcome.article.html || '',
         cover: outcome.article.cover,
         summary: outcome.article.summary,
-        frontmatter: outcome.article.frontmatter,
         fileName: outcome.stats.markdownFileName,
       })
       setArticle(
@@ -64,7 +63,6 @@ export function ImportPage() {
           markdown: outcome.article.markdown,
           cover: outcome.article.cover,
           summary: outcome.article.summary,
-          frontmatter: outcome.article.frontmatter,
         },
         'import'
       )

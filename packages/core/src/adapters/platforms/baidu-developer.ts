@@ -13,7 +13,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('BaiduDeveloper')
@@ -308,15 +307,6 @@ export class BaiduDeveloperAdapter extends PipelineAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'summary', key: 'summary', label: '摘要' },
-    ],
   }
 
   /**

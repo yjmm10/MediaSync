@@ -38,8 +38,6 @@ export function HomeNew() {
     platformProgress,
     extractError,
     recovered,
-    platformParams,
-    platformParamsEpoch,
     loadPlatforms,
     loadArticle,
     recoverSyncState,
@@ -47,7 +45,6 @@ export function HomeNew() {
     togglePlatform,
     selectAll,
     deselectAll,
-    setPlatformParams,
     startSync,
     retryFailed,
     reset,
@@ -306,7 +303,6 @@ export function HomeNew() {
             markdown: article.markdown || '',
             cover: article.cover,
             summary: article.summary,
-            frontmatter: article.frontmatter,
             source: { url, platform: '' },
           },
           ts: Date.now(),
@@ -373,7 +369,6 @@ export function HomeNew() {
         html: outcome.article.html,
         cover: outcome.article.cover,
         summary: outcome.article.summary,
-        frontmatter: outcome.article.frontmatter,
         fileName: outcome.stats.markdownFileName,
       })
       setArticle(
@@ -384,7 +379,6 @@ export function HomeNew() {
           markdown: outcome.article.markdown,
           cover: outcome.article.cover,
           summary: outcome.article.summary,
-          frontmatter: outcome.article.frontmatter,
         },
         'import',
       )
@@ -640,9 +634,6 @@ export function HomeNew() {
         results={results}
         platformProgress={platformProgress}
         error={error}
-        platformParams={platformParams}
-        platformParamsEpoch={platformParamsEpoch}
-        onPlatformParamsChange={setPlatformParams}
         onTogglePlatform={togglePlatform}
         onSelectAll={selectAll}
         onDeselectAll={deselectAll}

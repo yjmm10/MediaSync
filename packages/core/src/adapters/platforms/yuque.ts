@@ -12,7 +12,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Yuque')
@@ -44,13 +43,6 @@ export class YuqueAdapter extends PipelineAdapter {
     removeSpecialTags: true,
     removeSpecialTagsWithParent: true,
     processCodeBlocks: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'column', key: 'column', label: '知识库', source: 'remote' },
-    ],
   }
 
   private userInfo: YuqueUserInfo | null = null

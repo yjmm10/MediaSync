@@ -8,7 +8,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Woshipm')
@@ -26,15 +25,6 @@ export class WoshipmAdapter extends PipelineAdapter {
   readonly preprocessConfig = {
     outputFormat: 'html' as const,
     removeEmptyLines: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-    ],
   }
 
   private jltoken: string = ''

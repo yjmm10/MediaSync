@@ -8,7 +8,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Netease')
@@ -95,22 +94,6 @@ export class NeteaseAdapter extends PipelineAdapter {
   readonly preprocessConfig = {
     outputFormat: 'html' as const,
     convertTablesToText: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      {
-        kind: 'originalType',
-        key: 'originalType',
-        label: '原创类型',
-        options: [
-          { value: 'original', label: '原创' },
-          { value: 'reprint', label: '转载' },
-        ],
-      },
-    ],
   }
 
   private account: NeteaseAccount | null = null

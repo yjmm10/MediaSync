@@ -8,7 +8,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Eastmoney')
@@ -61,23 +60,6 @@ export class EastmoneyAdapter extends PipelineAdapter {
     removeSrcset: true,
     removeSizes: true,
     compactHtml: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      {
-        kind: 'originalType',
-        key: 'originalType',
-        label: '原创类型',
-        options: [
-          { value: 'original', label: '原创' },
-          { value: 'reprint', label: '转载' },
-        ],
-      },
-      { kind: 'category', key: 'category', label: '栏目', source: 'remote' },
-    ],
   }
 
   private ctoken: string = ''

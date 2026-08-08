@@ -1,14 +1,11 @@
 /**
  * 平台档案
  *
- * 聚合平台的全部静态声明：元信息、分类、预处理配置、
- * 发布模式能力、鉴权模式、配置 Schema、默认参数。
+ * 聚合平台的全部静态声明：元信息、分类、预处理配置、鉴权模式。
  * UI 通过 profile 一次取齐渲染所需的元数据。
  */
 import type { PlatformMeta } from '../types'
 import type { PreprocessConfig } from './types'
-import type { PublishMode, PublishParams } from './publish-params'
-import type { PublishSchema } from './publish-schema'
 
 /**
  * 平台分类
@@ -43,12 +40,6 @@ export interface PlatformProfile {
   category: PlatformCategory
   /** 内容预处理配置（Content Script 据此清洗 DOM） */
   preprocessConfig: PreprocessConfig
-  /** 支持的发布模式（约束 mode 选项，取代 draftOnly） */
-  publishModes: PublishMode[]
   /** 鉴权模式（调度层据此决定批量刷新是否跳过，避免误开标签） */
   authMode: AuthMode
-  /** 配置 Schema（未声明 = 该平台无用户可配项） */
-  publishSchema?: PublishSchema
-  /** 这些字段的默认值 */
-  publishDefaults?: PublishParams
 }

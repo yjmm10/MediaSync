@@ -1,7 +1,6 @@
 import type { Article, AuthResult, SyncResult, PlatformMeta } from '../types'
 import type { RuntimeInterface } from '../runtime/interface'
-import type { PublishParams, PublishMode } from './publish-params'
-import type { PublishSchema } from './publish-schema'
+import type { PublishParams } from './publish-params'
 import type { PlatformCategory, AuthMode } from './platform-profile'
 import type { SharedImageCache } from './image-cache'
 
@@ -188,10 +187,4 @@ export interface AdapterRegistryEntry {
   category?: PlatformCategory
   /** 鉴权模式（迁移期可选；未声明默认 'sw'，调度层据此决定批量刷新是否跳过） */
   authMode?: AuthMode
-  /** 支持的发布模式（未声明默认 ['draft']） */
-  publishModes?: PublishMode[]
-  /** 配置 Schema（声明式 UI 表单） */
-  publishSchema?: PublishSchema
-  /** 默认发布参数 */
-  publishDefaults?: PublishParams
 }

@@ -3,9 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { markdownToHtml, htmlToMarkdownNative } from '@mediasync/core'
 import { useSyncStore } from '../stores/sync'
 import { MarkdownSplitEditor } from '@/components/MarkdownSplitEditor'
-import { ArticleMetaForm } from '@/components/ArticleMetaForm'
 import { SubPageHeader } from '../components/SubPageHeader'
-import type { ArticleMeta } from '@/lib/article-meta'
 
 /**
  * 分屏 Markdown 编辑（左源码 · 右渲染）。
@@ -36,14 +34,6 @@ export function EditPage() {
     updateArticle({ markdown: next, html, content: html })
   }
 
-  const handleMetaChange = (frontmatter: ArticleMeta) => {
-    updateArticle({
-      frontmatter,
-      cover: frontmatter.cover,
-      summary: frontmatter.summary,
-    })
-  }
-
   if (!article) {
     return (
       <div className="page-root flex flex-col h-[500px]">
@@ -67,11 +57,6 @@ export function EditPage() {
             左源码 · 右预览
           </span>
         }
-      />
-      <ArticleMetaForm
-        value={article.frontmatter}
-        onChange={handleMetaChange}
-        compact
       />
       <MarkdownSplitEditor
         value={mdText}

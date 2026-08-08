@@ -8,7 +8,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Sohu')
@@ -43,22 +42,6 @@ export class SohuAdapter extends PipelineAdapter {
   /** 预处理配置: 搜狐号使用 HTML 格式 */
   readonly preprocessConfig = {
     outputFormat: 'html' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      { kind: 'originalType', key: 'originalType', label: '原创声明',
-        needsOriginalLink: true,
-        options: [
-          { value: 'original', label: '原创' },
-          { value: 'reprint', label: '转载' },
-        ] },
-      { kind: 'topic', key: 'topicId', label: '话题', source: 'remote' },
-    ],
   }
 
   private accountInfo: SohuAccountInfo | null = null

@@ -13,7 +13,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import type { PublishOptions } from '../types'
 import { createLogger } from '../../lib/logger'
 import { parseMarkdownImages } from '../../lib/markdown-images'
@@ -207,13 +206,6 @@ export class RedditAdapter extends PipelineAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死 profile subreddit 保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'node', key: 'node', label: 'Subreddit', source: 'remote', required: true },
-    ],
   }
 
   private cachedMe: RedditMeData | null = null

@@ -11,7 +11,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Jianshu')
@@ -44,13 +43,6 @@ export class JianshuAdapter extends PipelineAdapter {
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
     processCodeBlocks: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'column', key: 'column', label: '文集', source: 'remote' },
-    ],
   }
 
   private account: JianshuAccount | null = null

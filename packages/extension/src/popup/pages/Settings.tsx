@@ -5,7 +5,6 @@ import { Plug, PlugZap, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SubPageHeader } from '../components/SubPageHeader'
 import { UserPlatformGroupsSection } from '../components/UserPlatformGroupsSection'
-import { PlatformConfigPanel } from '../components/PlatformConfigPanel'
 import { trackFeatureDiscovery } from '../../lib/analytics'
 import { getAllPlatformMetas, getTabAuthPlatformIds, initAdapters } from '../../adapters'
 import {
@@ -383,8 +382,6 @@ export function SettingsPage() {
               </button>
               {groupsOpen && <UserPlatformGroupsSection />}
             </section>
-
-            <PlatformConfigPanel />
           </>
         )}
 
@@ -462,7 +459,7 @@ export function SettingsPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium">标题来源</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    默认：一级标题 → front matter → 文件名
+                    默认：一级标题 → 文件名
                   </p>
                 </div>
                 <select
@@ -470,9 +467,8 @@ export function SettingsPage() {
                   onChange={(e) => handleTitleSourceChange(e.target.value)}
                   className="input-soft"
                 >
-                  <option value="auto">自动（一级标题 → front matter → 文件名）</option>
+                  <option value="auto">自动（一级标题 → 文件名）</option>
                   <option value="h1">优先一级标题</option>
-                  <option value="frontmatter">优先 front matter</option>
                   <option value="filename">优先文件名</option>
                 </select>
               </div>

@@ -8,7 +8,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { Remarkable } from 'remarkable'
 import { createLogger } from '../../lib/logger'
 
@@ -37,22 +36,6 @@ export class XueqiuAdapter extends PipelineAdapter {
     removeSpecialTags: true,
     removeSpecialTagsWithParent: true,
     processCodeBlocks: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      {
-        kind: 'visibility',
-        key: 'visibility',
-        label: '可见性',
-        options: [
-          { value: 'public', label: '公开' },
-          { value: 'private', label: '仅自己可见' },
-        ],
-      },
-    ],
   }
 
   private currentUser: XueqiuUser | null = null

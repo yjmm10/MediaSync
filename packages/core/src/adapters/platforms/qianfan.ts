@@ -11,7 +11,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Qianfan')
@@ -652,16 +651,6 @@ export class QianfanAdapter extends PipelineAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'category', key: 'category', label: '分区/分类', source: 'remote' },
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      { kind: 'summary', key: 'summary', label: '摘要' },
-    ],
   }
 
   /** 收集百度云相关 Cookie，供 DNR 注入（绕过 SW 丢 SameSite 会话） */

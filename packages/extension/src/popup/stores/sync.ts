@@ -15,13 +15,6 @@ import {
   PENDING_SYNC_ARTICLE_KEY,
   shouldUseStorageForPayload,
 } from '../../lib/sync-message-threshold'
-import type { PublishParams } from '@mediasync/core'
-import {
-  metaToPublishParams,
-  mirrorMetaToArticleFields,
-  hasArticleMeta,
-  type ArticleMeta,
-} from '../../lib/article-meta'
 import {
   getLocalMdCacheByDocId,
   upsertLocalMdCacheFromArticle,
@@ -29,10 +22,6 @@ import {
   loadWorkingArticle,
   clearWorkingArticle,
 } from '../../lib/local-md-cache'
-import {
-  getSavedParams,
-  stripFmDrivenFields,
-} from '../../lib/platform-publish-config'
 import { computeDocId } from '../../lib/history-doc'
 
 const logger = createLogger('SyncStore')
@@ -91,100 +80,8 @@ interface Article {
   markdown?: string
   /** 与 content 等价的 HTML（显式字段，便于同步时区分）*/
   html?: string
-  /** front matter 结构化元数据（不进入正文渲染） */
-  frontmatter?: ArticleMeta
   /** 来源：import=本地导入 / edited=检测后进编辑器(锁定) / extract=网页提取(实时) */
   source?: 'import' | 'edited' | 'extract'
-}
-
-/** 从文章 frontmatter（及顶层 cover/summary）生成平台参数种子 */
-function seedParamsFromArticle(
-  article: Article | null | undefined,
-  platformId?: string,
-): PublishParams {
-  if (!article) return {}
-  const fromFm = metaToPublishParams(article.frontmatter, platformId)
-  // 顶层镜像兜底（网页提取只有 cover/summary 时）
-  if (!fromFm.cover && article.cover) fromFm.cover = article.cover
-  if (!fromFm.summary && article.summary) fromFm.summary = article.summary
-  return fromFm
-}
-
-function hasExplicitMode(params?: PublishParams): boolean {
-  return params?.mode === 'draft' || params?.mode === 'publish' || params?.mode === 'schedule'
-}
-
-/**
- * 勾选平台时的参数快照：设置页非 FM 项 ⊕ 当前 FM。
- * 故意不把 saved 里旧的 tags/columns/summary 带进来。
- * 51CTO：保留上次操作的 category/column；FM 最多再覆盖 column。
- */
-function snapshotParamsOnSelect(
-  article: Article | null | undefined,
-  platformId: string,
-  saved?: PublishParams,
-): PublishParams {
-  const fromFm = seedParamsFromArticle(article, platformId)
-  const nonFm = stripFmDrivenFields(saved, platformId)
-  // 先铺非 FM（含 51CTO 上次分类），再铺 FM
-  const snap: PublishParams = {
-    ...nonFm,
-    ...fromFm,
-    mode: saved?.mode ?? nonFm.mode ?? 'draft',
-  }
-  if (!fromFm.tags) delete snap.tags
-  if (!fromFm.columns) delete snap.columns
-  if (!fromFm.summary) delete snap.summary
-  if (!fromFm.cover) delete snap.cover
-  // 非 51CTO：FM 未给出则清掉，避免旧 saved 分类残留
-  // 51CTO：category/column 来自上次操作缓存；仅当 FM 给出 column 时由 fromFm 覆盖
-  if (platformId !== '51cto') {
-    if (!fromFm.category) delete snap.category
-    if (!fromFm.column) delete snap.column
-  }
-  return snap
-}
-
-/**
- * 仅补齐 mode 等非 FM 设置；不重新套用最新 FM，不把 saved 的旧 FM 字段写回。
- * 51CTO 会带上上次 category/column。
- */
-async function fillNonFmSettings(
-  platformId: string,
-  existing: PublishParams,
-): Promise<PublishParams> {
-  let saved: PublishParams | undefined
-  try {
-    const resp = await chrome.runtime.sendMessage({
-      type: 'GET_PLATFORM_PUBLISH_CONFIG',
-      payload: { platformId },
-    })
-    if (resp && !resp.error) {
-      saved = resp.saved as PublishParams | undefined
-    }
-  } catch {
-    saved = await getSavedParams(platformId).catch(() => undefined)
-  }
-  if (!saved) {
-    saved = await getSavedParams(platformId).catch(() => undefined)
-  }
-  const nonFm = stripFmDrivenFields(saved, platformId)
-  return {
-    ...nonFm,
-    ...existing,
-    mode: existing.mode ?? saved?.mode ?? nonFm.mode ?? 'draft',
-  }
-}
-
-/** 规范化文章：frontmatter 变更时镜像 cover/summary */
-function normalizeArticleFields(article: Article): Article {
-  if (!article.frontmatter) return article
-  const mirrored = mirrorMetaToArticleFields(article.frontmatter)
-  return {
-    ...article,
-    cover: mirrored.cover ?? article.cover,
-    summary: mirrored.summary ?? article.summary,
-  }
 }
 
 /** 导入/编辑稿回写本地缓存（防抖，避免编辑器逐字写入） */
@@ -208,7 +105,7 @@ async function flushLocalMdCacheUpsert(article: Article | null | undefined) {
   await upsertLocalMdCacheFromArticle(article)
 }
 
-/** 从本地 MD 缓存按 docId 补齐 frontmatter / summary / cover */
+/** 从本地 MD 缓存按 docId 补齐 summary / cover */
 async function hydrateArticleFromLocalCache<T extends Article>(article: T): Promise<T> {
   try {
     const docId = computeDocId({
@@ -219,14 +116,11 @@ async function hydrateArticleFromLocalCache<T extends Article>(article: T): Prom
     const cached = await getLocalMdCacheByDocId(docId)
     if (!cached) return article
     const next: T = { ...article }
-    if (!hasArticleMeta(next.frontmatter) && cached.frontmatter) {
-      next.frontmatter = cached.frontmatter
+    if (!next.summary && cached.summary) {
+      next.summary = cached.summary
     }
-    if (!next.summary && (cached.summary || cached.frontmatter?.summary)) {
-      next.summary = cached.summary || cached.frontmatter?.summary
-    }
-    if (!next.cover && (cached.cover || cached.frontmatter?.cover)) {
-      next.cover = cached.cover || cached.frontmatter?.cover
+    if (!next.cover && cached.cover) {
+      next.cover = cached.cover
     }
     return next
   } catch {
@@ -291,11 +185,6 @@ interface SyncState {
   // 文章提取失败提示（如需刷新页面）
   extractError: string | null
 
-  /** 每平台本次同步实时参数（会话态） */
-  platformParams: Record<string, PublishParams>
-  /** 每次勾选递增，用于配置面板强制重挂载 / 忽略过期异步 */
-  platformParamsEpoch: Record<string, number>
-
   // Actions
   loadPlatforms: () => Promise<void>
   loadArticle: (opts?: { force?: boolean }) => Promise<void>
@@ -303,12 +192,9 @@ interface SyncState {
   recoverSyncState: () => Promise<void>
   /** 从 storage 尽早恢复勾选，避免鉴权完成前显示 0 个平台 */
   hydrateSelectedPlatforms: () => Promise<void>
-  /** 为已选平台补齐设置页保存的发布参数（含 mode），供行上标签与同步使用 */
-  ensurePlatformPublishParams: (platformIds?: string[]) => Promise<void>
   togglePlatform: (platformId: string) => void
   selectAll: () => void
   deselectAll: () => void
-  setPlatformParams: (platformId: string, params: PublishParams) => void
   checkRateLimit: () => Promise<string | null>
   startSync: () => Promise<void>
   retryFailed: () => Promise<void>
@@ -368,8 +254,6 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   recovered: false,
   rateLimitWarning: null,
   extractError: null,
-  platformParams: {},
-  platformParamsEpoch: {},
 
   recoverSyncState: async () => {
     // 避免重复恢复
@@ -443,16 +327,15 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         const working = await loadWorkingArticle()
         if (working) {
           set({
-            article: normalizeArticleFields({
+            article: {
               title: working.title,
               content: working.html || working.content || working.markdown || '',
               html: working.html || working.content,
               markdown: working.markdown,
               cover: working.cover,
               summary: working.summary,
-              frontmatter: working.frontmatter,
               source: working.source,
-            }),
+            },
           })
           logger.debug('Restored working article:', working.title)
         }
@@ -474,59 +357,23 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   hydrateSelectedPlatforms: async () => {
     // recover 已写入勾选则不覆盖
     if (get().selectedPlatforms.length > 0) {
-      void get().ensurePlatformPublishParams(get().selectedPlatforms)
       return
     }
     const saved = await loadSelectedPlatforms()
     if (saved?.length) {
       set({ selectedPlatforms: saved })
-      void get().ensurePlatformPublishParams(saved)
     }
-  },
-
-  ensurePlatformPublishParams: async (platformIds) => {
-    const ids = platformIds?.length ? platformIds : get().selectedPlatforms
-    if (ids.length === 0) return
-    const { article, platformParams, platformParamsEpoch } = get()
-    const next = { ...platformParams }
-    const nextEpoch = { ...platformParamsEpoch }
-    let changed = false
-    await Promise.all(
-      ids.map(async (id) => {
-        const cur = next[id]
-        try {
-          if (!cur || Object.keys(cur).length === 0) {
-            // 尚无快照（如恢复勾选）：用当前 FM 建快照
-            const saved = await getSavedParams(id).catch(() => undefined)
-            next[id] = snapshotParamsOnSelect(article, id, saved)
-            nextEpoch[id] = (nextEpoch[id] ?? 0) + 1
-            changed = true
-            return
-          }
-          if (hasExplicitMode(cur)) return
-          // 仅补 mode 等非 FM 设置，绝不把 saved 旧 FM 字段盖回
-          next[id] = await fillNonFmSettings(id, cur)
-          changed = true
-        } catch (e) {
-          logger.warn('ensurePlatformPublishParams failed:', id, e)
-        }
-      }),
-    )
-    if (changed) set({ platformParams: next, platformParamsEpoch: nextEpoch })
   },
 
   updateArticle: (updates) => {
     const currentArticle = get().article
     if (currentArticle) {
-      const merged: Article = {
+      // 忽略调用方可能仍传入的 frontmatter
+      const { frontmatter: _fm, ...rest } = updates as Partial<Article> & { frontmatter?: unknown }
+      const next: Article = {
         ...currentArticle,
-        ...updates,
+        ...rest,
       }
-      // frontmatter 整对象替换（表单会传完整对象；避免删掉的键被浅合并加回）
-      if (updates.frontmatter !== undefined) {
-        merged.frontmatter = updates.frontmatter
-      }
-      const next = normalizeArticleFields(merged)
       set({ article: next })
       scheduleLocalMdCacheUpsert(next)
       void saveWorkingArticle(next)
@@ -535,12 +382,11 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
   setArticle: (article, source) => {
     const nextSource = source ?? article.source
-    const normalized = normalizeArticleFields({ ...article, source: nextSource })
+    // 忽略 frontmatter，仅保留顶层字段
+    const { frontmatter: _fm, ...rest } = article as Article & { frontmatter?: unknown }
+    const normalized: Article = { ...rest, source: nextSource }
     set({
       article: normalized,
-      // 换文时清空平台参数，避免旧文配置污染
-      platformParams: {},
-      platformParamsEpoch: {},
       // 切换文章时清空上一次的同步结果/错误
       status: 'idle',
       results: [],
@@ -549,7 +395,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       platformProgress: new Map(),
       currentSyncId: null,
     })
-    // 导入/编辑稿立刻落缓存，供历史追加同步恢复 frontmatter
+    // 导入/编辑稿立刻落缓存
     if (nextSource === 'import' || nextSource === 'edited') {
       void flushLocalMdCacheUpsert(normalized)
       void saveWorkingArticle(normalized)
@@ -562,8 +408,6 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   clearArticle: () => {
     set({
       article: null,
-      platformParams: {},
-      platformParamsEpoch: {},
       status: 'idle',
       results: [],
       error: null,
@@ -639,9 +483,6 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         set({ platforms: allPlatforms })
       } else {
         set({ platforms: allPlatforms, status: 'idle', selectedPlatforms })
-        if (selectedPlatforms.length > 0) {
-          void get().ensurePlatformPublishParams(selectedPlatforms)
-        }
       }
     } catch (error) {
       logger.error('Failed to load platforms:', error)
@@ -768,46 +609,14 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   togglePlatform: (platformId: string) => {
-    const { selectedPlatforms, platformParams, platformParamsEpoch, article } = get()
+    const { selectedPlatforms } = get()
     const isSelected = selectedPlatforms.includes(platformId)
     const newSelected = isSelected
       ? selectedPlatforms.filter(id => id !== platformId)
       : [...selectedPlatforms, platformId]
 
-    if (isSelected) {
-      // 取消勾选：清掉该平台会话参数，下次勾选重新用最新 FM
-      const { [platformId]: _removed, ...rest } = platformParams
-      const { [platformId]: _e, ...restEpoch } = platformParamsEpoch
-      set({
-        selectedPlatforms: newSelected,
-        platformParams: rest,
-        platformParamsEpoch: restEpoch,
-      })
-      saveSelectedPlatforms(newSelected)
-    } else {
-      // 新勾选：先用当前 FM 打快照（同步），再异步补 mode
-      const epoch = (platformParamsEpoch[platformId] ?? 0) + 1
-      const seeded = snapshotParamsOnSelect(article, platformId)
-      set({
-        selectedPlatforms: newSelected,
-        platformParams: { ...platformParams, [platformId]: seeded },
-        platformParamsEpoch: { ...platformParamsEpoch, [platformId]: epoch },
-      })
-      saveSelectedPlatforms(newSelected)
-      void (async () => {
-        try {
-          const saved = await getSavedParams(platformId)
-          const state = get()
-          // 仍勾选且仍是本次勾选世代，才写入（避免取消/再勾竞态用旧结果盖回）
-          if (!state.selectedPlatforms.includes(platformId)) return
-          if ((state.platformParamsEpoch[platformId] ?? 0) !== epoch) return
-          const snap = snapshotParamsOnSelect(state.article, platformId, saved)
-          get().setPlatformParams(platformId, snap)
-        } catch (e) {
-          logger.warn('togglePlatform snapshot failed:', platformId, e)
-        }
-      })()
-    }
+    set({ selectedPlatforms: newSelected })
+    saveSelectedPlatforms(newSelected)
 
     // 追踪平台选择行为
     trackPlatformSelection(
@@ -818,37 +627,21 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   selectAll: () => {
-    const { platforms, platformParams, platformParamsEpoch, article } = get()
+    const { platforms } = get()
     const allIds = platforms.filter(p => p.isAuthenticated).map(p => p.id)
-    // 仅给尚未有会话参数的平台打当前 FM 快照；已勾选的保持原快照
-    const nextParams = { ...platformParams }
-    const nextEpoch = { ...platformParamsEpoch }
-    for (const id of allIds) {
-      if (!nextParams[id]) {
-        nextParams[id] = snapshotParamsOnSelect(article, id)
-        nextEpoch[id] = (nextEpoch[id] ?? 0) + 1
-      }
-    }
-    set({ selectedPlatforms: allIds, platformParams: nextParams, platformParamsEpoch: nextEpoch })
+    set({ selectedPlatforms: allIds })
     // 保存到 storage
     saveSelectedPlatforms(allIds)
-    void get().ensurePlatformPublishParams(allIds)
     // 追踪全选
     trackPlatformSelection('select_all', 'all', allIds.length).catch(() => {})
   },
 
   deselectAll: () => {
-    set({ selectedPlatforms: [], platformParams: {}, platformParamsEpoch: {} })
+    set({ selectedPlatforms: [] })
     // 保存到 storage
     saveSelectedPlatforms([])
     // 追踪取消全选
     trackPlatformSelection('deselect_all', 'all', 0).catch(() => {})
-  },
-
-  setPlatformParams: (platformId, params) => {
-    set((state) => ({
-      platformParams: { ...state.platformParams, [platformId]: params },
-    }))
   },
 
   checkRateLimit: async () => {
@@ -873,11 +666,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     // 追踪漏斗：开始同步
     trackFunnel('sync_started', 'popup', { platform_count: selectedPlatforms.length }).catch(() => {})
 
-    // 同步前落盘缓存（含已改 frontmatter），供历史追加恢复
+    // 同步前落盘缓存，供历史追加恢复
     await flushLocalMdCacheUpsert(article)
-
-    // 补齐设置页已存的 mode/参数，避免未展开折叠时仍按草稿同步/显示
-    await get().ensurePlatformPublishParams(selectedPlatforms)
 
     // 生成 syncId（在发送消息前设置，以便立即过滤消息）
     const syncId = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -896,26 +686,12 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         markdown,
         cover: article.cover,
         summary: article.summary,
-        tags: article.frontmatter?.tags,
-        category: article.frontmatter?.category,
-        frontmatter: article.frontmatter,
         source: article.source,
-      }
-      const perPlatform: Record<string, PublishParams> = {}
-      const platformParamsReady = get().platformParams
-      for (const id of selectedPlatforms) {
-        if (platformParamsReady[id]) {
-          perPlatform[id] = platformParamsReady[id]
-        } else {
-          const seeded = seedParamsFromArticle(article, id)
-          if (Object.keys(seeded).length > 0) perPlatform[id] = seeded
-        }
       }
       const response = await dispatchSyncArticleMessage({
         article: original,
         platforms: selectedPlatforms,
         syncId,
-        perPlatform: Object.keys(perPlatform).length > 0 ? perPlatform : undefined,
       })
 
       const allResults: SyncResult[] = response.results || []
@@ -1002,9 +778,6 @@ export const useSyncStore = create<SyncState>((set, get) => ({
 
     await flushLocalMdCacheUpsert(article)
 
-    await get().ensurePlatformPublishParams(failedPlatformIds)
-    const platformParamsReady = get().platformParams
-
     set({ status: 'syncing', results: successResults, error: null, imageProgress: null, platformProgress: new Map(), currentSyncId: syncId })
 
     try {
@@ -1018,25 +791,12 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         markdown: article.markdown || '',
         cover: article.cover,
         summary: article.summary,
-        tags: article.frontmatter?.tags,
-        category: article.frontmatter?.category,
-        frontmatter: article.frontmatter,
         source: article.source,
-      }
-      const perPlatform: Record<string, PublishParams> = {}
-      for (const id of failedPlatformIds) {
-        if (platformParamsReady[id]) {
-          perPlatform[id] = platformParamsReady[id]
-        } else {
-          const seeded = seedParamsFromArticle(article, id)
-          if (Object.keys(seeded).length > 0) perPlatform[id] = seeded
-        }
       }
       const response = await dispatchSyncArticleMessage({
         article: original,
         platforms: failedPlatformIds,
         syncId,
-        perPlatform: Object.keys(perPlatform).length > 0 ? perPlatform : undefined,
       })
 
       const retryResults: SyncResult[] = response.results || []
@@ -1139,13 +899,11 @@ async function dispatchSyncArticleMessage(opts: {
   article: Record<string, unknown>
   platforms: string[]
   syncId: string
-  perPlatform?: Record<string, PublishParams>
 }): Promise<{ results?: SyncResult[]; rateLimitWarning?: string | null }> {
   const probe = {
     article: opts.article,
     platforms: opts.platforms,
     syncId: opts.syncId,
-    perPlatform: opts.perPlatform,
   }
   if (await shouldUseStorageForPayload(probe)) {
     await chrome.storage.local.set({
@@ -1161,7 +919,6 @@ async function dispatchSyncArticleMessage(opts: {
         fromStorage: true,
         platforms: opts.platforms,
         syncId: opts.syncId,
-        perPlatform: opts.perPlatform,
       },
     })
   }
@@ -1171,7 +928,6 @@ async function dispatchSyncArticleMessage(opts: {
       article: opts.article,
       platforms: opts.platforms,
       syncId: opts.syncId,
-      perPlatform: opts.perPlatform,
     },
   })
 }
@@ -1184,49 +940,22 @@ function applyEditedArticle(a: {
   markdown?: string
   cover?: string
   summary?: string
-  frontmatter?: ArticleMeta
+  frontmatter?: unknown
 }) {
   const state = useSyncStore.getState()
-  const incomingFm = a.frontmatter
-  // 禁止用空 {} 擦掉侧栏已有 frontmatter（整页编辑未透传 FM 时常见）
-  const keepExistingFm =
-    incomingFm !== undefined &&
-    !hasArticleMeta(incomingFm) &&
-    hasArticleMeta(state.article?.frontmatter)
-
-  const payload: Partial<Article> & { title: string; content: string; source: 'edited' } = {
+  const payload: Article = {
     title: a.title || '',
     content: a.content || a.html || a.markdown || '',
     html: a.html || a.content,
     markdown: a.markdown,
     cover: a.cover,
     summary: a.summary,
-    source: 'edited' as const,
+    source: 'edited',
   }
-  if (incomingFm !== undefined && !keepExistingFm) {
-    payload.frontmatter = incomingFm
-  } else if (keepExistingFm && state.article?.frontmatter) {
-    payload.frontmatter = state.article.frontmatter
-    if (!payload.cover) payload.cover = state.article.cover ?? state.article.frontmatter.cover
-    if (!payload.summary) payload.summary = state.article.summary ?? state.article.frontmatter.summary
-  }
-  // 已有文章时就地更新，避免 setArticle 清空 platformParams
   if (state.article) {
     state.updateArticle(payload)
   } else {
-    state.setArticle(
-      {
-        title: payload.title,
-        content: payload.content,
-        html: payload.html,
-        markdown: payload.markdown,
-        cover: payload.cover,
-        summary: payload.summary,
-        frontmatter: payload.frontmatter,
-        source: 'edited',
-      },
-      'edited',
-    )
+    state.setArticle(payload, 'edited')
   }
   chrome.storage.local.remove('pendingEditedArticle').catch(() => {})
 }

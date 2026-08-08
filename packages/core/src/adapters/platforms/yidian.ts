@@ -10,7 +10,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 import { prepareHtmlForYidian } from '../../lib/weak-editor-html'
 
@@ -84,16 +83,6 @@ export class YidianAdapter extends PipelineAdapter {
     // 一点号富文本编辑器不支持 <table>，会把每个单元格拆成带圆点的单行；
     // 预处理阶段把表格转成「列名: 值 | 列名: 值」的纯文本段落
     convertTablesToText: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
-    ],
   }
 
   private readonly PAGE = {

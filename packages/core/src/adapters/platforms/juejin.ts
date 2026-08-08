@@ -15,7 +15,6 @@ import { PipelineAdapter, type PublishContext } from '../pipeline'
 import { normalizeBlockquoteLineBreaks } from '../../lib/markdown-blockquote'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { SwApiAuthStrategy } from '../auth-strategy'
 import { signAWS4, crc32 } from '../../lib'
 import { createLogger } from '../../lib/logger'
@@ -120,20 +119,7 @@ export class JuejinAdapter extends PipelineAdapter {
     outputFormat: 'markdown' as const,
   }
 
-  /**
-   * 配置 Schema（声明式，UI 据此渲染）
-   * 注意：P1 运行时 buildPayload 仍用写死值保持行为等价；
-   *      等注册代码（P2）与 UI 接入后，buildPayload 再读 ctx.params。
-   */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签', max: 2, suggestionsKey: 'juejin-tags' },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-    ],
-  }
-
-  /** 鉴权策略：SW 直调 user/get（对齐 CLAUDE.md 优先级 1） */
+  /** 鉴权策略：SW 直调 user/get */
   protected readonly authStrategies = [
     new SwApiAuthStrategy({
       url: 'https://api.juejin.cn/user_api/v1/user/get',

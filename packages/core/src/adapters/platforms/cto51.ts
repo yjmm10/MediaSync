@@ -3,20 +3,16 @@
  *
  * 行为等价迁移：blogger/publish 页面探测登录 + csrf 提取 + 腾讯云 COS 图床。
  * checkAuth 重写（保留页面探测 + csrf 设置原逻辑）。
- * 提交：草稿走 blogger/draft；发布先 draft 再 blogger/publish（did + check=1）。
+ * 提交：始终走 blogger/draft 存草稿（不调用正式发布 API）。
  *
  * 新版图片上传流程:
  * 1. getUploadSign - 获取上传签名
  * 2. getUploadConfig - 获取腾讯云 COS 上传凭证
  * 3. 上传到腾讯云 COS
- *
- * 发布配置：文章分类 / 个人分类走 API；话题从 publish 页 HTML 解析（SW fetch，不开标签）。
  */
-import { PipelineAdapter, type PublishContext, type PublishRefs } from '../pipeline'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
-import type { PublishParams } from '../publish-params'
 import { pickMarkdownOnlyContent } from '../content-origin'
 import { createLogger } from '../../lib/logger'
 
@@ -89,82 +85,6 @@ export class Cto51Adapter extends PipelineAdapter {
     outputFormat: 'markdown' as const,
   }
 
-  readonly publishDefaults: PublishParams = {
-    mode: 'draft',
-    visibility: 'public',
-    originalType: 'original',
-    commentsEnabled: true,
-    cover: 'auto',
-    extra: {
-      copyCode: '1',
-      pinned: false,
-    },
-  }
-
-  /** 配置 Schema（声明式，UI 据此渲染） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'category', key: 'category', label: '文章分类', source: 'remote' },
-      { kind: 'column', key: 'column', label: '个人分类', source: 'remote' },
-      { kind: 'tags', key: 'tags', label: '标签', max: 5 },
-      { kind: 'summary', key: 'summary', label: '文章摘要', maxLength: 500 },
-      { kind: 'topic', key: 'topicId', label: '话题', source: 'remote', refKey: 'topics' },
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto'] },
-      {
-        kind: 'originalType',
-        key: 'originalType',
-        label: '文章类型',
-        options: [
-          { value: 'original', label: '原创' },
-          { value: 'reprint', label: '转载' },
-          { value: 'translate', label: '翻译' },
-        ],
-      },
-      {
-        kind: 'select',
-        key: 'extra.copyCode',
-        label: '版权声明',
-        options: [
-          { value: '1', label: '转载请注明出处' },
-          { value: '2', label: '转载需作者授权' },
-          { value: '3', label: '谢绝转载' },
-        ],
-      },
-      {
-        kind: 'visibility',
-        key: 'visibility',
-        label: '可见性',
-        options: [
-          { value: 'public', label: '公开' },
-          { value: 'private', label: '私密' },
-        ],
-      },
-      { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
-      { kind: 'toggle', key: 'extra.pinned', label: '置顶' },
-    ],
-    groups: [
-      {
-        title: '基本设置',
-        fields: [
-          'category',
-          'column',
-          'tags',
-          'summary',
-          'topicId',
-          'cover',
-          'originalType',
-          'extra.copyCode',
-        ],
-        defaultOpen: true,
-      },
-      {
-        title: '高级选项',
-        fields: ['visibility', 'commentsEnabled', 'extra.pinned'],
-        defaultOpen: false,
-      },
-    ],
-  }
-
   private csrf: string | null = null
 
   /** 博客作者 ID（用于发布后文章链接 blog.51cto.com/{authorId}/{blogId}） */
@@ -222,19 +142,6 @@ export class Cto51Adapter extends PipelineAdapter {
     }
   }
 
-  // ============ 发布选项（设置/同步折叠「平台更新」）============
-
-  async fetchPublishRefs(): Promise<PublishRefs> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      const [categories, columns, topics] = await Promise.all([
-        this.fetchCategories(),
-        this.fetchUserCategories(),
-        this.fetchTopics(),
-      ])
-      return { categories, columns, topics }
-    })
-  }
-
   /** 文章分类：展平叶子，标签为「一级 / 二级」；无子节点则自身为叶子 */
   private async fetchCategories(): Promise<Array<{ id: string; name: string }>> {
     const response = await this.runtime.fetch('https://blog.51cto.com/category/get-child', {
@@ -272,68 +179,6 @@ export class Cto51Adapter extends PipelineAdapter {
       }
     }
     return out
-  }
-
-  /** 个人分类 → columns（UI column 字段） */
-  private async fetchUserCategories(): Promise<Array<{ id: string; name: string }>> {
-    const response = await this.runtime.fetch(
-      'https://blog.51cto.com/blogger-ajax/get-user-cate',
-      {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest',
-          Accept: 'application/json, text/javascript, */*; q=0.01',
-        },
-      },
-    )
-    if (!response.ok) {
-      throw new Error(`拉取个人分类失败: ${response.status}`)
-    }
-    const res = (await response.json()) as {
-      status?: number
-      data?: { custom?: Array<{ custom_id?: string; name?: string }> }
-    }
-    const list = res.data?.custom ?? []
-    return list
-      .map((c) => {
-        if (c.custom_id == null || !c.name) return null
-        return { id: String(c.custom_id), name: c.name }
-      })
-      .filter((x): x is { id: string; name: string } => x != null)
-  }
-
-  /** 话题：SW 拉 publish 页 HTML，解析 #dropdownSubject li[value]（无独立 list API） */
-  private async fetchTopics(): Promise<Array<{ id: string; name: string }>> {
-    try {
-      const response = await this.runtime.fetch('https://blog.51cto.com/blogger/publish', {
-        credentials: 'include',
-      })
-      if (!response.ok) {
-        logger.warn('fetchTopics: publish page', response.status)
-        return []
-      }
-      const html = await response.text()
-      const blockMatch = html.match(
-        /id=["']dropdownSubject["'][\s\S]*?<ul[^>]*id=["']listItemList["'][^>]*>([\s\S]*?)<\/ul>/i,
-      )
-      const block = blockMatch?.[1] ?? html
-      const topics: Array<{ id: string; name: string }> = []
-      const seen = new Set<string>()
-      const re = /<li[^>]*\bvalue=["'](\d+)["'][^>]*>\s*([^<]+?)\s*<\/li>/gi
-      let m: RegExpExecArray | null
-      while ((m = re.exec(block)) !== null) {
-        const id = m[1]
-        const name = m[2].trim()
-        if (!name.startsWith('#') || seen.has(id)) continue
-        seen.add(id)
-        topics.push({ id, name })
-      }
-      return topics
-    } catch (e) {
-      logger.warn('fetchTopics failed', e)
-      return []
-    }
   }
 
   // ============ 管道钩子 ============
@@ -447,14 +292,12 @@ export class Cto51Adapter extends PipelineAdapter {
     return body.toString()
   }
 
-  /** POST blogger/draft 或 blogger/publish */
-  private async postBloggerForm(
-    path: 'draft' | 'publish',
+  /** POST blogger/draft */
+  private async postBloggerDraft(
     postData: Record<string, string>,
     imgUrls: string[] | undefined,
-    referer: string,
   ): Promise<{ status?: number; msg?: string; data?: Record<string, unknown> }> {
-    const response = await this.runtime.fetch(`https://blog.51cto.com/blogger/${path}`, {
+    const response = await this.runtime.fetch('https://blog.51cto.com/blogger/draft', {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -462,32 +305,21 @@ export class Cto51Adapter extends PipelineAdapter {
         'X-Requested-With': 'XMLHttpRequest',
         Accept: 'application/json, text/javascript, */*; q=0.01',
         Origin: 'https://blog.51cto.com',
-        Referer: referer,
+        Referer: 'https://blog.51cto.com/blogger/publish',
       },
       body: this.buildFormBody(postData, imgUrls),
     })
     return response.json()
   }
 
-  /**
-   * 6. 提交：
-   * - 草稿：POST blogger/draft
-   * - 发布：先 draft 拿 did，再 POST blogger/publish（did + check=1）
-   */
+  /** 6. 提交：仅保存草稿（不调用 blogger/publish） */
   protected async submit(ctx: PublishContext): Promise<SyncResult> {
     const payload = ctx.payload as {
       postData: Record<string, string>
       img_urls?: string[]
     }
-    const mode = ctx.params.mode ?? 'draft'
-    const isPublish = mode === 'publish' || mode === 'schedule'
 
-    const draftRes = await this.postBloggerForm(
-      'draft',
-      payload.postData,
-      payload.img_urls,
-      'https://blog.51cto.com/blogger/publish',
-    )
+    const draftRes = await this.postBloggerDraft(payload.postData, payload.img_urls)
     if (draftRes.status !== 1 || !draftRes.data) {
       throw new Error(draftRes.msg || '保存草稿失败')
     }
@@ -496,52 +328,10 @@ export class Cto51Adapter extends PipelineAdapter {
       throw new Error('保存草稿失败：未返回草稿 ID')
     }
 
-    if (!isPublish) {
-      return this.createResult(true, {
-        postId: did,
-        postUrl: `https://blog.51cto.com/blogger/draft/${did}`,
-        draftOnly: true,
-      })
-    }
-
-    // 正式发布：与官网一致，带 did + check=1；import_type 置空
-    const publishData: Record<string, string> = {
-      ...payload.postData,
-      did,
-      check: '1',
-      import_type: '',
-    }
-    const pubRes = await this.postBloggerForm(
-      'publish',
-      publishData,
-      payload.img_urls,
-      `https://blog.51cto.com/blogger/draft/${did}`,
-    )
-    if (pubRes.status !== 1) {
-      throw new Error(pubRes.msg || '发布失败')
-    }
-
-    const data = (pubRes.data ?? {}) as Record<string, unknown>
-    const postId = String(data.blog_id ?? data.id ?? data.did ?? did)
-    const authorId = this.authorId || ''
-    // 正式文章页：https://blog.51cto.com/{author_id}/{id}
-    let postUrl =
-      authorId && postId
-        ? `https://blog.51cto.com/${authorId}/${postId}`
-        : `https://blog.51cto.com/blogger/draft/${did}`
-    // 若接口直接返回完整文章 URL 且形态正确，优先用之
-    for (const key of ['url', 'blog_url', 'article_url'] as const) {
-      const v = data[key]
-      if (typeof v === 'string' && /blog\.51cto\.com\/[^/]+\/\d+/.test(v)) {
-        postUrl = v.startsWith('http') ? v : `https://${v.replace(/^\/\//, '')}`
-        break
-      }
-    }
-
     return this.createResult(true, {
-      postId,
-      postUrl,
-      draftOnly: false,
+      postId: did,
+      postUrl: `https://blog.51cto.com/blogger/draft/${did}`,
+      draftOnly: true,
     })
   }
 

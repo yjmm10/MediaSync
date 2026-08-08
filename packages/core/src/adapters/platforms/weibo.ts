@@ -8,7 +8,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 import { parseMarkdownImages } from '../../lib/markdown-images'
 
@@ -32,17 +31,6 @@ export class WeiboAdapter extends PipelineAdapter {
   /** 预处理配置: 微博使用 HTML 格式 */
   readonly preprocessConfig = {
     outputFormat: 'html' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      { kind: 'summary', key: 'summary', label: '摘要' },
-      { kind: 'schedule', key: 'scheduleAt', label: '定时发布', enabled: true },
-      { kind: 'reward', key: 'reward', label: '赞赏' },
-      { kind: 'paid', key: 'paid', label: '付费阅读' },
-    ],
   }
 
   private userConfig: WeiboUserConfig | null = null

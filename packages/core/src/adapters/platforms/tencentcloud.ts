@@ -10,7 +10,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('TencentCloud')
@@ -191,18 +190,6 @@ export class TencentCloudAdapter extends PipelineAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'column', key: 'column', label: '专栏', source: 'remote' },
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
-      { kind: 'summary', key: 'summary', label: '摘要' },
-    ],
   }
 
   /** 收集社区相关 Cookie，供 DNR 注入（绕过 SW 丢 SameSite 会话） */

@@ -1,9 +1,8 @@
 /**
  * 微信公众号适配器（PipelineAdapter 实现）
  *
- * 行为等价迁移（首版保持现状，不声明 publishSchema、不激活配置）：
- * 首页 HTML 解析鉴权 + 同源 rawHtml 跳过处理 + processLatex/stripExternalLinks +
- * filetransfer 图床 + normalizeWeixinHtml + juice 内联 CSS + operate_appmsg create 全部保留。
+ * 行为：首页 HTML 解析鉴权 + 同源 rawHtml 跳过处理 + processLatex/stripExternalLinks +
+ * filetransfer 图床 + normalizeWeixinHtml + juice 内联 CSS + operate_appmsg create。
  * checkAuth 重写（保留 HTML 解析 + 设 weixinMeta 原逻辑）。
  */
 import { PipelineAdapter, type PublishContext } from '../pipeline'
@@ -69,8 +68,6 @@ export class WeixinAdapter extends PipelineAdapter {
     keepLinkDomains: ['mp.weixin.qq.com', 'weixin.qq.com'],
     compactHtml: true,
   }
-
-  // 首版保持现状，不声明 publishSchema（P3 再做完整 Schema）
 
   private weixinMeta: WeixinMeta | null = null
 

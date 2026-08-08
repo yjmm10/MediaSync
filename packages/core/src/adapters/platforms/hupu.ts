@@ -9,7 +9,6 @@ import md5Lib from 'js-md5'
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Hupu')
@@ -203,14 +202,6 @@ export class HupuAdapter extends PipelineAdapter {
   readonly preprocessConfig = {
     outputFormat: 'html' as const,
     processCodeBlocks: true,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死 DEFAULT_TOPIC_ID 保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'node', key: 'node', label: '板块', source: 'static', required: true,
-        options: [{ value: 'default', label: '步行街主干道' }] },
-    ],
   }
 
   private readonly HEADER_RULES: HeaderRule[] = [

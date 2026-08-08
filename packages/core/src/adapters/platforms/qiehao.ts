@@ -10,7 +10,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Qiehao')
@@ -59,16 +58,6 @@ export class QiehaoAdapter extends PipelineAdapter {
 
   readonly preprocessConfig = {
     outputFormat: 'html' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'activity', key: 'activityId', label: '活动', source: 'remote' },
-    ],
   }
 
   private mediaId: string | null = null

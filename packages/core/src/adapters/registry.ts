@@ -116,7 +116,7 @@ class AdapterRegistry {
 
   /**
    * 获取平台档案（UI 渲染所需的全部元数据）
-   * 未声明的字段用默认值兜底（迁移期未声明的平台返回 special/sw/draft）
+   * 未声明的字段用默认值兜底（迁移期未声明的平台返回 special/sw）
    */
   getProfile(platformId: string): PlatformProfile | null {
     const entry = this.adapters.get(platformId)
@@ -128,10 +128,7 @@ class AdapterRegistry {
         ...DEFAULT_PREPROCESS_CONFIG,
         ...(entry.preprocessConfig || {}),
       },
-      publishModes: entry.publishModes ?? ['draft'],
       authMode: entry.authMode ?? 'sw',
-      publishSchema: entry.publishSchema,
-      publishDefaults: entry.publishDefaults,
     }
   }
 

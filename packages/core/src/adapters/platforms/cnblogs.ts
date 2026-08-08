@@ -1,15 +1,12 @@
 /**
  * 博客园 (cnblogs.com) 适配器（PipelineAdapter 实现）
  *
- * 行为：XSRF-TOKEN + 图片 CORS 上传 + api/posts 创建草稿/发布。
+ * 行为：XSRF-TOKEN + 图片 CORS 上传 + api/posts 创建草稿（始终草稿，不走正式发布）。
  * 鉴权：SwHtmlAuthStrategy 拉 CurrentUserInfo。
- * 选项源：fetchPublishRefs 仅供设置/同步折叠「手动更新」调用，发布路径不自动拉列表。
  */
-import { PipelineAdapter, type PublishContext, type PublishRefs } from '../pipeline'
+import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
-import type { PublishParams } from '../publish-params'
 import { SwHtmlAuthStrategy } from '../auth-strategy'
 import { createLogger } from '../../lib/logger'
 
@@ -69,74 +66,6 @@ export class CnblogsAdapter extends PipelineAdapter {
     outputFormat: 'markdown' as const,
   }
 
-  readonly publishDefaults: PublishParams = {
-    mode: 'draft',
-    commentsEnabled: true,
-    visibility: 'public',
-    cover: 'auto',
-    extra: {
-      displayOnHomePage: false,
-      pinned: false,
-      isAigc: false,
-      postType: 2,
-    },
-  }
-
-  /** 配置 Schema（声明式，UI 据此渲染） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签', suggestionsKey: 'tagSuggestions' },
-      { kind: 'category', key: 'category', label: '个人分类', source: 'remote' },
-      {
-        kind: 'column',
-        key: 'columns',
-        label: '合集',
-        source: 'remote',
-        selectMode: 'multi',
-      },
-      { kind: 'cover', key: 'cover', label: '题图', modes: ['auto', 'none'] },
-      { kind: 'summary', key: 'summary', label: '摘要' },
-      {
-        kind: 'visibility',
-        key: 'visibility',
-        label: '访问权限',
-        options: [
-          { value: 'public', label: '公开' },
-          { value: 'followers', label: '仅登录用户' },
-          { value: 'private', label: '只有我' },
-        ],
-      },
-      { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
-      { kind: 'schedule', key: 'scheduleAt', label: '定时发布', enabled: true },
-      { kind: 'toggle', key: 'extra.pinned', label: '置顶' },
-      { kind: 'toggle', key: 'extra.displayOnHomePage', label: '博客主页显示' },
-      { kind: 'toggle', key: 'extra.isAigc', label: '内容由AI生成' },
-      { kind: 'text', key: 'extra.password', label: '密码保护', placeholder: '可选' },
-      { kind: 'text', key: 'extra.entryName', label: 'Slug', placeholder: '友好地址名（可选）' },
-    ],
-    groups: [
-      {
-        title: '基本设置',
-        fields: ['category', 'columns', 'tags', 'summary', 'cover'],
-        defaultOpen: true,
-      },
-      {
-        title: '高级选项',
-        fields: [
-          'visibility',
-          'commentsEnabled',
-          'scheduleAt',
-          'extra.pinned',
-          'extra.displayOnHomePage',
-          'extra.isAigc',
-          'extra.password',
-          'extra.entryName',
-        ],
-        defaultOpen: false,
-      },
-    ],
-  }
-
   /** 鉴权策略：SW 拉 CurrentUserInfo 页面 HTML 正则提取登录态 */
   protected readonly authStrategies = [
     new SwHtmlAuthStrategy({
@@ -157,8 +86,6 @@ export class CnblogsAdapter extends PipelineAdapter {
   ]
 
   private xsrfToken: string | null = null
-  /** 博客地址名，用于拼公开文章 URL */
-  private blogApp: string | null = null
 
   /** 博客园 API 需要的 Header 规则 */
   private readonly HEADER_RULES: Array<Omit<HeaderRule, 'id'>> = [
@@ -179,44 +106,6 @@ export class CnblogsAdapter extends PipelineAdapter {
       resourceTypes: ['xmlhttprequest'],
     },
   ]
-
-  // ============ 选项源（仅手动刷新）============
-
-  /**
-   * 拉取个人分类 + 合集 + 标签建议（设置/同步折叠「平台更新」按钮调用）。
-   * 发布管道不自动调用。
-   */
-  async fetchPublishRefs(): Promise<PublishRefs> {
-    return this.withHeaderRules(this.HEADER_RULES, async () => {
-      const [categories, columns, tagSuggestions] = await Promise.all([
-        this.fetchCategories(),
-        this.fetchCollections(),
-        this.fetchTagSuggestions(),
-      ])
-      return { categories, columns, tagSuggestions }
-    })
-  }
-
-  private async fetchCategories(): Promise<Array<{ id: string; name: string }>> {
-    const response = await this.runtime.fetch(
-      'https://i.cnblogs.com/api/v2/blog-category-types/2/categories?parent=',
-      { method: 'GET', credentials: 'include' },
-    )
-    if (!response.ok) {
-      throw new Error(`拉取个人分类失败: ${response.status}`)
-    }
-    const data = (await response.json()) as {
-      categories?: Array<{ categoryId?: number; id?: number; title?: string }>
-    }
-    const list = data.categories ?? []
-    return list
-      .map((c) => {
-        const id = c.categoryId ?? c.id
-        if (id == null || !c.title) return null
-        return { id: String(id), name: c.title }
-      })
-      .filter((x): x is { id: string; name: string } => x != null)
-  }
 
   private async fetchCollections(): Promise<Array<{ id: string; name: string }>> {
     const response = await this.runtime.fetch('https://i.cnblogs.com/api/collections', {
@@ -273,43 +162,9 @@ export class CnblogsAdapter extends PipelineAdapter {
     return ids
   }
 
-  private async fetchTagSuggestions(): Promise<string[]> {
-    const response = await this.runtime.fetch(
-      'https://i.cnblogs.com/api/tags/list?excludeInUsing=false&excludeUnUsing=false',
-      { method: 'GET', credentials: 'include' },
-    )
-    if (!response.ok) {
-      throw new Error(`拉取标签失败: ${response.status}`)
-    }
-    const data = (await response.json()) as Array<{ name?: string }>
-    if (!Array.isArray(data)) return []
-    const names: string[] = []
-    for (const t of data) {
-      if (t.name && !names.includes(t.name)) names.push(t.name)
-    }
-    return names
-  }
-
-  private async ensureBlogApp(): Promise<string | null> {
-    if (this.blogApp) return this.blogApp
-    try {
-      const response = await this.runtime.fetch('https://i.cnblogs.com/api/user', {
-        method: 'GET',
-        credentials: 'include',
-      })
-      if (!response.ok) return null
-      const data = (await response.json()) as { blogApp?: string; alias?: string }
-      this.blogApp = data.blogApp || data.alias || null
-      return this.blogApp
-    } catch (error) {
-      logger.warn('Failed to get blogApp:', error)
-      return null
-    }
-  }
-
   // ============ 管道钩子 ============
 
-  // authorize / normalizeContent / resolveReferences 用基类默认（resolveReferences 空：不自动拉选项）
+  // authorize / normalizeContent / resolveReferences 用基类默认
 
   /**
    * 3. 上传图片：在 Header 规则保护下获取 XSRF-TOKEN + SharedImageCache 去重上传
@@ -338,11 +193,9 @@ export class CnblogsAdapter extends PipelineAdapter {
     })
   }
 
-  /** 5. 构建创建草稿/发布请求体 */
+  /** 5. 构建创建草稿请求体（始终草稿） */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
     const { params } = ctx
-    const mode = params.mode ?? 'draft'
-    const isPublish = mode === 'publish' || mode === 'schedule'
     const coverMode = params.cover ?? 'auto'
     let coverUrl = ''
     if (coverMode === 'none') {
@@ -407,7 +260,7 @@ export class CnblogsAdapter extends PipelineAdapter {
       inSiteHome: false,
       siteCategoryId: null,
       blogTeamIds: null,
-      isPublished: isPublish,
+      isPublished: false,
       displayOnHomePage: Boolean(params.extra?.displayOnHomePage),
       isAllowComments: params.commentsEnabled ?? true,
       includeInMainSyndication: false,
@@ -420,11 +273,11 @@ export class CnblogsAdapter extends PipelineAdapter {
       featuredImage: coverUrl || null,
       tags: params.tags ?? null,
       password,
-      publishAt: params.scheduleAt ? new Date(params.scheduleAt).toISOString() : null,
+      publishAt: null,
       datePublished: new Date().toISOString(),
       dateUpdated: null,
       isMarkdown: true,
-      isDraft: !isPublish,
+      isDraft: true,
       autoDesc: null,
       changePostType: false,
       blogId: 0,
@@ -440,14 +293,11 @@ export class CnblogsAdapter extends PipelineAdapter {
     }
   }
 
-  /** 6. 提交：创建草稿/发布，返回结果 */
+  /** 6. 提交：仅创建草稿，返回结果 */
   protected async submit(ctx: PublishContext): Promise<SyncResult> {
     if (!this.xsrfToken) {
       throw new Error('XSRF-TOKEN 未获取')
     }
-
-    const mode = ctx.params.mode ?? 'draft'
-    const isPublish = mode === 'publish' || mode === 'schedule'
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -485,19 +335,13 @@ export class CnblogsAdapter extends PipelineAdapter {
     }
 
     const postId = String(responseData.id)
-    let postUrl = `https://i.cnblogs.com/articles/edit;postId=${postId}`
-    if (isPublish) {
-      const blogApp = await this.ensureBlogApp()
-      if (blogApp) {
-        postUrl = `https://www.cnblogs.com/${blogApp}/articles/${postId}`
-      }
-    }
-    logger.debug('Post created:', postId, 'publish=', isPublish, 'url=', postUrl)
+    const postUrl = `https://i.cnblogs.com/articles/edit;postId=${postId}`
+    logger.debug('Draft created:', postId, 'url=', postUrl)
 
     return this.createResult(true, {
       postId,
       postUrl,
-      draftOnly: !isPublish,
+      draftOnly: true,
     })
   }
 

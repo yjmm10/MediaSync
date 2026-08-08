@@ -7,7 +7,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { SwHtmlAuthStrategy } from '../auth-strategy'
 
 export class SegmentfaultAdapter extends PipelineAdapter {
@@ -22,13 +21,6 @@ export class SegmentfaultAdapter extends PipelineAdapter {
   /** 预处理配置: 思否使用 Markdown 格式 */
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /** 配置 Schema（声明式，UI 据此渲染；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签' },
-    ],
   }
 
   /** 鉴权策略：SW 拉 user/settings 页面 HTML 正则提取登录态 */

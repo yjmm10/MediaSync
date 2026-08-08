@@ -6,7 +6,6 @@
  */
 import { computeDocId, type HistoryArticle } from './history-doc'
 import { createLogger } from './logger'
-import type { ArticleMeta } from './article-meta'
 
 const logger = createLogger('LocalMdCache')
 
@@ -23,7 +22,6 @@ export interface LocalMdCacheItem {
   html: string
   cover?: string
   summary?: string
-  frontmatter?: ArticleMeta
   fileName?: string
   importedAt: number
 }
@@ -78,7 +76,6 @@ export async function pushLocalMdCache(input: {
   html: string
   cover?: string
   summary?: string
-  frontmatter?: ArticleMeta
   fileName?: string
 }): Promise<void> {
   const article: HistoryArticle = {
@@ -94,7 +91,6 @@ export async function pushLocalMdCache(input: {
     html: input.html,
     cover: input.cover,
     summary: input.summary,
-    frontmatter: input.frontmatter,
     fileName: input.fileName,
     importedAt: Date.now(),
   }
@@ -125,7 +121,6 @@ export async function upsertLocalMdCacheFromArticle(article: {
   content?: string
   cover?: string
   summary?: string
-  frontmatter?: ArticleMeta
 }): Promise<void> {
   const markdown = article.markdown || ''
   const html = article.html || article.content || ''
@@ -134,9 +129,8 @@ export async function upsertLocalMdCacheFromArticle(article: {
     title: article.title,
     markdown: markdown || html,
     html: html || markdown,
-    cover: article.cover ?? article.frontmatter?.cover,
-    summary: article.summary ?? article.frontmatter?.summary,
-    frontmatter: article.frontmatter,
+    cover: article.cover,
+    summary: article.summary,
   })
 }
 
@@ -154,7 +148,6 @@ export interface WorkingArticleSnapshot {
   markdown?: string
   cover?: string
   summary?: string
-  frontmatter?: ArticleMeta
   source: 'import' | 'edited'
   savedAt: number
 }
@@ -166,7 +159,6 @@ export async function saveWorkingArticle(article: {
   markdown?: string
   cover?: string
   summary?: string
-  frontmatter?: ArticleMeta
   source?: string
 }): Promise<void> {
   const source = article.source
@@ -181,7 +173,6 @@ export async function saveWorkingArticle(article: {
     markdown: article.markdown,
     cover: article.cover,
     summary: article.summary,
-    frontmatter: article.frontmatter,
     source,
     savedAt: Date.now(),
   }

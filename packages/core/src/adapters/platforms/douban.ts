@@ -4,7 +4,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import type { DoubanImageData } from '../../lib'
 import { markdownToDraft } from '../../lib'
 import { createLogger } from '../../lib/logger'
@@ -34,23 +33,6 @@ export class DoubanAdapter extends PipelineAdapter {
   /** 预处理配置: 豆瓣使用 Markdown 格式 (转换为 Draft.js) */
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      {
-        kind: 'visibility',
-        key: 'visibility',
-        label: '可见性',
-        options: [
-          { value: 'public', label: '公开' },
-          { value: 'private', label: '仅自己可见' },
-        ],
-      },
-      { kind: 'originalType', key: 'originalType', label: '原创',
-        options: [{ value: 'original', label: '原创' }] },
-    ],
   }
 
   private username: string = ''

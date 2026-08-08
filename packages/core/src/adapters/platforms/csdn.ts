@@ -2,7 +2,7 @@
  * CSDN 适配器（PipelineAdapter 实现）
  *
  * 行为等价迁移：原有签名鉴权、图片上传（OBS 直传）、saveArticle 草稿流程全部保留。
- * 新增 publishSchema；buildPayload 读 ctx.params（categories 用名称，可见性对齐 readType）。
+ * buildPayload 读 ctx.params（categories 用名称，可见性对齐 readType）；始终存草稿。
  *
  * Header 规则拆分（与原实现等价）：
  *   原来用一次 withHeaderRules 包整个 publish；迁移后管道分层，拆为两次顺序包：
@@ -13,7 +13,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('CSDN')
@@ -36,77 +35,6 @@ export class CSDNAdapter extends PipelineAdapter {
   /** 预处理配置: CSDN 使用 Markdown 格式 */
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /**
-   * 配置 Schema（声明式，UI 据此渲染）
-   * categories 选项为专栏名称；活动/话题仅正式发布时由平台生效。
-   */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签', max: 7, selectMode: 'multi' },
-      {
-        kind: 'category',
-        key: 'category',
-        label: '分类/专栏',
-        source: 'remote',
-        selectMode: 'multi',
-        max: 3,
-        remoteRef: { apiPath: '/blog/phoenix/console/v1/column/list', params: { type: 'all' } },
-      },
-      {
-        kind: 'originalType',
-        key: 'originalType',
-        label: '原创类型',
-        needsOriginalLink: true,
-        selectMode: 'single',
-        options: [
-          { value: 'original', label: '原创' },
-          { value: 'reprint', label: '转载' },
-          { value: 'translate', label: '翻译' },
-        ],
-      },
-      {
-        kind: 'activity',
-        key: 'activityId',
-        label: '活动（仅正式发布时生效）',
-        source: 'remote',
-        selectMode: 'either-or',
-        eitherWith: 'topicId',
-        remoteRef: {
-          apiPath: '/blog/phoenix/console/v1/write-active/list',
-          params: { activeStatus: '2', order: '1', page: '1', size: '100', type: '1' },
-        },
-      },
-      {
-        kind: 'topic',
-        key: 'topicId',
-        label: '话题（与活动二选一；仅正式发布时生效）',
-        source: 'remote',
-        selectMode: 'either-or',
-        eitherWith: 'activityId',
-        remoteRef: {
-          apiPath: '/blog/phoenix/console/v1/write-active/list',
-          params: { activeStatus: '2', order: '1', page: '1', size: '100', type: '2' },
-        },
-      },
-      {
-        kind: 'schedule',
-        key: 'scheduleAt',
-        label: '定时发布',
-        enabled: true,
-      },
-      {
-        kind: 'visibility',
-        key: 'visibility',
-        label: '可见性',
-        selectMode: 'single',
-        options: [
-          { value: 'public', label: '公开' },
-          { value: 'private', label: '仅自己可见' },
-        ],
-      },
-    ],
   }
 
   private userInfo: CSDNUserInfo | null = null
@@ -253,35 +181,20 @@ export class CSDNAdapter extends PipelineAdapter {
    */
   protected async buildPayload(ctx: PublishContext): Promise<void> {
     const { params } = ctx
-    const isSchedule = params.mode === 'schedule' && !!params.scheduleAt
-    const isPublish = params.mode === 'publish' || isSchedule
     const isPrivate = params.visibility === 'private'
     const coverUrl =
       params.cover && params.cover !== 'auto' && params.cover !== 'none'
         ? params.cover
         : ''
     // 官方：private 时 readType=private 且强制 level=0；草稿公开 status=2，私密 status=64
+    // 同步始终存草稿（不走正式发布 / 定时发布）
     const readType = isPrivate ? 'private' : 'public'
     const level = isPrivate
       ? '0'
       : String(this.visibilityToLevel(params.visibility))
-    let status: number
-    if (isPrivate) {
-      status = 64
-    } else if (isPublish) {
-      status = 0
-    } else {
-      status = 2
-    }
+    const status = isPrivate ? 64 : 2
     const categories = await this.resolveCategoryNames(params.category ?? '')
-    // 官方编辑器仅在正式发布时写入活动；草稿仍传，后端可能忽略
     const activityId = params.activityId || params.topicId || ''
-    const creatorActivityId =
-      isPublish && !isPrivate && (params.originalType ?? 'original') === 'original'
-        ? activityId
-        : isPublish
-          ? ''
-          : activityId
 
     ctx.payload = {
       id: 0, // 0=新建
@@ -305,19 +218,12 @@ export class CSDNAdapter extends PipelineAdapter {
       is_new: 1,
       vote_id: 0,
       resource_id: '',
-      pubStatus: isPublish ? 'publish' : 'draft',
+      pubStatus: 'draft',
       creation_statement: (params.extra?.creationStatement as number) ?? 0, // 0=无 1=原创声明 2=独家授权 3=原创+独家
       sync_git_code: (params.extra?.syncGitCode as number) ?? 0,
-      creator_activity_id: creatorActivityId,
-      scheduled_time: isSchedule && params.scheduleAt ? this.formatScheduleTime(params.scheduleAt) : '',
+      creator_activity_id: activityId,
+      scheduled_time: '',
     }
-  }
-
-  /** 时间戳 → CSDN scheduled_time 格式（YYYY-MM-DD HH:mm） */
-  private formatScheduleTime(ts: number): string {
-    const d = new Date(ts)
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
   /** 可见性 → CSDN level（公开场景：0=公开，1=粉丝可见；私密走 readType，不用 level=2） */

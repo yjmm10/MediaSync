@@ -8,7 +8,6 @@
 import { PipelineAdapter, type PublishContext } from '../pipeline'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 
 export class OschinaAdapter extends PipelineAdapter {
   meta: PlatformMeta = {
@@ -22,23 +21,6 @@ export class OschinaAdapter extends PipelineAdapter {
   /** 预处理配置: 开源中国使用 Markdown 格式 */
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      {
-        kind: 'visibility',
-        key: 'visibility',
-        label: '可见性',
-        options: [
-          { value: 'public', label: '公开' },
-          { value: 'private', label: '仅自己可见' },
-        ],
-      },
-      { kind: 'comments', key: 'commentsEnabled', label: '允许评论' },
-    ],
   }
 
   private userId: string | null = null

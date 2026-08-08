@@ -71,8 +71,7 @@ export function HistoryList({ embedded, className }: HistoryListProps) {
 
     const title = cached?.title || item.title
     const cover = cached?.cover || item.cover
-    const summary = cached?.summary || cached?.frontmatter?.summary
-    const frontmatter = cached?.frontmatter
+    const summary = cached?.summary
     const body = html || markdown || ''
 
     setArticle(
@@ -83,7 +82,6 @@ export function HistoryList({ embedded, className }: HistoryListProps) {
         markdown: markdown || undefined,
         cover,
         summary,
-        frontmatter,
       },
       'import',
     )

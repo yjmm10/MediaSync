@@ -3,17 +3,13 @@
  */
 import {
   adapterRegistry,
-  mergeParams,
   type AuthMode,
   type PlatformAdapter,
   type PlatformMeta,
   type Article,
-  type PublishParams,
-  type PublishSchema,
   type SyncResult,
 } from '@mediasync/core'
 import { getTabAuthAutoDetect } from '../lib/tab-auth-auto-detect'
-import { getSavedParams, stripFmDrivenFields } from '../lib/platform-publish-config'
 import { createExtensionRuntime } from '../runtime/extension'
 import { createLogger } from '../lib/logger'
 import {
@@ -159,26 +155,20 @@ interface AdapterEntry {
   factory: () => PlatformAdapter
   preprocessConfig?: Record<string, unknown>
   authMode?: AuthMode
-  publishSchema?: PublishSchema
-  publishDefaults?: PublishParams
 }
 
-// 生成适配器注册条目（包含 preprocessConfig / authMode / publishSchema / publishDefaults）
+// 生成适配器注册条目（包含 preprocessConfig / authMode）
 const adapterEntries: AdapterEntry[] = ADAPTER_CLASSES.map(AdapterClass => {
   const instance = new AdapterClass()
   const id = instance.meta.id
   const pi = instance as unknown as {
     preprocessConfig?: Record<string, unknown>
-    publishSchema?: PublishSchema
-    publishDefaults?: PublishParams
   }
   return {
     meta: instance.meta,
     factory: () => new AdapterClass(),
     preprocessConfig: pi.preprocessConfig,
     authMode: TAB_AUTH_MODE_BY_ID[id],
-    publishSchema: pi.publishSchema,
-    publishDefaults: pi.publishDefaults,
   }
 })
 
@@ -227,42 +217,10 @@ export function getAllPlatformMetas() {
 }
 
 /**
- * 获取平台档案（含 publishSchema / publishDefaults / publishModes / authMode）
+ * 获取平台档案（meta / category / preprocessConfig / authMode）
  */
 export function getPlatformProfile(platformId: string) {
   return adapterRegistry.getProfile(platformId)
-}
-
-/**
- * 拉取平台发布选项源（仅适配器实现了 fetchPublishRefs 时可用）
- */
-export async function fetchPlatformPublishRefs(platformId: string) {
-  const adapter = await getAdapter(platformId)
-  if (!adapter) {
-    throw new Error(`平台不存在: ${platformId}`)
-  }
-  const withFetch = adapter as { fetchPublishRefs?: () => Promise<import('@mediasync/core').PublishRefs> }
-  if (typeof withFetch.fetchPublishRefs !== 'function') {
-    throw new Error(`${platformId} 不支持拉取发布选项`)
-  }
-  return withFetch.fetchPublishRefs()
-}
-
-/**
- * 列出支持发布配置（有 schema 且适配器实现了 fetchPublishRefs）的平台 id
- */
-export function getConfigurablePlatformIds(): string[] {
-  return adapterEntries
-    .filter((e) => {
-      if (!e.publishSchema) return false
-      try {
-        const adapter = e.factory() as { fetchPublishRefs?: unknown }
-        return typeof adapter.fetchPublishRefs === 'function'
-      } catch {
-        return false
-      }
-    })
-    .map((e) => e.meta.id)
 }
 
 /**
@@ -562,7 +520,7 @@ export interface SyncCallbacks {
 export async function syncToPlatform(
   platformId: string,
   article: Article,
-  options?: { draftOnly?: boolean; params?: PublishParams },
+  options?: { draftOnly?: boolean },
   onImageProgress?: ImageProgressCallback
 ): Promise<SyncResult> {
   const adapter = await getAdapter(platformId)
@@ -588,21 +546,13 @@ export async function syncToPlatform(
       }
     }
 
-    // 发布参数：defaults ⊕ 设置页非 FM 项 ⊕ 本次会话（含勾选时 FM 快照）
-    // 旧 saved 里的 tags/columns/summary 不得盖回会话；51CTO 保留上次 category/column
-    const profile = adapterRegistry.getProfile(platformId)
-    const saved = await getSavedParams(platformId)
-    const params = mergeParams(
-      profile?.publishDefaults,
-      stripFmDrivenFields(saved, platformId),
-      options?.params,
-    )
+    const supportsDraft = adapter.meta.capabilities.includes('draft')
+    const draftOnly = options?.draftOnly ?? supportsDraft
 
-    // 默认只保存草稿，带超时保护
     return await withTimeout(
       adapter.publish(platformArticle, {
-        draftOnly: options?.draftOnly ?? (params.mode !== 'publish' && params.mode !== 'schedule'),
-        params,
+        draftOnly,
+        params: supportsDraft ? { mode: 'draft' as const } : { mode: 'publish' as const },
         onImageProgress: onImageProgress
           ? (current: number, total: number) => onImageProgress(platformId, current, total)
           : undefined,
@@ -653,7 +603,6 @@ export async function syncToMultiplePlatforms(
   article: Article,
   callbacks?: SyncCallbacks,
   source = 'popup', // 来源：popup, weixin, weixin-editor, mcp 等
-  perPlatform?: Record<string, PublishParams>,
 ): Promise<SyncResult[]> {
   // 创建新的取消控制器
   syncAbortController = new AbortController()
@@ -735,7 +684,7 @@ export async function syncToMultiplePlatforms(
     const result = await syncToPlatform(
       platformId,
       article,
-      { params: perPlatform?.[platformId] },
+      undefined,
       wrappedImageProgress
     )
 

@@ -15,10 +15,7 @@
  * - 同一张图片多次引用只读取一次（缓存）
  */
 import { markdownToHtml } from '@mediasync/core'
-import {
-  parseFrontmatterMeta,
-  type ArticleMeta,
-} from './article-meta'
+import { stripYamlFrontmatter } from './article-meta'
 import { createLogger } from './logger'
 
 const logger = createLogger('LocalMarkdown')
@@ -157,7 +154,7 @@ export function findMarkdownFiles(files: File[]): File[] {
 }
 
 /** 本地 MD 标题来源偏好（未设置 / auto = 默认链） */
-export type LocalMdTitleSource = 'auto' | 'h1' | 'frontmatter' | 'filename'
+export type LocalMdTitleSource = 'auto' | 'h1' | 'filename'
 
 export const LOCAL_MD_TITLE_SOURCE_KEY = 'localMdTitleSource'
 export const DEFAULT_LOCAL_MD_TITLE_SOURCE: LocalMdTitleSource = 'auto'
@@ -165,7 +162,6 @@ export const DEFAULT_LOCAL_MD_TITLE_SOURCE: LocalMdTitleSource = 'auto'
 const TITLE_SOURCE_VALUES: readonly LocalMdTitleSource[] = [
   'auto',
   'h1',
-  'frontmatter',
   'filename',
 ] as const
 
@@ -192,18 +188,15 @@ export async function setLocalMdTitleSource(source: LocalMdTitleSource): Promise
 }
 
 /** 各偏好下的候选顺序：优先所选，缺失再走剩余兜底 */
-function titleCandidateOrder(source: LocalMdTitleSource): Array<'h1' | 'frontmatter' | 'filename'> {
+function titleCandidateOrder(source: LocalMdTitleSource): Array<'h1' | 'filename'> {
   switch (source) {
     case 'h1':
-      return ['h1', 'frontmatter', 'filename']
-    case 'frontmatter':
-      return ['frontmatter', 'h1', 'filename']
+      return ['h1', 'filename']
     case 'filename':
-      return ['filename', 'h1', 'frontmatter']
+      return ['filename', 'h1']
     case 'auto':
     default:
-      // 默认：一级标题 → frontmatter → 文件名
-      return ['h1', 'frontmatter', 'filename']
+      return ['h1', 'filename']
   }
 }
 
@@ -211,10 +204,8 @@ function titleCandidateOrder(source: LocalMdTitleSource): Array<'h1' | 'frontmat
 export interface ParsedMarkdown {
   title: string
   body: string
-  /** front matter 结构化元数据（封面路径尚未转换为 data URI） */
-  frontmatter: ArticleMeta
-  /** @deprecated 使用 frontmatter.cover；保留兼容旧调用 */
   cover?: string
+  summary?: string
 }
 
 export interface ParseMarkdownOptions {
@@ -228,36 +219,19 @@ export function parseMarkdown(
   options?: ParseMarkdownOptions
 ): ParsedMarkdown {
   const titleSource = normalizeLocalMdTitleSource(options?.titleSource)
-  let body = content
-  let frontmatterTitle: string | null = null
-  let fm: ArticleMeta = {}
-
-  // 始终剥离 YAML front matter（元数据写入 frontmatter，不进入正文）
-  const yamlMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/)
-  if (yamlMatch) {
-    const fmText = yamlMatch[1]
-    const titleMatch = fmText.match(/^title:\s*["']?(.+?)["']?\s*$/m)
-    if (titleMatch) {
-      const t = titleMatch[1].trim()
-      frontmatterTitle = t
-        ? t.replace(/^["']|["']$/g, '').trim() || null
-        : null
-    }
-    fm = parseFrontmatterMeta(fmText)
-    body = content.slice(yamlMatch[0].length)
-  }
+  const stripped = stripYamlFrontmatter(content)
+  let body = stripped.body
 
   const h1Match = body.match(/^#\s+(.+)$/m)
   const h1Title = h1Match?.[1]?.trim() || null
 
-  const candidates: Record<'h1' | 'frontmatter' | 'filename', string | null> = {
+  const candidates: Record<'h1' | 'filename', string | null> = {
     h1: h1Title,
-    frontmatter: frontmatterTitle,
     filename: fallbackTitle.trim() || null,
   }
 
   let title: string | null = null
-  let used: 'h1' | 'frontmatter' | 'filename' | null = null
+  let used: 'h1' | 'filename' | null = null
   for (const key of titleCandidateOrder(titleSource)) {
     const value = candidates[key]
     if (value) {
@@ -277,8 +251,8 @@ export function parseMarkdown(
   return {
     title: title || fallbackTitle,
     body: body.trim(),
-    frontmatter: fm,
-    cover: fm.cover,
+    cover: stripped.cover,
+    summary: stripped.summary,
   }
 }
 
@@ -428,12 +402,10 @@ export interface ImportedArticle {
   markdown: string
   /** 由 markdown 渲染得到的 HTML */
   html: string
-  /** 封面（data URI 或远程 URL）；与 meta.cover 镜像 */
+  /** 封面（data URI 或远程 URL） */
   cover?: string
-  /** 摘要；与 meta.summary 镜像 */
+  /** 摘要 */
   summary?: string
-  /** front matter 结构化元数据 */
-  frontmatter?: ArticleMeta
 }
 
 export interface ImportStats {
@@ -487,15 +459,13 @@ export async function loadMarkdownFromFiles(
   const markdown = imgResult.content
 
   // 封面：若是本地路径同样转 data URI
-  const frontmatter: ArticleMeta = { ...parsed.frontmatter }
-  let cover = frontmatter.cover
+  let cover = parsed.cover
   if (cover && !isRemoteOrEmbedded(cover)) {
     const resolved = resolveRelativePath(baseDir, cover)
     const file = index.get(resolved) || index.getByBasename(cover)
     if (file && MIME_TYPES[extOf(file.name)]) {
       try {
         cover = await fileToDataUri(file)
-        frontmatter.cover = cover
       } catch (e) {
         logger.warn('封面转换失败:', (e as Error).message)
       }
@@ -509,9 +479,8 @@ export async function loadMarkdownFromFiles(
       title: parsed.title,
       markdown,
       html,
-      cover: frontmatter.cover,
-      summary: frontmatter.summary,
-      frontmatter,
+      cover,
+      summary: parsed.summary,
     },
     stats,
   }

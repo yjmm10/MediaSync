@@ -27,13 +27,6 @@ interface ExtractedArticle {
   html?: string      // 原始 HTML（可选，用于某些平台）
   summary?: string
   cover?: string
-  /** 本地 MD / 侧栏编辑带入的结构化 front matter */
-  frontmatter?: {
-    cover?: string
-    summary?: string
-    tags?: string[]
-    category?: string
-  }
   source: {
     url: string
     platform: string
@@ -1054,7 +1047,6 @@ function sendDataToEditor(article: ExtractedArticle, platforms: any[], selectedP
       markdown: article.markdown,
       cover: article.cover,
       summary: article.summary,
-      frontmatter: article.frontmatter,
       url: article.source?.url,
       extractor: article.source?.platform,
     },

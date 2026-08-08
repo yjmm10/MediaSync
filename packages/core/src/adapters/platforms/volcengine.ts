@@ -10,7 +10,6 @@ import { PipelineAdapter, type PublishContext } from '../pipeline'
 import { normalizeBlockquoteLineBreaks } from '../../lib/markdown-blockquote'
 import type { AuthResult, SyncResult, PlatformMeta, HeaderRule } from '../../types'
 import type { ImageProcessOptions, ImageUploadResult } from '../code-adapter'
-import type { PublishSchema } from '../publish-schema'
 import { signAWS4, crc32 } from '../../lib'
 import { createLogger } from '../../lib/logger'
 
@@ -104,15 +103,6 @@ export class VolcengineAdapter extends PipelineAdapter {
   /** 预处理配置: 火山社区完整支持 Markdown（含 mermaid / 代码语言） */
   readonly preprocessConfig = {
     outputFormat: 'markdown' as const,
-  }
-
-  /** 配置 Schema（声明式；P2 运行时仍写死保持等价） */
-  readonly publishSchema: PublishSchema = {
-    fields: [
-      { kind: 'tags', key: 'tags', label: '标签' },
-      { kind: 'category', key: 'category', label: '分类', source: 'remote' },
-      { kind: 'summary', key: 'summary', label: '摘要' },
-    ],
   }
 
   private cachedImageXToken: ImageXToken | null = null
