@@ -10,6 +10,10 @@ import {
   type SyncResult,
 } from '@mediasync/core'
 import { getTabAuthAutoDetect } from '../lib/tab-auth-auto-detect'
+import {
+  getTabAuthPlatformIds as listTabAuthPlatformIds,
+  isTabAuthPlatform,
+} from '../lib/tab-auth-platforms'
 import { createExtensionRuntime } from '../runtime/extension'
 import { createLogger } from '../lib/logger'
 import {
@@ -43,7 +47,6 @@ import {
   OschinaAdapter,
   SegmentfaultAdapter,
   CnblogsAdapter,
-  ZipDownloadAdapter,
   EastmoneyAdapter,
   DaYuAdapter,
   NeteaseAdapter,
@@ -114,7 +117,6 @@ const ADAPTER_CLASSES: AdapterConstructor[] = [
   OschinaAdapter,
   SegmentfaultAdapter,
   CnblogsAdapter,
-  ZipDownloadAdapter,
   EastmoneyAdapter,
   DaYuAdapter,
   NeteaseAdapter,
@@ -249,14 +251,14 @@ const PUBLISH_TIMEOUT = 10 * 60 * 1000 // 单个平台发布超时：10 分钟�
  * 依赖打开标签进行鉴权的平台 id 列表（调度与设置 UI 共用）
  */
 export function getTabAuthPlatformIds(): string[] {
-  return Object.keys(TAB_AUTH_MODE_BY_ID)
+  return listTabAuthPlatformIds()
 }
 
 /**
  * 依赖打开标签进行鉴权的平台：默认不自动真检；设置开启「开标签自动检测」后可走全量/TTL。
  * 仅单平台手动 CHECK_AUTH（checkPlatformAuth）时始终允许真检。
+ * ID 列表见 lib/tab-auth-platforms.ts（与 UI「重检」入口共用）。
  */
-const TAB_AUTH_PLATFORM_IDS = new Set(Object.keys(TAB_AUTH_MODE_BY_ID))
 
 /**
  * 带超时的 Promise 包装
@@ -373,9 +375,16 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
     const cached = cache[meta.id]
 
     // 会开标签鉴权的平台：默认跳过自动真检；设置开启后走下方缓存/检查逻辑
-    if (TAB_AUTH_PLATFORM_IDS.has(meta.id) && !tabAuthAutoDetect) {
-      if (cached) {
-        logger.debug(` Using cached auth for tab-auth platform ${meta.id} (no auto recheck)`)
+    // 有缓存时仍校验 TTL，过期后降为「需手动检测」，避免假登录且无法重检
+    if (isTabAuthPlatform(meta.id) && !tabAuthAutoDetect) {
+      const cacheTTL = cached?.isAuthenticated
+        ? AUTH_CACHE_TTL_AUTHENTICATED
+        : AUTH_CACHE_TTL_UNAUTHENTICATED
+      const cacheValid = !!cached && now - cached.timestamp < cacheTTL && !forceRefresh
+      if (cacheValid && cached) {
+        logger.debug(
+          ` Using cached auth for tab-auth platform ${meta.id} (TTL: ${cacheTTL / 1000}s, no auto recheck)`,
+        )
         results.push({
           ...meta,
           isAuthenticated: cached.isAuthenticated,
@@ -383,7 +392,13 @@ export async function checkAllPlatformsAuth(forceRefresh = false) {
           error: cached.error,
         })
       } else {
-        logger.debug(` Skip auto auth for ${meta.id} (no cache; wait for manual recheck)`)
+        logger.debug(` Skip auto auth for ${meta.id} (no/expired cache; wait for manual recheck)`)
+        // 过期则改写缓存为未登录，避免 platformListCache / 下次首屏继续假绿
+        cache[meta.id] = {
+          isAuthenticated: false,
+          error: '请手动重新检测登录状态',
+          timestamp: now,
+        }
         results.push({
           ...meta,
           isAuthenticated: false,

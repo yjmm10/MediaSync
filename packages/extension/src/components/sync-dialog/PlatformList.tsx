@@ -15,6 +15,7 @@ import {
   toggleFavorite,
   type UserPlatformGroup,
 } from '@/lib/user-platform-groups'
+import { isTabAuthPlatform } from '@/lib/tab-auth-platforms'
 import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './types'
 
 const PLATFORM_ORDER_KEY = 'platformOrder'
@@ -85,6 +86,8 @@ export function PlatformList({
   const isIdle = status === 'idle' || status === 'loading'
   const isSyncing = status === 'syncing'
   const isCompleted = status === 'completed'
+  /** idle/完成态可操作重检；仅 TAB_AUTH 平台真正露出入口（SW 可检平台靠批量鉴权） */
+  const canRecheckPhase = isIdle || isCompleted
 
   const authenticatedPlatforms = platforms.filter(p => p.isAuthenticated)
   const unauthenticatedPlatforms = platforms.filter(p => !p.isAuthenticated)
@@ -147,7 +150,7 @@ export function PlatformList({
 
   const [checkingIds, setCheckingIds] = useState<Set<string>>(() => new Set())
   const handleRecheckAuth = async (platformId: string) => {
-    if (!onRecheckAuth || checkingIds.has(platformId)) return
+    if (!onRecheckAuth || !isTabAuthPlatform(platformId) || checkingIds.has(platformId)) return
     setCheckingIds(prev => new Set(prev).add(platformId))
     try {
       await onRecheckAuth(platformId)
@@ -159,6 +162,9 @@ export function PlatformList({
       })
     }
   }
+
+  const platformCanRecheck = (platformId: string) =>
+    !!onRecheckAuth && canRecheckPhase && isTabAuthPlatform(platformId)
 
   const [platformOrder, setPlatformOrder] = useState<string[]>([])
   const [dragId, setDragId] = useState<string | null>(null)
@@ -186,6 +192,12 @@ export function PlatformList({
     else if (categoryFilter !== 'all') list = list.filter(p => platformCat(p) === categoryFilter)
     return sortByOrder(list, platformOrder)
   }, [unauthenticatedPlatforms, platformOrder, categoryFilter, favoritedIds])
+
+  /** 「全部检测」仅扫需开标签鉴权的未登录平台 */
+  const tabAuthUnauth = useMemo(
+    () => orderedUnauth.filter(p => isTabAuthPlatform(p.id)),
+    [orderedUnauth],
+  )
 
   const availableChips = useMemo(() => {
     const present = new Set(platforms.map(platformCat))
@@ -252,6 +264,7 @@ export function PlatformList({
           platform={platform}
           isSelected={isSelected}
           isIdle={isIdle}
+          canRecheckAuth={platformCanRecheck(platform.id)}
           isWaiting={isWaiting}
           isInProgress={isInProgress}
           isCheckingAuth={checkingIds.has(platform.id)}
@@ -271,6 +284,7 @@ export function PlatformList({
         platform={platform}
         isSelected={isSelected}
         isIdle={isIdle}
+        canRecheckAuth={platformCanRecheck(platform.id)}
         isWaiting={isWaiting}
         isInProgress={isInProgress}
         isCheckingAuth={checkingIds.has(platform.id)}
@@ -465,14 +479,14 @@ export function PlatformList({
                   未登录
                   <span className="tabular-nums font-normal">· {orderedUnauth.length}</span>
                 </button>
-                {onRecheckAuth && (
+                {onRecheckAuth && tabAuthUnauth.length > 0 && (
                   <button
                     type="button"
-                    title="逐个重新检测未登录平台"
-                    disabled={orderedUnauth.every(p => checkingIds.has(p.id))}
+                    title="重新检测需开标签鉴权的未登录平台"
+                    disabled={tabAuthUnauth.every(p => checkingIds.has(p.id))}
                     onClick={() => {
                       if (unauthCollapsed) setUnauthCollapsed(false)
-                      for (const p of orderedUnauth) {
+                      for (const p of tabAuthUnauth) {
                         void handleRecheckAuth(p.id)
                       }
                     }}
@@ -481,7 +495,7 @@ export function PlatformList({
                     <RefreshCw
                       className={cn(
                         'w-3 h-3',
-                        orderedUnauth.some(p => checkingIds.has(p.id)) && 'animate-spin',
+                        tabAuthUnauth.some(p => checkingIds.has(p.id)) && 'animate-spin',
                       )}
                     />
                     全部检测
@@ -505,7 +519,7 @@ export function PlatformList({
       {isIdle && platforms.length > 0 && authenticatedPlatforms.length === 0 && (
         <div className="text-center py-4">
           <p className="text-sm text-muted-foreground">还没有登录任何平台</p>
-          <p className="text-xs text-muted-foreground mt-1">点击平台图标或名称可重新检测登录状态</p>
+          <p className="text-xs text-muted-foreground mt-1">请先「去登录」；需开标签检测的平台可点「重检」</p>
         </div>
       )}
     </div>
@@ -518,6 +532,7 @@ function PlatformGridCell({
   platform,
   isSelected,
   isIdle,
+  canRecheckAuth,
   isWaiting,
   isInProgress,
   isCheckingAuth,
@@ -531,6 +546,7 @@ function PlatformGridCell({
   platform: Platform
   isSelected: boolean
   isIdle: boolean
+  canRecheckAuth: boolean
   isWaiting: boolean
   isInProgress: boolean
   isCheckingAuth: boolean
@@ -558,7 +574,7 @@ function PlatformGridCell({
     if (!isIdle || isCheckingAuth) return
     if (platform.isAuthenticated) {
       onToggle()
-    } else {
+    } else if (canRecheckAuth) {
       onRecheckAuth()
     }
   }
@@ -570,9 +586,15 @@ function PlatformGridCell({
   } else if (alreadySynced) {
     title = isSelected ? `${platform.name} · 将重新同步` : `${platform.name} · 已同步（点击重新同步）`
   } else if (isIdle) {
-    title = platform.isAuthenticated
-      ? `${platform.name} · ${platform.username || '已登录'}`
-      : `${platform.name} · 未登录，点击检测登录状态`
+    if (platform.isAuthenticated) {
+      title = canRecheckAuth
+        ? `${platform.name} · ${platform.username || '已登录'}（下方可重检）`
+        : `${platform.name} · ${platform.username || '已登录'}`
+    } else {
+      title = canRecheckAuth
+        ? `${platform.name} · 未登录，点击检测或点下方重检`
+        : `${platform.name} · 未登录，请点「去登录」`
+    }
   } else if (isDone && result) {
     title = result.success
       ? `${platform.name} · ${result.draftOnly ? '草稿' : '查看'}（点击打开）`
@@ -661,6 +683,24 @@ function PlatformGridCell({
       </div>
       {/* 名称 */}
       <span className="text-[10px] text-muted-foreground leading-tight text-center truncate w-full">{platform.name}</span>
+      {canRecheckAuth && (
+        <button
+          type="button"
+          title="重新检测登录状态"
+          disabled={isCheckingAuth}
+          onClick={(e) => {
+            e.stopPropagation()
+            e.preventDefault()
+            if (!isCheckingAuth) onRecheckAuth()
+          }}
+          className={cn(
+            'text-[10px] font-medium leading-none px-1 py-0.5 rounded',
+            isCheckingAuth ? 'text-primary' : 'text-primary hover:bg-primary/10',
+          )}
+        >
+          {isCheckingAuth ? '…' : '重检'}
+        </button>
+      )}
     </div>
   )
 }
@@ -671,6 +711,7 @@ function PlatformRow({
   platform,
   isSelected,
   isIdle,
+  canRecheckAuth,
   isWaiting,
   isInProgress,
   isCheckingAuth,
@@ -693,6 +734,7 @@ function PlatformRow({
   platform: Platform
   isSelected: boolean
   isIdle: boolean
+  canRecheckAuth: boolean
   isWaiting: boolean
   isInProgress: boolean
   isCheckingAuth: boolean
@@ -721,14 +763,14 @@ function PlatformRow({
       onToggle()
       return
     }
-    // 未登录：点击整行触发手动检测
-    onRecheckAuth()
+    // 未登录：仅 TAB_AUTH 平台整行触发手动检测；其余靠「去登录」
+    if (canRecheckAuth) onRecheckAuth()
   }
 
   const handleRecheckClick = (e: MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
-    if (!isIdle || isCheckingAuth || platform.isAuthenticated) return
+    if (!canRecheckAuth || isCheckingAuth) return
     onRecheckAuth()
   }
 
@@ -759,7 +801,9 @@ function PlatformRow({
           isCheckingAuth
             ? `${platform.name} · 正在检测登录…`
             : !platform.isAuthenticated
-              ? `${platform.name} · 点击检测登录状态`
+              ? (canRecheckAuth
+                ? `${platform.name} · 点击检测登录状态`
+                : `${platform.name} · 未登录，请点「去登录」`)
               : draggable
                 ? `${platform.name} · 可拖动排序`
                 : undefined
@@ -804,7 +848,7 @@ function PlatformRow({
         {/* Platform name */}
         <span className="text-sm flex-1 truncate">{platform.name}</span>
 
-        {/* Right side info + 手动检测（仅未登录） */}
+        {/* Right side: 收藏 / 重检 / 用户名或去登录 */}
         <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
           {isIdle && (
             <button
@@ -819,23 +863,6 @@ function PlatformRow({
               <Star className={cn('w-3.5 h-3.5', isFavorited && 'fill-primary')} />
             </button>
           )}
-          {isIdle && !platform.isAuthenticated && (
-            <button
-              type="button"
-              title="重新检测登录状态"
-              disabled={isCheckingAuth}
-              onClick={handleRecheckClick}
-              className={cn(
-                'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] transition-colors',
-                isCheckingAuth
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-primary hover:bg-muted'
-              )}
-            >
-              <RefreshCw className={cn('w-3 h-3', isCheckingAuth && 'animate-spin')} />
-              {isCheckingAuth ? '检测中' : '检测'}
-            </button>
-          )}
           <RowInfo
             platform={platform}
             isIdle={isIdle}
@@ -847,6 +874,23 @@ function PlatformRow({
             alreadySynced={alreadySynced}
             isSelected={isSelected}
           />
+          {canRecheckAuth && (
+            <button
+              type="button"
+              title="重新检测登录状态"
+              disabled={isCheckingAuth}
+              onClick={handleRecheckClick}
+              className={cn(
+                'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+                isCheckingAuth
+                  ? 'text-primary'
+                  : 'text-primary hover:bg-primary/10',
+              )}
+            >
+              <RefreshCw className={cn('w-3 h-3', isCheckingAuth && 'animate-spin')} />
+              {isCheckingAuth ? '检测中' : '重检'}
+            </button>
+          )}
         </div>
       </div>
     </div>

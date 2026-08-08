@@ -31,7 +31,6 @@
   },
   "dependencies": {
     "@types/marked": "^6.0.0",
-    "jszip": "^3.10.1",
     "hast-util-to-string": "^3.0.0",
     "js-md5": "^0.8.3",
     "juice": "^11.1.0",

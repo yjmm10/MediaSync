@@ -66,7 +66,7 @@ export const imageBasedProfile: CategoryProfile = {
   defaultPreprocess: htmlOutput,
 }
 
-/** 特殊（ZipDownload、私有适配器） */
+/** 特殊（私有适配器等） */
 export const specialProfile: CategoryProfile = {
   defaultPreprocess: { ...DEFAULT_PREPROCESS_CONFIG },
 }

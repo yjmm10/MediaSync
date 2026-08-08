@@ -14,7 +14,7 @@ import type { PreprocessConfig } from './types'
  * - cloud-vendor：云厂商（腾讯云/阿里云/百度开发者…）
  * - social-forum：社区论坛（V2EX/虎扑/Reddit/豆瓣）
  * - image-based：图片型（美篇/小红书）
- * - special：特殊（ZipDownload、私有适配器）
+ * - special：特殊（私有适配器等）
  */
 export type PlatformCategory =
   | 'tech-community'

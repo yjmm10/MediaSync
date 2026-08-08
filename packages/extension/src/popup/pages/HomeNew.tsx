@@ -257,6 +257,7 @@ export function HomeNew() {
         return
       }
       logger.debug('recheck auth result', platformId, auth)
+      const prevAuth = allPlatforms.find(p => p.id === platformId)?.isAuthenticated
       setAllPlatforms(prev =>
         prev.map(p =>
           p.id === platformId
@@ -270,9 +271,15 @@ export function HomeNew() {
       )
       // 登录态变化后刷新 store 中的可选平台
       await loadPlatforms()
+      const name = allPlatforms.find(p => p.id === platformId)?.name || platformId
       if (!auth.isAuthenticated) {
-        const name = allPlatforms.find(p => p.id === platformId)?.name || platformId
-        showOverlayToast(`${name} 仍未登录，可点「去登录」后重试检测`)
+        showOverlayToast(
+          prevAuth
+            ? `${name} 登录已失效，请重新登录后再检测`
+            : `${name} 仍未登录，可点「去登录」后重试检测`,
+        )
+      } else if (!prevAuth) {
+        showOverlayToast(`${name} 已登录`)
       }
     } catch (error) {
       logger.error('Failed to recheck auth:', platformId, error)

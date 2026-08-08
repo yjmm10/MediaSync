@@ -69,7 +69,6 @@ const PLATFORM_CATEGORY_BY_ID: Record<string, PlatformCategory> = {
   meipian: 'image-based',
   xiaohongshu: 'image-based',
   // special
-  'zip-download': 'special',
   bilibili: 'special',
 }
 
