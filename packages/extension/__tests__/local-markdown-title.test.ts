@@ -120,6 +120,31 @@ tags:
       category: '前端',
     })
   })
+
+  it('metaToPublishParams maps 51cto category to column', () => {
+    expect(
+      metaToPublishParams(
+        { category: 'LLM', tags: ['a', 'b'], summary: '摘要' },
+        '51cto',
+      ),
+    ).toEqual({
+      column: 'LLM',
+      tags: ['a', 'b'],
+      summary: '摘要',
+    })
+  })
+
+  it('metaToPublishParams ignores FM tags for juejin', () => {
+    expect(
+      metaToPublishParams(
+        { tags: ['前端', 'JavaScript'], summary: '摘要', cover: 'https://x/a.png' },
+        'juejin',
+      ),
+    ).toEqual({
+      summary: '摘要',
+      cover: 'https://x/a.png',
+    })
+  })
 })
 
 describe('applyFrontmatterToPublishParams', () => {
@@ -167,12 +192,31 @@ describe('applyFrontmatterToPublishParams', () => {
     expect(merged.columns).toEqual(['合集A'])
   })
 
-  it('filters tags by suggestions on non-cnblogs platforms', () => {
+  it('ignores FM tags for juejin (keeps base)', () => {
+    const merged = applyFrontmatterToPublishParams(
+      { tags: ['saved-id'] },
+      { tags: ['前端', 'JavaScript'] },
+      {
+        platformId: 'juejin',
+        refs: { tagSuggestions: ['前端'] },
+      },
+    )
+    expect(merged.tags).toEqual(['saved-id'])
+
+    const emptyBase = applyFrontmatterToPublishParams(
+      {},
+      { tags: ['前端'] },
+      { platformId: 'juejin', refs: null },
+    )
+    expect(emptyBase.tags).toBeUndefined()
+  })
+
+  it('filters tags by suggestions on other platforms', () => {
     const matched = applyFrontmatterToPublishParams(
       { tags: ['saved'] },
       { tags: ['Foo', 'nope'] },
       {
-        platformId: 'juejin',
+        platformId: 'csdn',
         refs: { tagSuggestions: ['foo', 'bar'] },
       },
     )
@@ -182,7 +226,7 @@ describe('applyFrontmatterToPublishParams', () => {
       { tags: ['saved'] },
       { tags: ['nope'] },
       {
-        platformId: 'juejin',
+        platformId: 'csdn',
         refs: { tagSuggestions: ['foo'] },
       },
     )

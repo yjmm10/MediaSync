@@ -249,11 +249,19 @@ export async function fetchPlatformPublishRefs(platformId: string) {
 }
 
 /**
- * 列出支持发布配置（有 schema 且可拉选项）的平台 id
+ * 列出支持发布配置（有 schema 且适配器实现了 fetchPublishRefs）的平台 id
  */
 export function getConfigurablePlatformIds(): string[] {
   return adapterEntries
-    .filter((e) => e.publishSchema && e.meta.id === 'cnblogs')
+    .filter((e) => {
+      if (!e.publishSchema) return false
+      try {
+        const adapter = e.factory() as { fetchPublishRefs?: unknown }
+        return typeof adapter.fetchPublishRefs === 'function'
+      } catch {
+        return false
+      }
+    })
     .map((e) => e.meta.id)
 }
 
@@ -581,12 +589,12 @@ export async function syncToPlatform(
     }
 
     // 发布参数：defaults ⊕ 设置页非 FM 项 ⊕ 本次会话（含勾选时 FM 快照）
-    // 旧 saved 里的 tags/columns/summary 不得盖回会话
+    // 旧 saved 里的 tags/columns/summary 不得盖回会话；51CTO 保留上次 category/column
     const profile = adapterRegistry.getProfile(platformId)
     const saved = await getSavedParams(platformId)
     const params = mergeParams(
       profile?.publishDefaults,
-      stripFmDrivenFields(saved),
+      stripFmDrivenFields(saved, platformId),
       options?.params,
     )
 

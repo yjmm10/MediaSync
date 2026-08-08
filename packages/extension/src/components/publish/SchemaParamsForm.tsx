@@ -31,7 +31,7 @@ function writeFieldValue(params: PublishParams, key: string, value: unknown): Pu
 function refsOptions(
   refs: PublishRefs | null | undefined,
   refKey: string | undefined,
-  fallback: 'categories' | 'columns',
+  fallback: 'categories' | 'columns' | 'topics',
 ): Array<{ id: string; name: string }> {
   const key = refKey ?? fallback
   const list = refs?.[key]
@@ -199,7 +199,7 @@ export function SchemaParamsForm({
 
   const needsRemote = fields.some(
     (f) =>
-      ((f.kind === 'category' || f.kind === 'column') &&
+      ((f.kind === 'category' || f.kind === 'column' || f.kind === 'topic') &&
         'source' in f &&
         f.source === 'remote') ||
       (f.kind === 'tags' && !!f.suggestionsKey),
@@ -347,6 +347,85 @@ export function SchemaParamsForm({
               ))}
             </div>
           </div>
+        )
+      }
+      case 'originalType': {
+        return (
+          <div key={field.key} className="space-y-1">
+            <span className="text-xs text-muted-foreground">{field.label}</span>
+            <div className="flex flex-wrap gap-2">
+              {field.options.map((o) => (
+                <label
+                  key={o.value}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-md border cursor-pointer',
+                    value.originalType === o.value
+                      ? 'border-primary/40 bg-primary/10 text-primary'
+                      : 'border-border/60 text-muted-foreground',
+                  )}
+                >
+                  <input
+                    type="radio"
+                    className="sr-only"
+                    name={`orig-${field.key}`}
+                    checked={value.originalType === o.value}
+                    onChange={() => onChange({ ...value, originalType: o.value })}
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        )
+      }
+      case 'topic': {
+        const options =
+          field.source === 'static'
+            ? (field.options ?? []).map((o) => ({ id: o.value, name: o.label }))
+            : refsOptions(refs, field.refKey, 'topics')
+        return (
+          <label key={field.key} className="block space-y-1">
+            <span className="text-xs text-muted-foreground">{field.label}</span>
+            <select
+              className="input-soft w-full text-sm"
+              value={value.topicId ?? ''}
+              disabled={field.source === 'remote' && options.length === 0}
+              onChange={(e) =>
+                onChange({ ...value, topicId: e.target.value || undefined })
+              }
+            >
+              <option value="">未选择</option>
+              {options.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )
+      }
+      case 'select': {
+        const selected = String(readFieldValue(value, field.key) ?? '')
+        return (
+          <label key={field.key} className="block space-y-1">
+            <span className="text-xs text-muted-foreground">{field.label}</span>
+            <select
+              className="input-soft w-full text-sm"
+              value={selected}
+              onChange={(e) =>
+                onChange(
+                  writeFieldValue(value, field.key, e.target.value || undefined),
+                )
+              }
+            >
+              <option value="">未选择</option>
+              {field.options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
         )
       }
       case 'comments': {
@@ -554,7 +633,7 @@ export function SchemaParamsForm({
         <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span>
             {emptyRefs
-              ? '暂无分类/合集/标签数据，请点击平台更新'
+              ? '暂无分类/合集/话题/标签数据，请点击平台更新'
               : updatedAt
                 ? `选项已缓存 · ${new Date(updatedAt).toLocaleString()}`
                 : '选项已缓存'}

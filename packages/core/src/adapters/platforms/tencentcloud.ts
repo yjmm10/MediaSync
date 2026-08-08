@@ -74,6 +74,59 @@ export function wrapMarkdownContent(markdown: string): string {
 }
 
 /**
+ * 解析腾讯云 ID 列表字段：仅保留有限正整数。
+ * FM/UI 常传入名称字符串，Number(name)→NaN→JSON 成 null，接口报「参数错误」。
+ */
+export function parseNumericIds(values: Array<string | number> | undefined | null): number[] {
+  if (!values?.length) return []
+  const out: number[] = []
+  for (const v of values) {
+    if (typeof v === 'number') {
+      if (Number.isFinite(v) && v > 0 && Number.isInteger(v)) out.push(v)
+      continue
+    }
+    const s = String(v).trim()
+    if (!/^\d+$/.test(s)) continue
+    const n = Number(s)
+    if (Number.isFinite(n) && n > 0) out.push(n)
+  }
+  return out
+}
+
+/**
+ * 将 params.tags 拆成平台 tagIds（数字）与 longtailTag（文案）。
+ * 已有 keywords 会与文案标签合并去重。
+ */
+export function splitTagParams(
+  tags: string[] | undefined,
+  existingKeywords?: string[] | null,
+): { tagIds: number[]; longtailTag: string[] } {
+  const tagIds: number[] = []
+  const names: string[] = []
+  for (const t of tags ?? []) {
+    const s = String(t).trim()
+    if (!s) continue
+    if (/^\d+$/.test(s)) {
+      const n = Number(s)
+      if (n > 0) tagIds.push(n)
+    } else {
+      names.push(s)
+    }
+  }
+  const seen = new Set<string>()
+  const longtailTag: string[] = []
+  for (const s of [...(existingKeywords ?? []), ...names]) {
+    const key = s.trim()
+    if (!key) continue
+    const lower = key.toLowerCase()
+    if (seen.has(lower)) continue
+    seen.add(lower)
+    longtailTag.push(key)
+  }
+  return { tagIds, longtailTag }
+}
+
+/**
  * 对齐 doocs/cose `detectTencentCloudUser`：
  * GET /developer/creator，用 HTML + 最终 URL 判定登录态。
  */
@@ -386,16 +439,27 @@ export class TencentCloudAdapter extends PipelineAdapter {
       params.cover && params.cover !== 'auto' && params.cover !== 'none'
         ? params.cover
         : ''
+    const keywords =
+      Array.isArray(params.extra?.keywords)
+        ? (params.extra.keywords as string[])
+        : undefined
+    const { tagIds, longtailTag } = splitTagParams(params.tags, keywords)
+    // FM category/column 常为名称；无法解析为数字 ID 时不传，避免 NaN→null 触发「参数错误」
+    const classifyIds = parseNumericIds(params.category ? [params.category] : [])
+    const columnIds = parseNumericIds(
+      params.column ? [params.column] : params.columns ?? [],
+    )
+
     const body: Record<string, unknown> = {
       articleId: 0,
       title: ctx.article.title,
       content: wrapMarkdownContent(ctx.content.markdown),
       plain,
       sourceType: 0,
-      classifyIds: params.category ? [Number(params.category)] : [],
-      tagIds: params.tags ? params.tags.map(Number) : [],
-      longtailTag: (params.extra?.keywords as string[]) ?? [],
-      columnIds: params.column ? [Number(params.column)] : [],
+      classifyIds,
+      tagIds,
+      longtailTag,
+      columnIds,
       openComment: params.commentsEnabled === false ? 0 : 1,
       closeTextLink: (params.extra?.closeTextLink as number) ?? 0,
       userSummary: params.summary ?? '',

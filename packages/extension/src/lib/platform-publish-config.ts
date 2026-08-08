@@ -58,13 +58,14 @@ export async function clearCachedRefs(platformId: string): Promise<void> {
   await chrome.storage.local.set({ [REFS_CACHE_KEY]: map })
 }
 
-/** 远程选项是否为空（无分类、无合集、无标签建议） */
+/** 远程选项是否为空（无分类、无合集、无话题、无标签建议） */
 export function isRefsEmpty(refs: PublishRefs | null | undefined): boolean {
   if (!refs) return true
   const cat = refs.categories?.length ?? 0
   const col = refs.columns?.length ?? 0
+  const topics = Array.isArray(refs.topics) ? refs.topics.length : 0
   const tags = Array.isArray(refs.tagSuggestions) ? refs.tagSuggestions.length : 0
-  return cat === 0 && col === 0 && tags === 0
+  return cat === 0 && col === 0 && topics === 0 && tags === 0
 }
 
 /** 由文档 FM / 勾选快照驱动的字段，不得写入设置页默认缓存，也不得在发布时用旧缓存盖回 */
@@ -77,11 +78,23 @@ export const FM_DRIVEN_PARAM_KEYS = [
   'column',
 ] as const
 
-/** 去掉 FM 驱动字段，只保留 mode / 可见性等平台设置 */
-export function stripFmDrivenFields(params?: PublishParams): PublishParams {
+/**
+ * 51CTO：文章分类 / 个人分类按「上次操作」缓存，不属于 FM 驱动剥离范围。
+ * （FM category 最多映射到 column 一个字段，见 article-meta）
+ */
+const CTO51_LAST_OP_KEYS = new Set(['category', 'column'] as const)
+
+/** 去掉 FM 驱动字段，只保留 mode / 可见性等平台设置（及平台特例） */
+export function stripFmDrivenFields(
+  params?: PublishParams,
+  platformId?: string,
+): PublishParams {
   if (!params) return {}
   const next: PublishParams = { ...params }
   for (const k of FM_DRIVEN_PARAM_KEYS) {
+    if (platformId === '51cto' && CTO51_LAST_OP_KEYS.has(k as 'category' | 'column')) {
+      continue
+    }
     delete next[k]
   }
   return next
@@ -90,10 +103,14 @@ export function stripFmDrivenFields(params?: PublishParams): PublishParams {
 /**
  * 写入 platformPublishConfig 前归一化：
  * - 去掉 FM 驱动字段（tags/columns/summary 等），避免旧 FM 污染下次勾选/发布
+ * - 51CTO 保留上次操作的 category / column
  * - 题图仅保留 auto/none
  */
-export function toPersistablePublishParams(params: PublishParams): PublishParams {
-  const next = stripFmDrivenFields(params)
+export function toPersistablePublishParams(
+  params: PublishParams,
+  platformId?: string,
+): PublishParams {
+  const next = stripFmDrivenFields(params, platformId)
   // 题图仅保留 auto/none 作为平台默认；FM 里的 URL 不进设置缓存
   if (params.cover === 'auto' || params.cover === 'none') {
     next.cover = params.cover

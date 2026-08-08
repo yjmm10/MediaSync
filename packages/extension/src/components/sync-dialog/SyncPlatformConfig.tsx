@@ -22,8 +22,9 @@ interface PlatformConfigState {
   updatedAt: number | null
 }
 
-export const SYNC_CONFIGURABLE_PLATFORM_IDS = new Set(['cnblogs'])
+export const SYNC_CONFIGURABLE_PLATFORM_IDS = new Set(['cnblogs', '51cto'])
 
+/** 与设置页 LIST_CONFIGURABLE 对齐：有 schema 且适配器可拉 refs 的平台（白名单可随平台扩展） */
 export function isSyncConfigurablePlatform(platformId: string): boolean {
   return SYNC_CONFIGURABLE_PLATFORM_IDS.has(platformId)
 }
@@ -63,6 +64,18 @@ function applyRefNameResolve(
         .filter((id): id is string => !!id)
       if (resolved.length > 0) {
         next = { ...next, columns: resolved }
+      }
+    }
+  }
+
+  if (next.column) {
+    const colField = schema.fields.find((f) => f.kind === 'column' && f.key === 'column')
+    if (colField && colField.kind === 'column') {
+      const refKey = colField.refKey ?? 'columns'
+      const options = (refs[refKey] as RefOption[] | undefined) ?? colField.options
+      const resolved = tryResolveCategoryId(next.column, options)
+      if (resolved) {
+        next = { ...next, column: resolved }
       }
     }
   }
@@ -129,10 +142,14 @@ export function PlatformInlinePublishConfig({
         const meta = metaRef.current
 
         // 设置缓存去掉 FM 字段；defaults 也去掉 FM，避免 cover/tags 等盖掉勾选快照
-        const base = stripFmDrivenFields(mergeParams(defaults, stripFmDrivenFields(saved)))
+        // 51CTO：保留上次操作的 category/column
+        const base = stripFmDrivenFields(
+          mergeParams(defaults, stripFmDrivenFields(saved, platformId)),
+          platformId,
+        )
         let merged: PublishParams
         if (existing && Object.keys(existing).length > 0) {
-          // 会话快照（勾选时的 FM）绝对优先；缺省 mode 才从设置补
+          // 会话快照绝对优先；缺省 mode 才从设置补
           merged = {
             ...base,
             ...existing,
@@ -141,10 +158,35 @@ export function PlatformInlinePublishConfig({
           // 会话未带的 FM 字段保持清空（不让 defaults 里的 cover:auto 以外的东西混入）
           if (!existing.tags) delete merged.tags
           if (!existing.columns) delete merged.columns
-          if (!existing.category) delete merged.category
           if (!existing.summary) delete merged.summary
+          // 非 51CTO：会话无分类则清空；51CTO 可回落到 base 中的上次操作缓存
+          if (platformId !== '51cto') {
+            if (!existing.category) delete merged.category
+            if (!existing.column) delete merged.column
+          } else {
+            if (!existing.category && base.category) merged.category = base.category
+            if (!existing.column && base.column) merged.column = base.column
+          }
+          // 快照缺 FM 字段时用当前 meta 回填（如仅有 mode、或勾选时 frontmatter 尚未就绪）
+          const fmFill = applyFrontmatterToPublishParams({}, meta, {
+            platformId,
+            refs,
+          })
+          if (!merged.tags?.length && fmFill.tags?.length) merged.tags = fmFill.tags
+          if (!merged.summary && fmFill.summary) merged.summary = fmFill.summary
+          if (!merged.category && fmFill.category) merged.category = fmFill.category
+          // 51CTO：FM 最多覆盖 column；已有上次 column 时仍允许 FM 覆盖（与 snapshot 一致）
+          if (platformId === '51cto') {
+            if (fmFill.column) merged.column = fmFill.column
+          } else if (!merged.column && fmFill.column) {
+            merged.column = fmFill.column
+          }
+          if (!merged.columns?.length && fmFill.columns?.length) {
+            merged.columns = fmFill.columns
+          }
+          if (!merged.cover && fmFill.cover) merged.cover = fmFill.cover
           // cover：会话没有时可用平台默认 auto/none
-          if (!existing.cover) {
+          if (!merged.cover) {
             if (defaults?.cover === 'auto' || defaults?.cover === 'none') {
               merged.cover = defaults.cover
             } else {
@@ -192,7 +234,7 @@ export function PlatformInlinePublishConfig({
   const schedulePersist = (next: PublishParams) => {
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
     persistTimerRef.current = setTimeout(() => {
-      const persistable = toPersistablePublishParams(next)
+      const persistable = toPersistablePublishParams(next, platformId)
       void chrome.runtime
         .sendMessage({
           type: 'SET_PLATFORM_PUBLISH_CONFIG',
@@ -218,6 +260,7 @@ export function PlatformInlinePublishConfig({
         const next = applyRefNameResolve(current, refs, prev.schema)
         if (
           next.category !== current.category ||
+          next.column !== current.column ||
           JSON.stringify(next.columns) !== JSON.stringify(current.columns)
         ) {
           onChangeRef.current(next)

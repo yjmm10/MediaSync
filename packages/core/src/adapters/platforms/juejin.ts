@@ -127,7 +127,7 @@ export class JuejinAdapter extends PipelineAdapter {
    */
   readonly publishSchema: PublishSchema = {
     fields: [
-      { kind: 'tags', key: 'tags', label: '标签', max: 3, suggestionsKey: 'juejin-tags' },
+      { kind: 'tags', key: 'tags', label: '标签', max: 2, suggestionsKey: 'juejin-tags' },
       { kind: 'category', key: 'category', label: '分类', source: 'remote' },
       { kind: 'cover', key: 'cover', label: '封面', modes: ['auto', 'manual', 'none'] },
     ],
@@ -224,6 +224,8 @@ export class JuejinAdapter extends PipelineAdapter {
       params.cover && params.cover !== 'auto' && params.cover !== 'none'
         ? params.cover
         : ''
+    // 掘金官方/产品约定：固定最多 2 个标签（questions.md）
+    const tagIds = (params.tags ?? []).slice(0, 2)
     ctx.payload = {
       brief_content: params.summary ?? '',
       category_id: params.category ?? '0',
@@ -232,7 +234,7 @@ export class JuejinAdapter extends PipelineAdapter {
       html_content: 'deprecated',
       link_url: '',
       mark_content: ctx.content.markdown,
-      tag_ids: params.tags ?? [],
+      tag_ids: tagIds,
       title: ctx.article.title,
     }
   }

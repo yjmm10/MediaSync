@@ -110,7 +110,7 @@ export function PlatformConfigPanel() {
     setError(null)
     setHint(null)
     try {
-      const persistable = toPersistablePublishParams(params)
+      const persistable = toPersistablePublishParams(params, platformId)
       const resp = await chrome.runtime.sendMessage({
         type: 'SET_PLATFORM_PUBLISH_CONFIG',
         payload: { platformId, params: persistable },
@@ -140,7 +140,7 @@ export function PlatformConfigPanel() {
   if (platforms.length === 0) {
     return (
       <p className="text-xs text-muted-foreground px-0.5">
-        暂无可配置平台（当前已接入：博客园）
+        暂无可配置平台。需适配器声明 publishSchema 并实现选项拉取（fetchPublishRefs）。
       </p>
     )
   }
@@ -174,14 +174,13 @@ export function PlatformConfigPanel() {
             onRefreshRefs={handleRefresh}
             refreshing={refreshing}
             showMode
-            excludeKeys={['cover']}
           />
         )}
 
         {error && <p className="text-xs text-destructive">{error}</p>}
         {hint && <p className="text-xs text-primary">{hint}</p>}
         <p className="text-[11px] text-muted-foreground">
-          同步时修改也会自动记住；题图仅在同步侧配置。
+          同步时修改也会自动记住。封面为自动时使用正文首图。
         </p>
 
         <button

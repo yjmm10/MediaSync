@@ -25,6 +25,9 @@ import {
 import {
   getLocalMdCacheByDocId,
   upsertLocalMdCacheFromArticle,
+  saveWorkingArticle,
+  loadWorkingArticle,
+  clearWorkingArticle,
 } from '../../lib/local-md-cache'
 import {
   getSavedParams,
@@ -112,8 +115,9 @@ function hasExplicitMode(params?: PublishParams): boolean {
 }
 
 /**
- * 勾选平台时的参数快照：当前 FM + 设置页非 FM 项（mode 等）。
+ * 勾选平台时的参数快照：设置页非 FM 项 ⊕ 当前 FM。
  * 故意不把 saved 里旧的 tags/columns/summary 带进来。
+ * 51CTO：保留上次操作的 category/column；FM 最多再覆盖 column。
  */
 function snapshotParamsOnSelect(
   article: Article | null | undefined,
@@ -121,8 +125,8 @@ function snapshotParamsOnSelect(
   saved?: PublishParams,
 ): PublishParams {
   const fromFm = seedParamsFromArticle(article, platformId)
-  const nonFm = stripFmDrivenFields(saved)
-  // 先铺非 FM，再铺 FM；最后显式清掉「本次 FM 未给出」的驱动字段，避免残留
+  const nonFm = stripFmDrivenFields(saved, platformId)
+  // 先铺非 FM（含 51CTO 上次分类），再铺 FM
   const snap: PublishParams = {
     ...nonFm,
     ...fromFm,
@@ -130,15 +134,20 @@ function snapshotParamsOnSelect(
   }
   if (!fromFm.tags) delete snap.tags
   if (!fromFm.columns) delete snap.columns
-  if (!fromFm.category) delete snap.category
-  if (!fromFm.column) delete snap.column
   if (!fromFm.summary) delete snap.summary
   if (!fromFm.cover) delete snap.cover
+  // 非 51CTO：FM 未给出则清掉，避免旧 saved 分类残留
+  // 51CTO：category/column 来自上次操作缓存；仅当 FM 给出 column 时由 fromFm 覆盖
+  if (platformId !== '51cto') {
+    if (!fromFm.category) delete snap.category
+    if (!fromFm.column) delete snap.column
+  }
   return snap
 }
 
 /**
  * 仅补齐 mode 等非 FM 设置；不重新套用最新 FM，不把 saved 的旧 FM 字段写回。
+ * 51CTO 会带上上次 category/column。
  */
 async function fillNonFmSettings(
   platformId: string,
@@ -159,7 +168,7 @@ async function fillNonFmSettings(
   if (!saved) {
     saved = await getSavedParams(platformId).catch(() => undefined)
   }
-  const nonFm = stripFmDrivenFields(saved)
+  const nonFm = stripFmDrivenFields(saved, platformId)
   return {
     ...nonFm,
     ...existing,
@@ -428,6 +437,26 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       } else {
         set({ recovered: true })
       }
+
+      // 无当前稿时恢复「导入/编辑」工作稿（关 popup 后常见）
+      if (!get().article) {
+        const working = await loadWorkingArticle()
+        if (working) {
+          set({
+            article: normalizeArticleFields({
+              title: working.title,
+              content: working.html || working.content || working.markdown || '',
+              html: working.html || working.content,
+              markdown: working.markdown,
+              cover: working.cover,
+              summary: working.summary,
+              frontmatter: working.frontmatter,
+              source: working.source,
+            }),
+          })
+          logger.debug('Restored working article:', working.title)
+        }
+      }
     } catch (error) {
       logger.error('Failed to recover sync state:', error)
       set({ recovered: true })
@@ -500,6 +529,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       const next = normalizeArticleFields(merged)
       set({ article: next })
       scheduleLocalMdCacheUpsert(next)
+      void saveWorkingArticle(next)
     }
   },
 
@@ -522,7 +552,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     // 导入/编辑稿立刻落缓存，供历史追加同步恢复 frontmatter
     if (nextSource === 'import' || nextSource === 'edited') {
       void flushLocalMdCacheUpsert(normalized)
+      void saveWorkingArticle(normalized)
       chrome.runtime.sendMessage({ type: 'CLEAR_SYNC_STATE' }).catch(() => {})
+    } else {
+      void clearWorkingArticle()
     }
   },
 
@@ -539,6 +572,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       platformProgress: new Map(),
       currentSyncId: null,
     })
+    void clearWorkingArticle()
     chrome.runtime.sendMessage({ type: 'CLEAR_SYNC_STATE' }).catch(() => {})
   },
 
@@ -563,6 +597,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     saveSelectedPlatforms(nextSelected)
     if (lockedArticle) {
       void flushLocalMdCacheUpsert(lockedArticle)
+      void saveWorkingArticle(lockedArticle)
     }
     // 后台改为 cancelled，避免重开 UI 时 recover 再把 status 打回 completed
     chrome.runtime

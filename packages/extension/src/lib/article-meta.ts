@@ -140,11 +140,17 @@ export function metaToPublishParams(
   const params: PublishParams = {}
   if (meta.cover) params.cover = meta.cover
   if (meta.summary) params.summary = meta.summary
-  if (meta.tags && meta.tags.length > 0) params.tags = [...meta.tags]
+  // 掘金标签为平台自有 ID 体系，不能用 FM 文案标签写入
+  if (platformId !== 'juejin' && meta.tags && meta.tags.length > 0) {
+    params.tags = [...meta.tags]
+  }
   if (meta.category) {
     if (platformId === 'cnblogs') {
       // 博客园：FM category → 合集(columns)；个人分类无 FM 对应
       params.columns = [meta.category]
+    } else if (platformId === '51cto') {
+      // 51CTO：FM category → 个人分类(column)；文章分类为平台二级树
+      params.column = meta.category
     } else {
       params.category = meta.category
     }
@@ -184,8 +190,9 @@ type RefOption = { id?: string; name?: string; value?: string; label?: string }
 /**
  * 将 FM 按字段条件合并进已有 PublishParams（defaults⊕saved 之后）。
  * - summary / cover：FM 有则覆盖
- * - tags：cnblogs 直接用 FM；其它平台有 suggestions 时仅保留能匹配的，全不匹配则保留 base
- * - category / columns：仅当能在 refs 中解析成功才覆盖（博客园 FM category→columns，不填个人分类）
+ * - tags：掘金忽略 FM；cnblogs/51cto 直接用 FM；其它平台有 suggestions 时仅保留能匹配的，全不匹配则保留 base
+ * - category / columns / column：仅当能在 refs 中解析成功才覆盖
+ *   （博客园 FM category→columns；51CTO FM category→column 个人分类）
  */
 export function applyFrontmatterToPublishParams(
   base: PublishParams,
@@ -207,7 +214,11 @@ export function applyFrontmatterToPublishParams(
   if (meta.cover) next.cover = meta.cover
 
   if (meta.tags && meta.tags.length > 0) {
-    if (platformId === 'cnblogs') {
+    // 掘金：自有 tag_ids，忽略 FM 文案标签
+    if (platformId === 'juejin') {
+      // no-op
+    } else if (platformId === 'cnblogs' || platformId === '51cto') {
+      // 博客园 / 51CTO：自由标签，直接用 FM（无 suggestion 过滤）
       next.tags = [...meta.tags]
     } else {
       const suggestions = refs?.tagSuggestions
@@ -231,6 +242,15 @@ export function applyFrontmatterToPublishParams(
       } else {
         // refs 尚未拉取：先写入名称，待刷新/加载选项后再解析为 id
         next.columns = [meta.category]
+      }
+    } else if (platformId === '51cto') {
+      const cols = refs?.columns
+      if (cols && cols.length > 0) {
+        const resolved = tryResolveCategoryId(meta.category, cols)
+        // 能匹配用 id；匹配失败仍写入名称，待刷新后再解析
+        next.column = resolved ?? meta.category
+      } else {
+        next.column = meta.category
       }
     } else {
       const cats = refs?.categories

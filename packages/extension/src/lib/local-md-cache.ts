@@ -144,6 +144,77 @@ export async function clearLocalMdCache(): Promise<void> {
   await chrome.storage.local.remove(LOCAL_MD_CACHE_KEY)
 }
 
+/** 当前工作稿（导入/编辑）— 关 popup 后恢复主页正文 */
+export const WORKING_ARTICLE_KEY = 'workingArticle'
+
+export interface WorkingArticleSnapshot {
+  title: string
+  content?: string
+  html?: string
+  markdown?: string
+  cover?: string
+  summary?: string
+  frontmatter?: ArticleMeta
+  source: 'import' | 'edited'
+  savedAt: number
+}
+
+export async function saveWorkingArticle(article: {
+  title: string
+  content?: string
+  html?: string
+  markdown?: string
+  cover?: string
+  summary?: string
+  frontmatter?: ArticleMeta
+  source?: string
+}): Promise<void> {
+  const source = article.source
+  if (source !== 'import' && source !== 'edited') return
+  const markdown = article.markdown || ''
+  const html = article.html || article.content || ''
+  if (!article.title?.trim() && !markdown && !html) return
+  const snap: WorkingArticleSnapshot = {
+    title: article.title || '',
+    content: article.content,
+    html: article.html,
+    markdown: article.markdown,
+    cover: article.cover,
+    summary: article.summary,
+    frontmatter: article.frontmatter,
+    source,
+    savedAt: Date.now(),
+  }
+  try {
+    await chrome.storage.local.set({ [WORKING_ARTICLE_KEY]: snap })
+  } catch (e) {
+    logger.warn('saveWorkingArticle failed (quota?):', e)
+  }
+}
+
+export async function loadWorkingArticle(): Promise<WorkingArticleSnapshot | null> {
+  try {
+    const result = await chrome.storage.local.get(WORKING_ARTICLE_KEY)
+    const raw = result[WORKING_ARTICLE_KEY]
+    if (!raw || typeof raw !== 'object') return null
+    const snap = raw as WorkingArticleSnapshot
+    if (snap.source !== 'import' && snap.source !== 'edited') return null
+    if (!snap.title && !snap.markdown && !snap.html && !snap.content) return null
+    return snap
+  } catch (e) {
+    logger.warn('loadWorkingArticle failed:', e)
+    return null
+  }
+}
+
+export async function clearWorkingArticle(): Promise<void> {
+  try {
+    await chrome.storage.local.remove(WORKING_ARTICLE_KEY)
+  } catch (e) {
+    logger.warn('clearWorkingArticle failed:', e)
+  }
+}
+
 /** 本地 Markdown 缓存占用字节数（优先 storage API，否则按 JSON 估算） */
 export async function getLocalMdCacheBytes(): Promise<number> {
   try {

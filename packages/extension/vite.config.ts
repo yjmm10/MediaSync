@@ -118,8 +118,10 @@ export default defineConfig(({ mode }) => {
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      // 强制走 core 源码目录（含 adapters 子路径 / private glob）
       '@mediasync/core': resolve(__dirname, '../core/src'),
     },
+    dedupe: ['@mediasync/core'],
   },
   build: {
     // 开发模式: 不压缩，生成 sourcemap

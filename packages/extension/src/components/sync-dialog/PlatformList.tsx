@@ -24,8 +24,17 @@ import {
 import type { Platform, SyncResult, PlatformProgress, DialogStatus } from './types'
 
 const PLATFORM_ORDER_KEY = 'platformOrder'
+const PLATFORM_CATEGORY_FILTER_KEY = 'platformCategoryFilter'
 
 type CategoryFilter = 'all' | 'favorites' | PlatformCategory
+
+function isCategoryFilter(v: unknown): v is CategoryFilter {
+  return (
+    v === 'all' ||
+    v === 'favorites' ||
+    (typeof v === 'string' && (CATEGORY_ORDER as string[]).includes(v))
+  )
+}
 
 function platformCat(p: Platform): PlatformCategory {
   return p.category || getPlatformCategory(p.id)
@@ -40,6 +49,18 @@ function sortByOrder<T extends { id: string }>(list: T[], order: string[]): T[] 
   const rest = list.filter(p => !indexMap.has(p.id))
   pinned.sort((a, b) => (indexMap.get(a.id)!) - (indexMap.get(b.id)!))
   return [...pinned, ...rest]
+}
+
+/**
+ * 已勾选的 51CTO 提到列表最前，与「无发布配置、勾上即可」的平台区分开。
+ * （仅列表展示顺序；与文章「置顶」无关。博客园暂不处理。）
+ */
+function pinSelectedCto51<T extends { id: string }>(list: T[], selected: Set<string>): T[] {
+  if (!selected.has('51cto')) return list
+  const head = list.filter((p) => p.id === '51cto')
+  if (head.length === 0) return list
+  const rest = list.filter((p) => p.id !== '51cto')
+  return [...head, ...rest]
 }
 
 interface PlatformListProps {
@@ -105,7 +126,11 @@ export function PlatformList({
     chrome.storage.local.set({ platformViewMode: next })
   }
 
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
+  const [categoryFilter, setCategoryFilterState] = useState<CategoryFilter>('all')
+  const setCategoryFilter = (next: CategoryFilter) => {
+    setCategoryFilterState(next)
+    chrome.storage.local.set({ [PLATFORM_CATEGORY_FILTER_KEY]: next }).catch(() => {})
+  }
   const [unauthCollapsed, setUnauthCollapsed] = useState(false)
   const [userGroups, setUserGroups] = useState<UserPlatformGroup[]>([])
   useEffect(() => {
@@ -114,6 +139,13 @@ export function PlatformList({
 
   useEffect(() => {
     getUserPlatformGroups().then(setUserGroups)
+  }, [])
+
+  useEffect(() => {
+    chrome.storage.local.get(PLATFORM_CATEGORY_FILTER_KEY).then((r) => {
+      const saved = r[PLATFORM_CATEGORY_FILTER_KEY]
+      if (isCategoryFilter(saved)) setCategoryFilterState(saved)
+    })
   }, [])
 
   const favoriteTarget = useMemo(() => getFavoriteTargetGroup(userGroups), [userGroups])
@@ -159,8 +191,8 @@ export function PlatformList({
     let list = authenticatedPlatforms
     if (categoryFilter === 'favorites') list = list.filter(p => favoritedIds.has(p.id))
     else if (categoryFilter !== 'all') list = list.filter(p => platformCat(p) === categoryFilter)
-    return sortByOrder(list, platformOrder)
-  }, [authenticatedPlatforms, platformOrder, categoryFilter, favoritedIds])
+    return pinSelectedCto51(sortByOrder(list, platformOrder), selected)
+  }, [authenticatedPlatforms, platformOrder, categoryFilter, favoritedIds, selected])
 
   const orderedUnauth = useMemo(() => {
     let list = unauthenticatedPlatforms

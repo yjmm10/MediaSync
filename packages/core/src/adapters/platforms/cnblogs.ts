@@ -22,8 +22,22 @@ const CNBLOGS_ACCESS: Record<string, number> = {
   private: 268435456,
 }
 
-/** 从 markdown/html 提取首张适合做题图的 http(s) 图（SW 无 DOM，正则） */
-function extractFirstImageUrl(markdown?: string, html?: string): string | undefined {
+/** 博客园题图/图床：仅认自家域名，外链会触发接口「无效的url链接」 */
+export function isCnblogsHostedUrl(url: string): boolean {
+  if (!url || !/^https?:\/\//i.test(url.trim())) return false
+  try {
+    const host = new URL(url.trim()).hostname.toLowerCase()
+    return host === 'cnblogs.com' || host.endsWith('.cnblogs.com')
+  } catch {
+    return /cnblogs\.com/i.test(url)
+  }
+}
+
+/**
+ * 从 markdown/html 提取首张博客园图床 http(s) 图（SW 无 DOM，正则）。
+ * 外链不返回，避免写入 featuredImage 被接口拒绝。
+ */
+export function extractFirstImageUrl(markdown?: string, html?: string): string | undefined {
   const candidates: string[] = []
   // 优先 markdown（uploadImages 后已是图床 URL）；html 可能仍是外链
   if (markdown) {
@@ -38,12 +52,7 @@ function extractFirstImageUrl(markdown?: string, html?: string): string | undefi
     let m: RegExpExecArray | null
     while ((m = re.exec(html)) !== null) candidates.push(m[1])
   }
-  const http = candidates.filter((c) => /^https?:\/\//i.test(c))
-  // 优先博客园 CDN（featuredImage 更稳）
-  return (
-    http.find((c) => /cnblogs\.com/i.test(c)) ||
-    http[0]
-  )
+  return candidates.find((c) => isCnblogsHostedUrl(c))
 }
 
 export class CnblogsAdapter extends PipelineAdapter {
@@ -339,22 +348,20 @@ export class CnblogsAdapter extends PipelineAdapter {
     if (coverMode === 'none') {
       coverUrl = ''
     } else if (coverMode === 'auto') {
-      // 题图优先对应封面图（article.cover）；无封面图时回退正文（图床 URL）
-      // 首图，再回退原文首图；都没有则保持为空，即“没题图则为无”。
-      const articleCover =
-        ctx.article.cover && /^https?:\/\//i.test(ctx.article.cover)
-          ? ctx.article.cover
+      // 题图只用博客园图床：优先转存后正文首图；FM cover 仅当已是 cnblogs 域名
+      // 禁止回退未转存外链（会触发「无效的url链接」）
+      const fromContent =
+        extractFirstImageUrl(ctx.content.markdown, ctx.content.html) || ''
+      const fromCover =
+        ctx.article.cover && isCnblogsHostedUrl(ctx.article.cover)
+          ? ctx.article.cover.trim()
           : ''
-      coverUrl =
-        articleCover ||
-        extractFirstImageUrl(ctx.content.markdown, ctx.content.html) ||
-        extractFirstImageUrl(
-          ctx.article.markdown,
-          ctx.article.html,
-        ) ||
-        ''
+      coverUrl = fromContent || fromCover
     } else if (coverMode !== 'auto' && coverMode !== 'none') {
-      coverUrl = coverMode
+      coverUrl = isCnblogsHostedUrl(coverMode) ? coverMode.trim() : ''
+      if (coverMode && !coverUrl) {
+        logger.warn('featuredImage ignored non-cnblogs cover URL:', coverMode.slice(0, 120))
+      }
     }
     logger.info('featuredImage resolve:', {
       coverMode,
